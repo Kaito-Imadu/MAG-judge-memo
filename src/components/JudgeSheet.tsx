@@ -26,8 +26,7 @@ const SCRUB_DIRS_NEEDED = 4;
 
 // レイアウト定数（割合）
 const HEADER_H = 36;       // ヘッダー高さ px
-const SCORE_ROW_H = 48;    // スコア行の高さ px
-const CV_ROW_H = 32;       // CV行の高さ px
+const SCORE_ROW_H = 56;    // スコア行の高さ px
 const ND_WIDTH_RATIO = 0.2; // ND列幅の割合
 
 export default function JudgeSheet({ apparatus, mode, eJudgeCount }: Props) {
@@ -48,8 +47,6 @@ export default function JudgeSheet({ apparatus, mode, eJudgeCount }: Props) {
 
   const ndItems = getNDChecklist(apparatus);
   const hasND = ndItems.length > 0;
-  const hasCV = apparatus === 'FX' || apparatus === 'HB';
-
   const getCtx = useCallback(() => canvasRef.current?.getContext('2d') ?? null, []);
 
   // テンプレート描画（罫線・ラベル・ND項目）
@@ -60,11 +57,9 @@ export default function JudgeSheet({ apparatus, mode, eJudgeCount }: Props) {
     if (w === 0) return;
 
     const scoreH = SCORE_ROW_H;
-    const cvH = hasCV ? CV_ROW_H : 0;
-    const bottomH = scoreH + cvH;
     const ndW = hasND ? Math.floor(w * ND_WIDTH_RATIO) : 0;
     const mainW = w - ndW;
-    const mainH = h - HEADER_H - bottomH;
+    const scoreRowTop = h - scoreH;
 
     c.save();
 
@@ -81,7 +76,7 @@ export default function JudgeSheet({ apparatus, mode, eJudgeCount }: Props) {
     c.font = '13px "Noto Sans JP", sans-serif';
     c.fillText('選手名', 8, HEADER_H - 10);
 
-    // --- ND列 点線 ---
+    // --- ND列 点線（右下に配置） ---
     if (hasND) {
       c.strokeStyle = '#999';
       c.lineWidth = 1;
@@ -89,53 +84,27 @@ export default function JudgeSheet({ apparatus, mode, eJudgeCount }: Props) {
       // 縦線
       c.beginPath();
       c.moveTo(mainW, HEADER_H);
-      c.lineTo(mainW, HEADER_H + mainH);
-      c.stroke();
-      // 下線
-      c.beginPath();
-      c.moveTo(mainW, HEADER_H + mainH);
-      c.lineTo(w, HEADER_H + mainH);
+      c.lineTo(mainW, scoreRowTop);
       c.stroke();
       c.setLineDash([]);
 
-      // NDラベル
-      c.fillStyle = '#888';
-      c.font = 'bold 14px "Noto Sans JP", sans-serif';
-      c.fillText('ND', w - ndW + 8, HEADER_H + 22);
-
-      // ND項目（薄い文字でテンプレートとして描画）
-      c.fillStyle = '#ccc';
-      c.font = '11px "Noto Sans JP", sans-serif';
+      // ND項目（右下に濃い字で配置）
+      c.fillStyle = '#555';
+      c.font = '12px "Noto Sans JP", sans-serif';
+      const ndTotalH = ndItems.length * 28;
+      const ndStartY = scoreRowTop - ndTotalH - 8;
       ndItems.forEach((item, i) => {
-        const y = HEADER_H + 46 + i * 28;
-        c.fillText(`□ ${item.label}`, w - ndW + 10, y);
+        const y = ndStartY + i * 28;
+        c.fillText(`□ ${item.label}`, mainW + 10, y);
       });
+
+      // NDラベル（項目の上）
+      c.fillStyle = '#666';
+      c.font = 'bold 13px "Noto Sans JP", sans-serif';
+      c.fillText('ND', mainW + 8, ndStartY - 14);
     }
 
-    // --- スコアエリア ---
-    const scoreTop = h - bottomH;
-
-    // CV行（FX/HBのみ）
-    if (hasCV) {
-      c.strokeStyle = '#222';
-      c.lineWidth = 1;
-      c.beginPath();
-      c.moveTo(0, scoreTop);
-      c.lineTo(w, scoreTop);
-      c.stroke();
-      // CV枠
-      const cvBoxW = Math.floor(w * 0.12);
-      c.beginPath();
-      c.moveTo(cvBoxW, scoreTop);
-      c.lineTo(cvBoxW, scoreTop + cvH);
-      c.stroke();
-      c.fillStyle = '#aaa';
-      c.font = '10px "Noto Sans JP", sans-serif';
-      c.fillText('CV', 4, scoreTop + 12);
-    }
-
-    // スコア行の上線
-    const scoreRowTop = h - scoreH;
+    // --- スコア行の上線 ---
     c.strokeStyle = '#222';
     c.lineWidth = 2;
     c.beginPath();
@@ -175,7 +144,7 @@ export default function JudgeSheet({ apparatus, mode, eJudgeCount }: Props) {
     }
 
     c.restore();
-  }, [getCtx, hasND, hasCV, ndItems, eJudgeCount]);
+  }, [getCtx, hasND, ndItems, eJudgeCount]);
 
   const drawStroke = useCallback((c: CanvasRenderingContext2D, s: Stroke) => {
     if (s.points.length < 2) return;
