@@ -32,18 +32,18 @@ const COLORS = [
 ];
 const LINE_WIDTH = 2;
 const ERASER_WIDTH = 28;
-const STRAIGHT_DELAY = 400;
+const STRAIGHT_DELAY = 1500;
 const STRAIGHT_THRESHOLD = 4;
 const SCRUB_DIRS_NEEDED = 4;
 const SAVE_DEBOUNCE = 1500;
 
 // レイアウト定数
-const LABEL_H = 32;          // モード別ラベル領域の高さ
+const LABEL_H = 52;          // モード別ラベル領域の高さ
 const SCORE_ROW_H = 160;
 const CV_LABEL_H = 28;
 const ND_WIDTH_RATIO = 0.2;
-const NAME_BOX_W = 240;      // 大会モード: 選手名記入欄の幅
-const NAME_BOX_H = 28;       // 大会モード: 選手名記入欄の高さ
+const NAME_BOX_W = 360;      // 大会モード: 選手名記入欄の幅
+const NAME_BOX_H = 44;       // 大会モード: 選手名記入欄の高さ
 
 // 空間インデックス: グリッドセルサイズ
 const GRID_CELL = 40;
@@ -262,11 +262,11 @@ export default function JudgeSheet({
 
     // --- モード別ヘッダー領域 ---
     if (mode === 'trial') {
-      // 試技会モード: 選手名 + 種目名をラベル表示（横線なし）
+      // 試技会モード: 選手名 + 種目名をラベル表示
       c.fillStyle = '#1B4F72';
-      c.font = 'bold 15px "Noto Sans JP", sans-serif';
+      c.font = 'bold 16px "Noto Sans JP", sans-serif';
       const label = `${athleteName}　${apparatus} ${apparatusInfo?.name ?? ''}`;
-      c.fillText(label, 8, LABEL_H - 8);
+      c.fillText(label, 10, LABEL_H / 2 + 6);
       // ラベル下に薄い区切り線
       c.strokeStyle = '#ddd';
       c.lineWidth = 0.5;
@@ -275,20 +275,20 @@ export default function JudgeSheet({
       c.lineTo(w, LABEL_H);
       c.stroke();
     } else {
-      // 大会モード: 種目名 + 選手名記入枠
+      // 大会モード: 種目名 + 大きめの選手名記入枠
       c.fillStyle = '#1B4F72';
-      c.font = 'bold 15px "Noto Sans JP", sans-serif';
+      c.font = 'bold 16px "Noto Sans JP", sans-serif';
       const apparatusLabel = `${apparatus} ${apparatusInfo?.name ?? ''}`;
-      c.fillText(apparatusLabel, 8, LABEL_H - 8);
+      c.fillText(apparatusLabel, 10, LABEL_H / 2 + 6);
       // 選手名手書き記入枠
-      const boxX = c.measureText(apparatusLabel).width + 24;
-      const boxY = 4;
-      c.strokeStyle = '#999';
-      c.lineWidth = 1;
+      const boxX = c.measureText(apparatusLabel).width + 28;
+      const boxY = (LABEL_H - NAME_BOX_H) / 2;
+      c.strokeStyle = '#888';
+      c.lineWidth = 1.5;
       c.strokeRect(boxX, boxY, NAME_BOX_W, NAME_BOX_H);
-      c.fillStyle = '#bbb';
-      c.font = '10px "Noto Sans JP", sans-serif';
-      c.fillText('選手名/No.', boxX + 4, boxY + 11);
+      c.fillStyle = '#ccc';
+      c.font = '12px "Noto Sans JP", sans-serif';
+      c.fillText('選手名 / No.', boxX + 8, boxY + 14);
       // ラベル下に薄い区切り線
       c.strokeStyle = '#ddd';
       c.lineWidth = 0.5;
