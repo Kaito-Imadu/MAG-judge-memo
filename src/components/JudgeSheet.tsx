@@ -25,7 +25,7 @@ const ERASER_WIDTH = 28;
 const STRAIGHT_DELAY = 400;
 const STRAIGHT_THRESHOLD = 4;
 const SCRUB_DIRS_NEEDED = 4;
-const SAVE_DEBOUNCE = 1000;
+const SAVE_DEBOUNCE = 1500;
 
 // レイアウト定数（割合）
 const HEADER_H = 36;       // ヘッダー高さ px
@@ -51,6 +51,7 @@ export default function JudgeSheet({ apparatus, mode, eJudgeCount }: Props) {
   const startPt = useRef<Point | null>(null);
   const scrubDirs = useRef<number[]>([]);
   const sizeRef = useRef({ w: 0, h: 0 });
+  const prevKeyRef = useRef<string>('');
   const navigate = useNavigate();
   const [tick, setTick] = useState(0);
 
@@ -60,18 +61,21 @@ export default function JudgeSheet({ apparatus, mode, eJudgeCount }: Props) {
 
   const getCtx = useCallback(() => canvasRef.current?.getContext('2d') ?? null, []);
 
-  // --- 保存 ---
+  // --- 即時保存 ---
+  const flushSave = useCallback((key: string, data: Stroke[]) => {
+    if (saveTimer.current) { clearTimeout(saveTimer.current); saveTimer.current = null; }
+    const strokesToSave: StrokeData[] = data.map(s => ({ points: s.points, color: s.color }));
+    db.sheets.put({ key, strokes: strokesToSave, updatedAt: new Date() });
+  }, []);
+
+  // --- デバウンス保存 ---
   const saveStrokes = useCallback(() => {
     if (saveTimer.current) clearTimeout(saveTimer.current);
+    const key = sheetKey(apparatus, mode, eJudgeCount);
     saveTimer.current = setTimeout(() => {
-      const key = sheetKey(apparatus, mode, eJudgeCount);
-      const data: StrokeData[] = strokes.current.map(s => ({
-        points: s.points,
-        color: s.color,
-      }));
-      db.sheets.put({ key, strokes: data, updatedAt: new Date() });
+      flushSave(key, strokes.current);
     }, SAVE_DEBOUNCE);
-  }, [apparatus, mode, eJudgeCount]);
+  }, [apparatus, mode, eJudgeCount, flushSave]);
 
   // テンプレート描画（罫線・ラベル・ND項目）
   const drawTemplate = useCallback(() => {
@@ -192,10 +196,18 @@ export default function JudgeSheet({ apparatus, mode, eJudgeCount }: Props) {
     for (const s of strokes.current) drawStroke(c, s);
   }, [getCtx, drawTemplate, drawStroke]);
 
-  // --- IndexedDBからストロークを復元 ---
+  // --- 種目切替時: 前のストロークを即時保存 → 新しいストロークを復元 ---
   useEffect(() => {
-    const key = sheetKey(apparatus, mode, eJudgeCount);
-    db.sheets.get(key).then((saved) => {
+    const newKey = sheetKey(apparatus, mode, eJudgeCount);
+
+    // 前の種目のストロークを即時保存
+    if (prevKeyRef.current && prevKeyRef.current !== newKey && strokes.current.length > 0) {
+      flushSave(prevKeyRef.current, strokes.current);
+    }
+    prevKeyRef.current = newKey;
+
+    // 新しい種目のストロークを復元
+    db.sheets.get(newKey).then((saved) => {
       if (saved) {
         strokes.current = saved.strokes.map(s => ({
           points: s.points,
@@ -235,6 +247,19 @@ export default function JudgeSheet({ apparatus, mode, eJudgeCount }: Props) {
   // redraw when template deps change
   useEffect(() => { redrawAll(); }, [redrawAll]);
 
+  // ページ離脱時に即時保存
+  useEffect(() => {
+    return () => {
+      if (saveTimer.current) clearTimeout(saveTimer.current);
+      const key = prevKeyRef.current;
+      if (key && strokes.current.length > 0) {
+        const data: StrokeData[] = strokes.current.map(s => ({ points: s.points, color: s.color }));
+        db.sheets.put({ key, strokes: data, updatedAt: new Date() });
+      }
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const pos = (e: React.PointerEvent): Point => {
     const r = canvasRef.current!.getBoundingClientRect();
     return { x: e.clientX - r.left, y: e.clientY - r.top };
@@ -254,10 +279,32 @@ export default function JudgeSheet({ apparatus, mode, eJudgeCount }: Props) {
     }, STRAIGHT_DELAY);
   };
 
+  // ストローク完了処理（onUp/onLeave共通）
+  const finishStroke = () => {
+    if (!drawing.current || !cur.current) return;
+    drawing.current = false;
+    clearHoldTimer();
+    const finished = cur.current;
+    cur.current = null;
+    straight.current = false;
+    if (scrubDirs.current.length >= SCRUB_DIRS_NEEDED && finished.points.length > 5) {
+      const center = finished.points[Math.floor(finished.points.length / 2)];
+      const idx = findStrokeAt(strokes.current, center, ERASER_WIDTH);
+      if (idx >= 0) { strokes.current.splice(idx, 1); redoStack.current = []; redrawAll(); saveStrokes(); return; }
+    }
+    if (finished.points.length < 2) return;
+    strokes.current.push(finished);
+    redoStack.current = [];
+    saveStrokes();
+  };
+
   const onDown = (e: React.PointerEvent) => {
     if (e.pointerType === 'touch') return;
     e.preventDefault();
-    (e.target as HTMLElement).setPointerCapture(e.pointerId);
+    // 前のストロークが完了していなければ強制完了
+    if (drawing.current && cur.current) {
+      finishStroke();
+    }
     drawing.current = true;
     straight.current = false;
     scrubDirs.current = [];
@@ -301,39 +348,8 @@ export default function JudgeSheet({ apparatus, mode, eJudgeCount }: Props) {
     c.stroke();
   };
 
-  const onUp = (e: React.PointerEvent) => {
-    if (!drawing.current || !cur.current) return;
-    drawing.current = false;
-    clearHoldTimer();
-    // ポインターキャプチャを明示的に解放
-    try { (e.target as HTMLElement).releasePointerCapture(e.pointerId); } catch {}
-    const finished = cur.current;
-    cur.current = null;
-    straight.current = false;
-    if (scrubDirs.current.length >= SCRUB_DIRS_NEEDED && finished.points.length > 5) {
-      const center = finished.points[Math.floor(finished.points.length / 2)];
-      const idx = findStrokeAt(strokes.current, center, ERASER_WIDTH);
-      if (idx >= 0) { strokes.current.splice(idx, 1); redoStack.current = []; redrawAll(); saveStrokes(); return; }
-    }
-    if (finished.points.length < 2) return;
-    strokes.current.push(finished);
-    redoStack.current = [];
-    saveStrokes();
-  };
-
-  const onLeave = () => {
-    if (!drawing.current || !cur.current) return;
-    drawing.current = false;
-    clearHoldTimer();
-    const finished = cur.current;
-    cur.current = null;
-    straight.current = false;
-    if (finished.points.length >= 2) {
-      strokes.current.push(finished);
-      redoStack.current = [];
-      saveStrokes();
-    }
-  };
+  const onUp = () => { finishStroke(); };
+  const onLeave = () => { finishStroke(); };
 
   const undo = () => { if (strokes.current.length === 0) return; redoStack.current.push(strokes.current.pop()!); redrawAll(); saveStrokes(); setTick(t => t + 1); };
   const redo = () => { if (redoStack.current.length === 0) return; strokes.current.push(redoStack.current.pop()!); redrawAll(); saveStrokes(); setTick(t => t + 1); };
@@ -341,6 +357,9 @@ export default function JudgeSheet({ apparatus, mode, eJudgeCount }: Props) {
   const pickColor = (c: string) => { colorRef.current = c; setTick(t => t + 1); };
 
   const handleApparatusChange = (a: Apparatus) => {
+    // 切替前に即時保存
+    const key = sheetKey(apparatus, mode, eJudgeCount);
+    flushSave(key, strokes.current);
     const path = mode === 'E' ? `/judge/${a}/e?eCount=${eJudgeCount}` : `/judge/${a}/d`;
     navigate(path, { replace: true });
   };
