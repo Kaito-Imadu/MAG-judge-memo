@@ -25,6 +25,10 @@ export default function TrialJudgePage() {
 
   const recordId = `trial:${sessionId}:${athleteName}:${currentApparatus}`;
 
+  const handleApparatusChange = (a: Apparatus) => {
+    navigate(`/trial/${sessionId}/judge/${encodeURIComponent(athleteName)}/${a}`, { replace: true });
+  };
+
   return (
     <JudgeSheet
       apparatus={currentApparatus}
@@ -32,9 +36,11 @@ export default function TrialJudgePage() {
       eJudgeCount={session.eJudgeCount}
       recordId={recordId}
       sessionId={sessionId}
+      mode="trial"
       athleteName={athleteName}
       pageNumber={0}
-      showApparatusTabs={false}
+      showApparatusTabs={true}
+      onApparatusChange={handleApparatusChange}
       onBack={() => navigate(`/trial/${sessionId}`)}
     />
   );

@@ -16,11 +16,13 @@ interface Props {
   eJudgeCount: number;
   recordId: string;
   sessionId: string;
+  mode: 'trial' | 'competition';
   athleteName?: string;
   pageNumber?: number;
   showApparatusTabs?: boolean;
   toolbarExtra?: ReactNode;
   onBack?: () => void;
+  onApparatusChange?: (apparatus: Apparatus) => void;
 }
 
 const COLORS = [
@@ -36,10 +38,12 @@ const SCRUB_DIRS_NEEDED = 4;
 const SAVE_DEBOUNCE = 1500;
 
 // レイアウト定数
-const HEADER_H = 36;
+const LABEL_H = 32;          // モード別ラベル領域の高さ
 const SCORE_ROW_H = 160;
 const CV_LABEL_H = 28;
 const ND_WIDTH_RATIO = 0.2;
+const NAME_BOX_W = 240;      // 大会モード: 選手名記入欄の幅
+const NAME_BOX_H = 28;       // 大会モード: 選手名記入欄の高さ
 
 // 空間インデックス: グリッドセルサイズ
 const GRID_CELL = 40;
@@ -169,11 +173,13 @@ export default function JudgeSheet({
   eJudgeCount,
   recordId,
   sessionId,
+  mode,
   athleteName = '',
   pageNumber = 0,
   showApparatusTabs = true,
   toolbarExtra,
   onBack,
+  onApparatusChange,
 }: Props) {
   // === Refs ===
   const staticCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -201,6 +207,7 @@ export default function JudgeSheet({
   const ndItems = getNDChecklist(apparatus);
   const hasND = ndItems.length > 0;
   const hasCV = apparatus === 'FX' || apparatus === 'HB';
+  const apparatusInfo = APPARATUS_LIST.find(a => a.code === apparatus);
 
   // === Context getters (desynchronized for active layer) ===
   const getStaticCtx = useCallback(() =>
@@ -253,17 +260,45 @@ export default function JudgeSheet({
 
     c.save();
 
-    c.strokeStyle = '#222';
-    c.lineWidth = 2;
-    c.beginPath();
-    c.moveTo(0, HEADER_H);
-    c.lineTo(w, HEADER_H);
-    c.stroke();
+    // --- モード別ヘッダー領域 ---
+    if (mode === 'trial') {
+      // 試技会モード: 選手名 + 種目名をラベル表示（横線なし）
+      c.fillStyle = '#1B4F72';
+      c.font = 'bold 15px "Noto Sans JP", sans-serif';
+      const label = `${athleteName}　${apparatus} ${apparatusInfo?.name ?? ''}`;
+      c.fillText(label, 8, LABEL_H - 8);
+      // ラベル下に薄い区切り線
+      c.strokeStyle = '#ddd';
+      c.lineWidth = 0.5;
+      c.beginPath();
+      c.moveTo(0, LABEL_H);
+      c.lineTo(w, LABEL_H);
+      c.stroke();
+    } else {
+      // 大会モード: 種目名 + 選手名記入枠
+      c.fillStyle = '#1B4F72';
+      c.font = 'bold 15px "Noto Sans JP", sans-serif';
+      const apparatusLabel = `${apparatus} ${apparatusInfo?.name ?? ''}`;
+      c.fillText(apparatusLabel, 8, LABEL_H - 8);
+      // 選手名手書き記入枠
+      const boxX = c.measureText(apparatusLabel).width + 24;
+      const boxY = 4;
+      c.strokeStyle = '#999';
+      c.lineWidth = 1;
+      c.strokeRect(boxX, boxY, NAME_BOX_W, NAME_BOX_H);
+      c.fillStyle = '#bbb';
+      c.font = '10px "Noto Sans JP", sans-serif';
+      c.fillText('選手名/No.', boxX + 4, boxY + 11);
+      // ラベル下に薄い区切り線
+      c.strokeStyle = '#ddd';
+      c.lineWidth = 0.5;
+      c.beginPath();
+      c.moveTo(0, LABEL_H);
+      c.lineTo(w, LABEL_H);
+      c.stroke();
+    }
 
-    c.fillStyle = '#aaa';
-    c.font = '13px "Noto Sans JP", sans-serif';
-    c.fillText('選手名', 8, HEADER_H - 10);
-
+    // --- ND 項目（右下） ---
     if (hasND) {
       c.fillStyle = '#555';
       c.font = '12px "Noto Sans JP", sans-serif';
@@ -278,6 +313,7 @@ export default function JudgeSheet({
       c.fillText('ND', mainW + 8, ndStartY - 14);
     }
 
+    // --- CV ラベル ---
     if (hasCV) {
       const cvTop = scoreRowTop - CV_LABEL_H;
       c.strokeStyle = '#999';
@@ -291,6 +327,7 @@ export default function JudgeSheet({
       c.fillText('CV：', 6, cvTop + 18);
     }
 
+    // --- スコア行 ---
     c.strokeStyle = '#222';
     c.lineWidth = 2;
     c.beginPath();
@@ -326,7 +363,7 @@ export default function JudgeSheet({
     }
 
     c.restore();
-  }, [getStaticCtx, hasND, hasCV, ndItems, eJudgeCount]);
+  }, [getStaticCtx, hasND, hasCV, ndItems, eJudgeCount, mode, athleteName, apparatus, apparatusInfo]);
 
   // === Static Canvas 全再描画 ===
   const redrawStatic = useCallback(() => {
@@ -638,8 +675,12 @@ export default function JudgeSheet({
 
   const handleApparatusChange = (a: Apparatus) => {
     flushSave(recordId, strokes.current);
-    const path = judgeMode === 'E' ? `/judge/${a}/e?eCount=${eJudgeCount}` : `/judge/${a}/d`;
-    navigate(path, { replace: true });
+    if (onApparatusChange) {
+      onApparatusChange(a);
+    } else {
+      const path = judgeMode === 'E' ? `/judge/${a}/e?eCount=${eJudgeCount}` : `/judge/${a}/d`;
+      navigate(path, { replace: true });
+    }
   };
 
   const handleBack = () => {
