@@ -1,9 +1,10 @@
 import { useRef, useState, useCallback, useEffect } from 'react';
 
+interface Point { x: number; y: number }
+
 interface Stroke {
-  points: { x: number; y: number; pressure: number }[];
+  points: Point[];
   color: string;
-  isEraser: boolean;
 }
 
 interface Props {
@@ -16,47 +17,64 @@ const COLORS = [
   { name: '青', value: '#2E86C1' },
 ];
 
+const LINE_WIDTH = 2;
+const ERASER_WIDTH = 28;
+// 長押し直線化: この時間(ms)ペンが止まったら直線にスナップ
+const STRAIGHT_LINE_DELAY = 400;
+const STRAIGHT_LINE_MOVE_THRESHOLD = 4; // この距離以内なら「止まっている」と判定
+// こすり削除: 短い往復でストロークを消す
+const SCRUB_DIRECTION_CHANGES = 4; // 方向転換回数がこれ以上で「こすり」判定
+
 export default function HandwritingCanvas({ onSave }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-  const [strokes, setStrokes] = useState<Stroke[]>([]);
-  const [redoStack, setRedoStack] = useState<Stroke[]>([]);
+  const strokesRef = useRef<Stroke[]>([]);
+  const [strokeCount, setStrokeCount] = useState(0); // re-render trigger
+  const redoStackRef = useRef<Stroke[]>([]);
   const currentStrokeRef = useRef<Stroke | null>(null);
   const [color, setColor] = useState('#000000');
-  const [isEraser, setIsEraser] = useState(false);
   const isDrawing = useRef(false);
-  // force re-render for undo/redo button states
-  const [, setTick] = useState(0);
+
+  // 長押し直線化用
+  const holdTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastMoveTimeRef = useRef(0);
+  const isStraightModeRef = useRef(false);
+  const strokeStartRef = useRef<Point | null>(null);
+
+  // こすり検出用
+  const scrubDirsRef = useRef<number[]>([]);
 
   const getCtx = useCallback(() => canvasRef.current?.getContext('2d'), []);
 
-  const redrawAll = useCallback((allStrokes: Stroke[]) => {
+  const drawStroke = useCallback((ctx: CanvasRenderingContext2D, stroke: Stroke) => {
+    if (stroke.points.length < 2) return;
+    ctx.strokeStyle = stroke.color;
+    ctx.lineWidth = LINE_WIDTH;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.beginPath();
+    ctx.moveTo(stroke.points[0].x, stroke.points[0].y);
+    for (let i = 1; i < stroke.points.length; i++) {
+      ctx.lineTo(stroke.points[i].x, stroke.points[i].y);
+    }
+    ctx.stroke();
+  }, []);
+
+  const redrawAll = useCallback(() => {
     const canvas = canvasRef.current;
     const ctx = getCtx();
     if (!canvas || !ctx) return;
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    for (const stroke of allStrokes) {
-      if (stroke.points.length < 2) continue;
-      ctx.globalCompositeOperation = stroke.isEraser ? 'destination-out' : 'source-over';
-      ctx.strokeStyle = stroke.isEraser ? '#000' : stroke.color;
-      ctx.lineCap = 'round';
-      ctx.lineJoin = 'round';
-      for (let i = 1; i < stroke.points.length; i++) {
-        const prev = stroke.points[i - 1];
-        const curr = stroke.points[i];
-        ctx.beginPath();
-        ctx.lineWidth = stroke.isEraser ? 24 : Math.max(1, curr.pressure * 6);
-        ctx.moveTo(prev.x, prev.y);
-        ctx.lineTo(curr.x, curr.y);
-        ctx.stroke();
-      }
+    for (const stroke of strokesRef.current) {
+      drawStroke(ctx, stroke);
     }
-    ctx.globalCompositeOperation = 'source-over';
-  }, [getCtx]);
+  }, [getCtx, drawStroke]);
 
+  // resize
   useEffect(() => {
-    const canvas = canvasRef.current;
     const container = containerRef.current;
+    const canvas = canvasRef.current;
     if (!canvas || !container) return;
     const resize = () => {
       const rect = container.getBoundingClientRect();
@@ -65,7 +83,7 @@ export default function HandwritingCanvas({ onSave }: Props) {
       canvas.height = rect.height * dpr;
       const ctx = canvas.getContext('2d');
       if (ctx) ctx.scale(dpr, dpr);
-      redrawAll(strokes);
+      redrawAll();
     };
     resize();
     const ro = new ResizeObserver(resize);
@@ -74,10 +92,54 @@ export default function HandwritingCanvas({ onSave }: Props) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const getPos = (e: React.PointerEvent) => {
-    const canvas = canvasRef.current!;
-    const rect = canvas.getBoundingClientRect();
-    return { x: e.clientX - rect.left, y: e.clientY - rect.top, pressure: e.pressure || 0.5 };
+  const getPos = (e: React.PointerEvent): Point => {
+    const rect = canvasRef.current!.getBoundingClientRect();
+    return { x: e.clientX - rect.left, y: e.clientY - rect.top };
+  };
+
+  const dist = (a: Point, b: Point) => Math.hypot(a.x - b.x, a.y - b.y);
+
+  // ストロークとの距離判定（こすり削除用）
+  const findStrokeAt = useCallback((p: Point, threshold: number): number => {
+    const strokes = strokesRef.current;
+    for (let si = strokes.length - 1; si >= 0; si--) {
+      const pts = strokes[si].points;
+      for (let i = 0; i < pts.length - 1; i++) {
+        if (distToSegment(p, pts[i], pts[i + 1]) < threshold) return si;
+      }
+    }
+    return -1;
+  }, []);
+
+  const clearHoldTimer = () => {
+    if (holdTimerRef.current) { clearTimeout(holdTimerRef.current); holdTimerRef.current = null; }
+  };
+
+  const startHoldTimer = (pos: Point) => {
+    clearHoldTimer();
+    holdTimerRef.current = setTimeout(() => {
+      // 直線モードに突入
+      if (!isDrawing.current || !currentStrokeRef.current) return;
+      isStraightModeRef.current = true;
+      // ストロークを始点→現在点の直線に置き換え
+      const start = strokeStartRef.current!;
+      currentStrokeRef.current = { points: [start, pos], color: currentStrokeRef.current.color };
+      redrawAll();
+      drawStraightPreview(start, pos);
+    }, STRAIGHT_LINE_DELAY);
+  };
+
+  const drawStraightPreview = (from: Point, to: Point) => {
+    const ctx = getCtx();
+    if (!ctx) return;
+    ctx.strokeStyle = color;
+    ctx.lineWidth = LINE_WIDTH;
+    ctx.lineCap = 'round';
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.beginPath();
+    ctx.moveTo(from.x, from.y);
+    ctx.lineTo(to.x, to.y);
+    ctx.stroke();
   };
 
   const handlePointerDown = (e: React.PointerEvent) => {
@@ -85,88 +147,118 @@ export default function HandwritingCanvas({ onSave }: Props) {
     e.preventDefault();
     (e.target as HTMLElement).setPointerCapture(e.pointerId);
     isDrawing.current = true;
+    isStraightModeRef.current = false;
+    scrubDirsRef.current = [];
     const pos = getPos(e);
-    // Apple Pencil eraser tip: button === 5
-    const useEraser = isEraser || e.button === 5;
-    currentStrokeRef.current = { points: [pos], color, isEraser: useEraser };
+    strokeStartRef.current = pos;
+    currentStrokeRef.current = { points: [pos], color };
+    lastMoveTimeRef.current = Date.now();
+    startHoldTimer(pos);
   };
 
   const handlePointerMove = (e: React.PointerEvent) => {
     if (!isDrawing.current || !currentStrokeRef.current) return;
     e.preventDefault();
     const pos = getPos(e);
-    currentStrokeRef.current.points.push(pos);
+    const pts = currentStrokeRef.current.points;
+    const prev = pts[pts.length - 1];
+    const d = dist(prev, pos);
 
+    // こすり方向検出
+    const dx = pos.x - prev.x;
+    if (Math.abs(dx) > 2) {
+      const dir = dx > 0 ? 1 : -1;
+      const dirs = scrubDirsRef.current;
+      if (dirs.length === 0 || dirs[dirs.length - 1] !== dir) {
+        dirs.push(dir);
+      }
+    }
+
+    if (isStraightModeRef.current) {
+      // 直線モード: 始点→現在のプレビュー
+      const start = strokeStartRef.current!;
+      currentStrokeRef.current = { points: [start, pos], color: currentStrokeRef.current.color };
+      redrawAll();
+      drawStraightPreview(start, pos);
+      return;
+    }
+
+    // 動きがある場合はタイマーリセット
+    if (d > STRAIGHT_LINE_MOVE_THRESHOLD) {
+      startHoldTimer(pos);
+    }
+
+    pts.push(pos);
     const ctx = getCtx();
     if (!ctx) return;
-    const pts = currentStrokeRef.current.points;
-    const prev = pts[pts.length - 2];
-    const erase = currentStrokeRef.current.isEraser;
-    ctx.globalCompositeOperation = erase ? 'destination-out' : 'source-over';
-    ctx.strokeStyle = erase ? '#000' : currentStrokeRef.current.color;
+    ctx.strokeStyle = currentStrokeRef.current.color;
+    ctx.lineWidth = LINE_WIDTH;
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
-    ctx.lineWidth = erase ? 24 : Math.max(1, pos.pressure * 6);
+    ctx.globalCompositeOperation = 'source-over';
     ctx.beginPath();
     ctx.moveTo(prev.x, prev.y);
     ctx.lineTo(pos.x, pos.y);
     ctx.stroke();
-    ctx.globalCompositeOperation = 'source-over';
   };
 
   const handlePointerUp = () => {
     if (!isDrawing.current || !currentStrokeRef.current) return;
     isDrawing.current = false;
+    clearHoldTimer();
+
     const finished = currentStrokeRef.current;
     currentStrokeRef.current = null;
-    if (finished.points.length < 2) return;
-    setStrokes((prev) => {
-      const next = [...prev, finished];
-      setRedoStack([]);
-      setTick((t) => t + 1);
-      if (onSave) {
-        redrawAll(next);
-        const canvas = canvasRef.current;
-        if (canvas) onSave(canvas.toDataURL('image/png', 0.5));
+    isStraightModeRef.current = false;
+
+    // こすり判定: 方向転換が多い → ストローク削除
+    if (scrubDirsRef.current.length >= SCRUB_DIRECTION_CHANGES && finished.points.length > 5) {
+      // こすった範囲付近のストロークを削除
+      const center = finished.points[Math.floor(finished.points.length / 2)];
+      const idx = findStrokeAt(center, ERASER_WIDTH);
+      if (idx >= 0) {
+        strokesRef.current.splice(idx, 1);
+        redoStackRef.current = [];
+        redrawAll();
+        setStrokeCount(strokesRef.current.length);
+        return;
       }
-      return next;
-    });
+    }
+
+    if (finished.points.length < 2) return;
+    strokesRef.current.push(finished);
+    redoStackRef.current = [];
+    redrawAll();
+    setStrokeCount(strokesRef.current.length);
+    if (onSave) {
+      const canvas = canvasRef.current;
+      if (canvas) onSave(canvas.toDataURL('image/png', 0.5));
+    }
   };
 
   const handleUndo = () => {
-    setStrokes((prev) => {
-      if (prev.length === 0) return prev;
-      const removed = prev[prev.length - 1];
-      const next = prev.slice(0, -1);
-      setRedoStack((r) => [...r, removed]);
-      redrawAll(next);
-      setTick((t) => t + 1);
-      return next;
-    });
+    if (strokesRef.current.length === 0) return;
+    const removed = strokesRef.current.pop()!;
+    redoStackRef.current.push(removed);
+    redrawAll();
+    setStrokeCount(strokesRef.current.length);
   };
 
   const handleRedo = () => {
-    setRedoStack((prev) => {
-      if (prev.length === 0) return prev;
-      const restored = prev[prev.length - 1];
-      const nextRedo = prev.slice(0, -1);
-      setStrokes((s) => {
-        const next = [...s, restored];
-        redrawAll(next);
-        setTick((t) => t + 1);
-        return next;
-      });
-      return nextRedo;
-    });
+    if (redoStackRef.current.length === 0) return;
+    const restored = redoStackRef.current.pop()!;
+    strokesRef.current.push(restored);
+    redrawAll();
+    setStrokeCount(strokesRef.current.length);
   };
 
   const handleClear = () => {
-    setStrokes([]);
-    setRedoStack([]);
+    strokesRef.current = [];
+    redoStackRef.current = [];
     const canvas = canvasRef.current;
     const ctx = getCtx();
     if (canvas && ctx) ctx.clearRect(0, 0, canvas.width, canvas.height);
-    setTick((t) => t + 1);
+    setStrokeCount(0);
   };
 
   return (
@@ -176,27 +268,19 @@ export default function HandwritingCanvas({ onSave }: Props) {
         {COLORS.map((c) => (
           <button
             key={c.value}
-            onClick={() => { setColor(c.value); setIsEraser(false); }}
+            onClick={() => setColor(c.value)}
             className={`w-7 h-7 rounded-full border-2 transition-all ${
-              !isEraser && color === c.value ? 'border-accent scale-110 ring-2 ring-accent/30' : 'border-gray-300 dark:border-gray-600'
+              color === c.value ? 'border-accent scale-110 ring-2 ring-accent/30' : 'border-gray-300 dark:border-gray-600'
             }`}
             style={{ backgroundColor: c.value }}
           />
         ))}
         <div className="w-px h-5 bg-gray-300 dark:bg-gray-600" />
-        <button
-          onClick={() => setIsEraser(!isEraser)}
-          className={`px-2 py-0.5 rounded text-xs font-medium ${
-            isEraser ? 'bg-primary text-white' : 'bg-white dark:bg-gray-700 text-gray-600 dark:text-gray-300'
-          }`}
-        >
-          消
-        </button>
-        <button onClick={handleUndo} disabled={strokes.length === 0}
+        <button onClick={handleUndo} disabled={strokeCount === 0}
           className="px-2 py-0.5 rounded text-xs bg-white dark:bg-gray-700 text-gray-600 dark:text-gray-300 disabled:opacity-30">
           ↩
         </button>
-        <button onClick={handleRedo} disabled={redoStack.length === 0}
+        <button onClick={handleRedo} disabled={redoStackRef.current.length === 0}
           className="px-2 py-0.5 rounded text-xs bg-white dark:bg-gray-700 text-gray-600 dark:text-gray-300 disabled:opacity-30">
           ↪
         </button>
@@ -218,4 +302,15 @@ export default function HandwritingCanvas({ onSave }: Props) {
       </div>
     </div>
   );
+}
+
+// 点pから線分(a,b)への距離
+function distToSegment(p: Point, a: Point, b: Point): number {
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const lenSq = dx * dx + dy * dy;
+  if (lenSq === 0) return Math.hypot(p.x - a.x, p.y - a.y);
+  let t = ((p.x - a.x) * dx + (p.y - a.y) * dy) / lenSq;
+  t = Math.max(0, Math.min(1, t));
+  return Math.hypot(p.x - (a.x + t * dx), p.y - (a.y + t * dy));
 }
