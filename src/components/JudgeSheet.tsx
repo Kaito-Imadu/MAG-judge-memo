@@ -26,7 +26,8 @@ const SCRUB_DIRS_NEEDED = 4;
 
 // レイアウト定数（割合）
 const HEADER_H = 36;       // ヘッダー高さ px
-const SCORE_ROW_H = 120;   // スコア行の高さ px
+const SCORE_ROW_H = 160;   // スコア行の高さ px
+const CV_LABEL_H = 28;     // CV行の高さ px
 const ND_WIDTH_RATIO = 0.2; // ND列幅の割合
 
 export default function JudgeSheet({ apparatus, mode, eJudgeCount }: Props) {
@@ -96,6 +97,20 @@ export default function JudgeSheet({ apparatus, mode, eJudgeCount }: Props) {
       c.fillText('ND', mainW + 8, ndStartY - 14);
     }
 
+    // --- CV行（FX/HBのみ、スコア行の上） ---
+    if (hasCV) {
+      const cvTop = scoreRowTop - CV_LABEL_H;
+      c.strokeStyle = '#999';
+      c.lineWidth = 1;
+      c.beginPath();
+      c.moveTo(0, cvTop);
+      c.lineTo(w * 0.3, cvTop);
+      c.stroke();
+      c.fillStyle = '#888';
+      c.font = '12px "Noto Sans JP", sans-serif';
+      c.fillText('CV：', 6, cvTop + 18);
+    }
+
     // --- スコア行の上線 ---
     c.strokeStyle = '#222';
     c.lineWidth = 2;
@@ -104,12 +119,11 @@ export default function JudgeSheet({ apparatus, mode, eJudgeCount }: Props) {
     c.lineTo(w, scoreRowTop);
     c.stroke();
 
-    // スコア列: D, E1, E2..., CV(FX/HB), ND, 決定点
+    // スコア列: D, E1, E2..., ND, 決定点
     const cols: string[] = ['D'];
     for (let i = 0; i < eJudgeCount; i++) {
       cols.push(i === 0 ? 'E1' : `E${i + 1}`);
     }
-    if (hasCV) cols.push('CV');
     cols.push('ND', '決定点');
 
     const colCount = cols.length;
@@ -137,7 +151,7 @@ export default function JudgeSheet({ apparatus, mode, eJudgeCount }: Props) {
     }
 
     c.restore();
-  }, [getCtx, hasND, ndItems, eJudgeCount]);
+  }, [getCtx, hasND, hasCV, ndItems, eJudgeCount]);
 
   const drawStroke = useCallback((c: CanvasRenderingContext2D, s: Stroke) => {
     if (s.points.length < 2) return;
