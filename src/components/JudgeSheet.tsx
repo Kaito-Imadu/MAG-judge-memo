@@ -277,10 +277,13 @@ export default function JudgeSheet({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ========== ネイティブ Pointer Events ==========
+  // ========== ネイティブ Pointer Events（最適化版） ==========
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
+
+    let rafId: number | null = null;
+    let straightDirty = false;
 
     const getPos = (e: PointerEvent): Point => {
       const r = canvas.getBoundingClientRect();
@@ -298,18 +301,31 @@ export default function JudgeSheet({
         straight.current = true;
         const s = startPt.current!;
         cur.current = { points: [s, p], color: cur.current.color };
+        straightDirty = true;
+        scheduleStraightRedraw();
+      }, STRAIGHT_DELAY);
+    };
+
+    // 直線モード: rAF で1フレーム1回だけ redrawAll
+    const scheduleStraightRedraw = () => {
+      if (rafId !== null) return;
+      rafId = requestAnimationFrame(() => {
+        rafId = null;
+        if (!straightDirty || !cur.current) return;
+        straightDirty = false;
         redrawAll();
         const c = getCtx();
-        if (c) {
-          c.strokeStyle = colorRef.current;
+        if (c && cur.current) {
+          const pts = cur.current.points;
+          c.strokeStyle = cur.current.color;
           c.lineWidth = LINE_WIDTH;
           c.lineCap = 'round';
           c.beginPath();
-          c.moveTo(s.x, s.y);
-          c.lineTo(p.x, p.y);
+          c.moveTo(pts[0].x, pts[0].y);
+          c.lineTo(pts[1].x, pts[1].y);
           c.stroke();
         }
-      }, STRAIGHT_DELAY);
+      });
     };
 
     const finishStroke = () => {
@@ -317,9 +333,11 @@ export default function JudgeSheet({
       drawing.current = false;
       activePointerId.current = null;
       clearHold();
+      if (rafId !== null) { cancelAnimationFrame(rafId); rafId = null; }
       const finished = cur.current;
       cur.current = null;
       straight.current = false;
+      straightDirty = false;
       if (scrubDirs.current.length >= SCRUB_DIRS_NEEDED && finished.points.length > 5) {
         const center = finished.points[Math.floor(finished.points.length / 2)];
         const idx = findStrokeAt(strokes.current, center, ERASER_WIDTH);
@@ -344,6 +362,7 @@ export default function JudgeSheet({
       activePointerId.current = e.pointerId;
       drawing.current = true;
       straight.current = false;
+      straightDirty = false;
       scrubDirs.current = [];
       const p = getPos(e);
       startPt.current = p;
@@ -354,43 +373,56 @@ export default function JudgeSheet({
     const onMove = (e: PointerEvent) => {
       if (!drawing.current || !cur.current || e.pointerId !== activePointerId.current) return;
       e.preventDefault();
-      const p = getPos(e);
-      const pts = cur.current.points;
-      const prev = pts[pts.length - 1];
-      const dx = p.x - prev.x;
-      if (Math.abs(dx) > 2) {
-        const d = dx > 0 ? 1 : -1;
-        const sd = scrubDirs.current;
-        if (sd.length === 0 || sd[sd.length - 1] !== d) sd.push(d);
-      }
-      if (straight.current) {
-        const s = startPt.current!;
-        cur.current = { points: [s, p], color: cur.current.color };
-        redrawAll();
+
+      // getCoalescedEvents: Apple Pencil 等の高周波入力を全取得
+      const events: PointerEvent[] = (e as any).getCoalescedEvents?.() ?? [e];
+
+      for (const ce of events) {
+        const p = getPos(ce);
+        const pts = cur.current!.points;
+        const prev = pts[pts.length - 1];
+        const dx = p.x - prev.x;
+        const dy = p.y - prev.y;
+
+        // スクラブ方向検出（最後のイベントのみ、軽量化）
+        if (ce === events[events.length - 1] && Math.abs(dx) > 2) {
+          const d = dx > 0 ? 1 : -1;
+          const sd = scrubDirs.current;
+          if (sd.length === 0 || sd[sd.length - 1] !== d) sd.push(d);
+        }
+
+        if (straight.current) {
+          // 直線モード: 座標更新のみ、描画はrAFにまかせる
+          const s = startPt.current!;
+          cur.current = { points: [s, p], color: cur.current!.color };
+          straightDirty = true;
+          continue;
+        }
+
+        // 直線判定タイマーのリセット（最後のイベントのみ）
+        if (ce === events[events.length - 1] && Math.hypot(dx, dy) > STRAIGHT_THRESHOLD) {
+          startHold(p);
+        }
+
+        // フリーハンド描画: 即座にCanvasへ描画
+        pts.push(p);
         const c = getCtx();
         if (c) {
-          c.strokeStyle = cur.current.color;
+          c.strokeStyle = cur.current!.color;
           c.lineWidth = LINE_WIDTH;
           c.lineCap = 'round';
+          c.lineJoin = 'round';
           c.beginPath();
-          c.moveTo(s.x, s.y);
+          c.moveTo(prev.x, prev.y);
           c.lineTo(p.x, p.y);
           c.stroke();
         }
-        return;
       }
-      if (Math.hypot(dx, p.y - prev.y) > STRAIGHT_THRESHOLD) startHold(p);
-      pts.push(p);
-      const c = getCtx();
-      if (!c) return;
-      c.strokeStyle = cur.current.color;
-      c.lineWidth = LINE_WIDTH;
-      c.lineCap = 'round';
-      c.lineJoin = 'round';
-      c.beginPath();
-      c.moveTo(prev.x, prev.y);
-      c.lineTo(p.x, p.y);
-      c.stroke();
+
+      // 直線モードのrAF描画をスケジュール
+      if (straight.current && straightDirty) {
+        scheduleStraightRedraw();
+      }
     };
 
     const onUp = (e: PointerEvent) => {
@@ -415,6 +447,7 @@ export default function JudgeSheet({
       canvas.removeEventListener('pointerup', onUp);
       canvas.removeEventListener('pointerleave', onLeave);
       canvas.removeEventListener('pointercancel', onUp);
+      if (rafId !== null) cancelAnimationFrame(rafId);
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [getCtx, redrawAll]);
@@ -473,7 +506,7 @@ export default function JudgeSheet({
         </div>
       </div>
 
-      <div ref={wrapRef} className="flex-1 min-h-0">
+      <div ref={wrapRef} className="flex-1 min-h-0" style={{ touchAction: 'none' }}>
         <canvas ref={canvasRef}
           className="w-full h-full bg-white dark:bg-gray-950 cursor-crosshair"
           style={{ touchAction: 'none', userSelect: 'none' }} />
