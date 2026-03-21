@@ -703,31 +703,42 @@ export default function JudgeSheet({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // 依存配列空: ref 経由で最新関数を参照するため再登録不要
 
-  // === UI Actions (React state は最小限) ===
+  // === UI Actions ===
+  // 描画中の状態をリセットしてからUI操作を実行（iPad でボタンタップ時の競合防止）
+  const cancelDrawing = () => {
+    drawing.current = false;
+    activePointerId.current = null;
+    cur.current = null;
+    clearActiveRef.current();
+  };
+
   const undo = () => {
+    cancelDrawing();
     if (strokes.current.length === 0) return;
     redoStack.current.push(strokes.current.pop()!);
     spatialGrid.current = rebuildGrid(strokes.current);
-    redrawStatic();
+    redrawStaticRef.current();
     saveRef.current();
     setTick(t => t + 1);
   };
   const redo = () => {
+    cancelDrawing();
     if (redoStack.current.length === 0) return;
     const s = redoStack.current.pop()!;
     const idx = strokes.current.length;
     strokes.current.push(s);
     insertStroke(spatialGrid.current, idx, s);
-    redrawStatic();
+    redrawStaticRef.current();
     saveRef.current();
     setTick(t => t + 1);
   };
   const clear = () => {
+    cancelDrawing();
     strokes.current = [];
     spatialGrid.current = createGrid();
     redoStack.current = [];
-    redrawStatic();
-    clearActive();
+    redrawStaticRef.current();
+    clearActiveRef.current();
     saveRef.current();
     setTick(t => t + 1);
   };
@@ -771,20 +782,37 @@ export default function JudgeSheet({
 
         {/* 消しゴム */}
         <button onClick={toggleEraser}
-          className={`px-3 py-1 rounded text-sm font-bold min-h-[36px] transition-colors ${
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-bold min-h-[40px] transition-all ${
             eraserMode.current
-              ? 'bg-danger text-white'
-              : 'bg-white dark:bg-gray-700 text-gray-600 dark:text-gray-300'
+              ? 'bg-danger text-white shadow-md ring-2 ring-danger/30'
+              : 'bg-white dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200'
           }`}>
+          {/* 消しゴムアイコン SVG */}
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M20 20H7L3 16c-.8-.8-.8-2 0-2.8L14.6 1.6c.8-.8 2-.8 2.8 0L21.4 5.6c.8.8.8 2 0 2.8L12 18" />
+            <path d="M6 12l5.4-5.4" />
+          </svg>
           消しゴム
         </button>
 
         <div className="w-px h-6 bg-gray-300" />
 
         {/* Undo/Redo/Clear */}
-        <button onClick={undo} className="px-2.5 py-1 rounded text-sm bg-white dark:bg-gray-700 text-gray-600 dark:text-gray-300 min-h-[36px]">↩ 戻す</button>
-        <button onClick={redo} className="px-2.5 py-1 rounded text-sm bg-white dark:bg-gray-700 text-gray-600 dark:text-gray-300 min-h-[36px]">↪ やり直し</button>
-        <button onClick={clear} className="px-2.5 py-1 rounded text-sm text-danger font-bold min-h-[36px]">全消去</button>
+        <button onClick={undo}
+          className="px-3 py-1.5 rounded-lg text-sm bg-white dark:bg-gray-700 text-gray-600 dark:text-gray-300
+                     hover:bg-gray-200 dark:hover:bg-gray-600 active:bg-gray-300 min-h-[40px] min-w-[44px]">
+          ↩
+        </button>
+        <button onClick={redo}
+          className="px-3 py-1.5 rounded-lg text-sm bg-white dark:bg-gray-700 text-gray-600 dark:text-gray-300
+                     hover:bg-gray-200 dark:hover:bg-gray-600 active:bg-gray-300 min-h-[40px] min-w-[44px]">
+          ↪
+        </button>
+        <button onClick={clear}
+          className="px-3 py-1.5 rounded-lg text-sm text-danger font-bold min-h-[40px]
+                     hover:bg-red-50 dark:hover:bg-red-900/20 active:bg-red-100">
+          全消去
+        </button>
 
         {toolbarExtra}
 
