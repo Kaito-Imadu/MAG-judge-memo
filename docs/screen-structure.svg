@@ -1,0 +1,62 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 320" font-family="'Segoe UI', 'Noto Sans JP', sans-serif">
+  <defs>
+    <filter id="shadow" x="-4%" y="-4%" width="108%" height="112%">
+      <feDropShadow dx="0" dy="2" stdDeviation="3" flood-opacity="0.12"/>
+    </filter>
+    <filter id="shadowSm" x="-4%" y="-4%" width="108%" height="112%">
+      <feDropShadow dx="0" dy="1" stdDeviation="2" flood-opacity="0.08"/>
+    </filter>
+    <marker id="arrow" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+      <path d="M0,0 L8,3 L0,6" fill="#5D6D7E"/>
+    </marker>
+  </defs>
+
+  <!-- Background -->
+  <rect width="600" height="320" rx="12" fill="#F8F9FA"/>
+
+  <!-- Title -->
+  <text x="300" y="32" text-anchor="middle" fill="#1B4F72" font-size="16" font-weight="bold">画面構成</text>
+
+  <!-- EntryPage (root) -->
+  <rect x="170" y="52" width="260" height="44" rx="8" fill="#1B4F72" filter="url(#shadow)"/>
+  <text x="300" y="72" text-anchor="middle" fill="white" font-size="13" font-weight="bold">EntryPage</text>
+  <text x="300" y="88" text-anchor="middle" fill="#AED6F1" font-size="10">モード選択 + セッション管理</text>
+
+  <!-- Lines from EntryPage -->
+  <line x1="230" y1="96" x2="230" y2="130" stroke="#5D6D7E" stroke-width="1.5"/>
+  <line x1="370" y1="96" x2="370" y2="130" stroke="#5D6D7E" stroke-width="1.5"/>
+
+  <!-- Trial branch label -->
+  <text x="170" y="124" text-anchor="middle" fill="#5D6D7E" font-size="10" font-style="italic">試技会</text>
+
+  <!-- Competition branch label -->
+  <text x="440" y="124" text-anchor="middle" fill="#5D6D7E" font-size="10" font-style="italic">大会</text>
+
+  <!-- TrialPage -->
+  <rect x="60" y="134" width="340" height="44" rx="8" fill="#2E86C1" filter="url(#shadow)"/>
+  <text x="230" y="154" text-anchor="middle" fill="white" font-size="13" font-weight="bold">TrialPage</text>
+  <text x="230" y="170" text-anchor="middle" fill="#D6EAF8" font-size="10">選手一覧 + 種目ダッシュボード + SNS共有</text>
+
+  <!-- CompetitionPage -->
+  <rect x="300" y="134" width="260" height="44" rx="8" fill="#2E86C1" filter="url(#shadow)"/>
+  <text x="430" y="154" text-anchor="middle" fill="white" font-size="13" font-weight="bold">CompetitionPage</text>
+  <text x="430" y="170" text-anchor="middle" fill="#D6EAF8" font-size="10">ページナビ + 選手一覧</text>
+
+  <!-- Lines down -->
+  <line x1="230" y1="178" x2="230" y2="212" stroke="#5D6D7E" stroke-width="1.5"/>
+  <line x1="430" y1="178" x2="430" y2="212" stroke="#5D6D7E" stroke-width="1.5"/>
+
+  <!-- TrialJudgePage -->
+  <rect x="100" y="216" width="260" height="40" rx="8" fill="#5DADE2" filter="url(#shadowSm)"/>
+  <text x="230" y="241" text-anchor="middle" fill="white" font-size="12" font-weight="bold">TrialJudgePage</text>
+
+  <!-- Arrow down from TrialJudgePage -->
+  <line x1="230" y1="256" x2="230" y2="276" stroke="#5D6D7E" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+  <!-- Arrow down from CompetitionPage -->
+  <line x1="430" y1="212" x2="430" y2="276" stroke="#5D6D7E" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+  <!-- JudgeSheet (shared) -->
+  <rect x="130" y="280" width="380" height="30" rx="6" fill="#27AE60" filter="url(#shadow)"/>
+  <text x="320" y="300" text-anchor="middle" fill="white" font-size="12" font-weight="bold">JudgeSheet — 全画面 Canvas 採点コンポーネント</text>
+</svg>
