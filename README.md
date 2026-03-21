@@ -7,19 +7,77 @@ iPad + Apple Pencil での利用に最適化した PWA。
 
 ---
 
+## PWA としてインストールする方法
+
+本アプリはPWA（Progressive Web App）対応で、ホーム画面に追加するとネイティブアプリのように動作します。**Wi-Fi がない体育館でも完全オフラインで使えます。**
+
+### iPad / iPhone（Safari）
+
+1. Safari で [https://kaito-imadu.github.io/Tenkai/](https://kaito-imadu.github.io/Tenkai/) を開く
+2. 画面下部（または上部）の **共有ボタン**（□↑）をタップ
+3. **「ホーム画面に追加」** をタップ
+4. 名前を確認して **「追加」** をタップ
+5. ホーム画面に「MAG Memo」アイコンが追加される
+
+> **ポイント:**
+> - インストール後はアドレスバーなしのフルスクリーンで起動します
+> - 横向き（Landscape）に最適化されたレイアウトで表示されます
+> - Apple Pencil で手書き、指でUI操作（パームリジェクション対応）
+> - 一度ページを開けば、以降はオフラインで動作します（Service Worker がアセットをキャッシュ）
+
+### Android（Chrome）
+
+1. Chrome で上記 URL を開く
+2. アドレスバーの **「インストール」** バナー、またはメニュー（⋮）→ **「アプリをインストール」** をタップ
+3. ホーム画面にアイコンが追加される
+
+### PC（Chrome / Edge）
+
+1. ブラウザで上記 URL を開く
+2. アドレスバー右端の **インストールアイコン**（⊕）をクリック
+3. 「インストール」を確認
+
+### オフライン動作について
+
+- 初回アクセス時に Service Worker が全ての静的アセット（HTML/CSS/JS）と Google Fonts をキャッシュします
+- 2回目以降はネットワーク接続なしで完全に動作します
+- 採点データはすべて端末内の IndexedDB に保存されるため、サーバー通信は一切不要です
+- アプリが更新された場合、次回オンライン時に自動で最新版に更新されます
+
+---
+
 ## 機能
+
+### 2つのモード
+
+| モード | 用途 | 説明 |
+|--------|------|------|
+| **試技会モード** | 練習・試技会 | 選手ごとに全6種目の採点メモを管理。選手を登録し、種目を選んで採点 |
+| **大会モード** | 公式大会 | 種目固定で選手を次々と採点。ページ送りで選手を切り替え |
+
+### 試技会モード
+
+- 選手を追加・削除して管理
+- 選手を選択 → 6種目（FX/PH/SR/VT/PB/HB）から種目をタップして採点画面へ
+- 採点済みの種目には「済」マークが表示
+- **採点結果を共有**: 選手の全6種目の採点メモを1枚のPNG画像にまとめてSNS共有・ダウンロード
+  - iOS では Web Share API で直接 LINE / AirDrop 等に共有可能
+
+### 大会モード
+
+- セッション作成時に種目を1つ選択（例: FX）
+- 「次の選手」ボタンで新しいページを追加
+- ページ番号をタップすると選手一覧パネルが開き、任意のページにジャンプ可能
+- 各ページのストローク数・記入状況を一覧で確認
+
+### 採点画面（共通）
 
 | 機能 | 説明 |
 |------|------|
-| **D審判メモ** | 技リスト入力・難度値(DV)・組み合わせ加点(CV)・EG充足チェック → Dスコア自動算出 |
-| **E審判メモ** | 技ごとの減点入力（-0.1 / -0.3 / -0.5 / -1.0）→ Eスコア自動算出 |
-| **NDパネル** | 種目固有のニュートラルディダクション（ライン減点・タイム減点）を管理 |
-| **手書きメモ** | Apple Pencil 対応 Canvas（筆圧感知・3色ペン・消しゴム・Undo/Redo） |
-| **スコアボード** | D + E − ND = 決定点をリアルタイム表示 |
-| **選手管理** | 選手情報の登録・編集・検索（IndexedDB にローカル保存） |
-| **採点履歴** | 過去の採点記録を一覧・フィルター・JSON/CSV エクスポート |
-| **完全オフライン** | Service Worker による静的アセットキャッシュ。Wi-Fi 不要 |
-| **ダークモード** | 体育館の照明環境に合わせて切替可能 |
+| **手書きメモ** | Apple Pencil 対応の全画面キャンバス。筆圧感知・3色ペン（黒/赤/青）・消しゴム・Undo/Redo・全消去 |
+| **直線モード** | ON にすると直線が引ける（表・枠線の作成に便利） |
+| **テンプレート** | D/Eスコア欄、ND項目、CV欄が種目に応じて背景に表示 |
+| **自動保存** | 描画内容は自動で IndexedDB に保存（1秒デバウンス + 画面離脱時即保存） |
 
 ### 対応種目（全6種目）
 
@@ -31,61 +89,6 @@ iPad + Apple Pencil での利用に最適化した PWA。
 | 跳馬 (Vault) | VT | — |
 | 平行棒 (Parallel Bars) | PB | — |
 | 鉄棒 (Horizontal Bar) | HB | — |
-
----
-
-## アーキテクチャ
-
-```
-┌─────────────────────────────────────────────────────────┐
-│                      iPad Safari / PWA                   │
-├─────────────────────────────────────────────────────────┤
-│                                                         │
-│  ┌──────────┐   ┌──────────┐   ┌──────────────────┐    │
-│  │  React   │   │  React   │   │   Pointer Events │    │
-│  │  Router  │──▶│  Pages   │──▶│   Canvas (手書き) │    │
-│  │ (SPA)    │   │          │   │   Apple Pencil   │    │
-│  └──────────┘   └────┬─────┘   └──────────────────┘    │
-│                      │                                   │
-│                      ▼                                   │
-│  ┌──────────────────────────────────────────────┐       │
-│  │           State Management                    │       │
-│  │   React useState + Dexie useLiveQuery         │       │
-│  └───────────────────┬──────────────────────────┘       │
-│                      │                                   │
-│                      ▼                                   │
-│  ┌──────────────────────────────────────────────┐       │
-│  │             Dexie.js (IndexedDB)              │       │
-│  │  ┌──────────┐        ┌──────────────────┐    │       │
-│  │  │ gymnasts │        │     records      │    │       │
-│  │  │ (選手)   │◀──────▶│ (採点レコード)   │    │       │
-│  │  └──────────┘        └──────────────────┘    │       │
-│  └──────────────────────────────────────────────┘       │
-│                                                         │
-├─────────────────────────────────────────────────────────┤
-│  Service Worker (Workbox)  — 静的アセットキャッシュ      │
-└─────────────────────────────────────────────────────────┘
-
-            サーバー通信: なし（完全オフライン）
-```
-
-### 画面構成
-
-```
-HomePage (種目選択 + D/E切替)
-  ├── EJudgePage (E審判メモ: 2ペイン)
-  │     ├── DeductionInput (減点入力)
-  │     ├── NDPanel (ND管理)
-  │     ├── ScoreBoard (スコア表示)
-  │     └── HandwritingCanvas (手書き)
-  ├── DJudgePage (D審判メモ: 2ペイン)
-  │     ├── SkillList (技リスト)
-  │     ├── NDPanel
-  │     ├── ScoreBoard
-  │     └── HandwritingCanvas
-  ├── PlayerListPage (選手管理 CRUD)
-  └── HistoryPage (採点履歴 + エクスポート)
-```
 
 ---
 
@@ -114,18 +117,60 @@ HomePage (種目選択 + D/E切替)
 
 | レイヤー | 技術 |
 |----------|------|
-| フレームワーク | React 19 + TypeScript (strict) |
+| フレームワーク | React 19 + TypeScript 5.9 (strict) |
 | ビルド | Vite 8 |
 | スタイリング | Tailwind CSS 4 |
-| ローカルDB | Dexie.js (IndexedDB ラッパー) |
-| ルーティング | React Router v7 |
-| 手書き入力 | HTML5 Canvas + Pointer Events API |
+| ローカルDB | Dexie.js 4 (IndexedDB) |
+| ルーティング | React Router v7 (HashRouter) |
+| 手書き入力 | HTML5 Canvas + Pointer Events API + getCoalescedEvents |
 | PWA | vite-plugin-pwa (Workbox) |
 | デプロイ | GitHub Pages (GitHub Actions) |
 
 ---
 
-## セットアップ
+## アーキテクチャ
+
+```
+┌──────────────────────────────────────────────────────┐
+│                  iPad Safari / PWA                     │
+├──────────────────────────────────────────────────────┤
+│                                                        │
+│  ┌──────────┐  ┌──────────┐  ┌───────────────────┐   │
+│  │  React   │  │  Pages   │  │  Pointer Events   │   │
+│  │  Router  │─▶│          │─▶│  Canvas (手書き)   │   │
+│  │ (Hash)   │  │          │  │  Apple Pencil     │   │
+│  └──────────┘  └────┬─────┘  └───────────────────┘   │
+│                      │                                  │
+│                      ▼                                  │
+│  ┌──────────────────────────────────────────────┐     │
+│  │           Dexie.js (IndexedDB)                │     │
+│  │  ┌──────────┐       ┌──────────────────┐     │     │
+│  │  │ sessions │       │   memoRecords    │     │     │
+│  │  │ (セッション) │◀────▶│ (採点メモ)       │     │     │
+│  │  └──────────┘       └──────────────────┘     │     │
+│  └──────────────────────────────────────────────┘     │
+│                                                        │
+├──────────────────────────────────────────────────────┤
+│  Service Worker (Workbox) — 静的アセット precache     │
+│  + Google Fonts CacheFirst                             │
+└──────────────────────────────────────────────────────┘
+
+           サーバー通信: なし（完全オフライン）
+```
+
+### 画面構成
+
+```
+EntryPage (モード選択 + セッション管理)
+  ├── TrialPage (試技会モード: 選手一覧 + 種目ダッシュボード)
+  │     └── TrialJudgePage → JudgeSheet (採点画面)
+  └── CompetitionPage (大会モード: ページナビ + 選手一覧)
+        └── JudgeSheet (採点画面)
+```
+
+---
+
+## セットアップ（開発者向け）
 
 ```bash
 # クローン
@@ -146,24 +191,13 @@ npm run preview
 
 # 型チェック
 npx tsc --noEmit
+
+# ESLint
+npm run lint
+
+# PWAアイコン再生成
+node scripts/generate-icons.mjs
 ```
-
----
-
-## 使い方
-
-1. **ホーム画面**でD審判 / E審判モードを選択
-2. **種目グリッド**（FX / PH / SR / VT / PB / HB）から種目をタップ
-3. **採点画面**（2ペイン構成）で左側に採点入力、右側に手書きメモ
-4. **スコアボード**にリアルタイムでスコアが反映
-5. 採点データはすべて **IndexedDB にローカル保存**（オフライン対応）
-6. **採点履歴**から過去データの確認・JSON/CSVエクスポートが可能
-
-### iPad での利用
-
-- Safari で上記 URL を開き「ホーム画面に追加」→ スタンドアロン PWA として動作
-- 横向き（Landscape）で最適化されたレイアウト
-- Apple Pencil で手書きメモ、指でUI操作（パームリジェクション対応）
 
 ---
 
@@ -171,15 +205,26 @@ npx tsc --noEmit
 
 ```
 src/
-├── main.tsx              # エントリーポイント
-├── App.tsx               # ルーティング定義
-├── pages/                # ページコンポーネント
-├── components/           # 再利用コンポーネント
-├── db/                   # Dexie DB 定義
-├── types/                # TypeScript 型定義
-├── hooks/                # カスタムフック
-├── constants/            # 種目・減点値定数
-└── utils/                # エクスポート等ユーティリティ
+├── main.tsx              # エントリーポイント + SW登録
+├── App.tsx               # ルーティング定義 (HashRouter)
+├── index.css             # Tailwind エントリー + テーマ変数
+├── pages/
+│   ├── EntryPage.tsx     # モード選択・セッション管理
+│   ├── TrialPage.tsx     # 試技会モード（選手×種目）
+│   ├── TrialJudgePage.tsx # 試技会 採点画面ラッパー
+│   └── CompetitionPage.tsx # 大会モード（ページ制）
+├── components/
+│   └── JudgeSheet.tsx    # メイン採点コンポーネント（Canvas）
+├── db/
+│   └── database.ts       # Dexie DB定義 (sessions, memoRecords)
+├── types/
+│   └── index.ts          # TypeScript 型定義
+├── constants/
+│   ├── apparatus.ts      # 6種目定義 + ND種別マッピング
+│   └── deductions.ts     # E審判減点値 + ND定義
+├── utils/
+│   └── exportSheet.ts    # PNG画像エクスポート + SNS共有
+└── hooks/                # カスタムフック
 ```
 
 ---
@@ -189,11 +234,9 @@ src/
 | 資料 | 用途 |
 |------|------|
 | [FIG Code of Points MAG 2025-2028](https://www.gymnastics.sport/site/rules/) | 採点ルール・減点体系・ND定義の根拠 |
-| [FIG Newsletter #1 / #2 / #3](https://www.gymnastics.sport/site/rules/) | ルール追加・修正の最新情報 |
 | [Dexie.js Documentation](https://dexie.org/) | IndexedDB ラッパーの API リファレンス |
 | [Pointer Events API (MDN)](https://developer.mozilla.org/en-US/docs/Web/API/Pointer_events) | Apple Pencil の筆圧・pointerType 判定 |
 | [Workbox (Google)](https://developer.chrome.com/docs/workbox/) | Service Worker によるオフラインキャッシュ戦略 |
-| [Tailwind CSS v4](https://tailwindcss.com/docs) | ユーティリティファースト CSS |
 
 ---
 

@@ -10,8 +10,8 @@ GitHub Pages にデプロイ: https://kaito-imadu.github.io/Tenkai/
 - Tailwind CSS 4（`@tailwindcss/vite` プラグイン）
 - Dexie.js 4（IndexedDB ラッパー）
 - React Router v7（HashRouter — GitHub Pages 対応）
-- HTML5 Canvas + Pointer Events API（手書きメモ）
-- vite-plugin-pwa（Phase 3 で導入予定、Vite 8 互換待ち）
+- HTML5 Canvas + Pointer Events API + `getCoalescedEvents()`（手書きメモ）
+- vite-plugin-pwa（Workbox による SW 生成・precache）
 
 ## デプロイ
 - GitHub Actions → GitHub Pages（`.github/workflows/deploy.yml`）
@@ -25,36 +25,56 @@ npm run build      # プロダクションビルド (dist/)
 npm run preview    # ビルドプレビュー
 npx tsc --noEmit   # 型チェック
 npm run lint       # ESLint
+node scripts/generate-icons.mjs  # PWAアイコン再生成
 ```
 
 ## アーキテクチャ
 - **サーバーレス**: バックエンド・外部APIは一切不要
-- **全データはIndexedDB**: 選手情報・採点記録・手書きメモ（Base64）すべてローカル保存
-- **PWA**: Service Worker で静的アセットをキャッシュし、オフラインで完全動作
+- **全データはIndexedDB**: セッション・採点メモ（ストロークデータ）すべてローカル保存
+- **PWA**: vite-plugin-pwa (Workbox) で静的アセットを precache、Google Fonts を CacheFirst キャッシュ
 - **ルーティング**: HashRouter（GitHub Pages の SPA 制約に対応）
+- **セッションベース**: 試技会モード（選手×種目）と大会モード（種目固定×ページ制）の2モード
 
 ## ディレクトリ構成
 ```
 src/
-├── main.tsx              # エントリーポイント
+├── main.tsx              # エントリーポイント + Service Worker 登録
 ├── App.tsx               # ルーティング定義 (HashRouter)
 ├── index.css             # Tailwind エントリー + テーマ変数
-├── pages/                # ページコンポーネント
-│   ├── HomePage.tsx      # 種目選択 (2x3 grid) + D/E審判モード切替
-│   ├── DJudgePage.tsx    # D審判メモ画面
-│   ├── EJudgePage.tsx    # E審判メモ画面
-│   ├── PlayerListPage.tsx # 選手一覧・登録
-│   └── HistoryPage.tsx   # 採点履歴
-├── components/           # 再利用コンポーネント
+├── pages/
+│   ├── EntryPage.tsx     # モード選択・セッション作成・過去セッション一覧
+│   ├── TrialPage.tsx     # 試技会モード（選手一覧 + 種目ダッシュボード + SNS共有）
+│   ├── TrialJudgePage.tsx # 試技会 採点画面ラッパー
+│   └── CompetitionPage.tsx # 大会モード（ページナビ + 選手一覧パネル）
+├── components/
+│   └── JudgeSheet.tsx    # メイン採点コンポーネント（全画面Canvas + ツールバー + テンプレート描画）
 ├── db/
-│   └── database.ts       # Dexie DB定義 (gymnasts, records)
+│   └── database.ts       # Dexie DB定義 (sessions, memoRecords)
 ├── types/
 │   └── index.ts          # 全型定義
 ├── hooks/                # カスタムフック
 ├── constants/
 │   ├── apparatus.ts      # 6種目定義 + ND種別マッピング
 │   └── deductions.ts     # E審判減点値 + ND定義
-└── utils/                # エクスポート等ユーティリティ
+└── utils/
+    └── exportSheet.ts    # PNG画像エクスポート（6種目合成）+ Web Share API 共有
+```
+
+## DB スキーマ (Dexie v3)
+```typescript
+sessions: 'id, date, mode'
+// Session: { id, name, date, mode('trial'|'competition'), judgeMode('D'|'E'), eJudgeCount, apparatus?, athletes[] }
+
+memoRecords: 'id, sessionId, apparatus, [sessionId+apparatus], [sessionId+pageNumber]'
+// MemoRecord: { id, sessionId, athleteName, apparatus, pageNumber, strokes: StrokeData[], updatedAt }
+```
+
+## ルーティング
+```
+/                           → EntryPage（モード選択・セッション管理）
+/trial/:sessionId           → TrialPage（選手×種目ダッシュボード）
+/trial/:sessionId/judge/:athlete/:apparatus → TrialJudgePage（採点画面）
+/competition/:sessionId     → CompetitionPage（ページ制採点）
 ```
 
 ## 対応種目（全6種目）
@@ -83,11 +103,10 @@ src/
 
 ## UI/UX 原則
 1. iPad Landscape（横向き）メインレイアウト
-2. 左ペイン: 採点入力 / 右ペイン: 手書きメモ の2カラム構成
+2. 全画面 Canvas にテンプレート（得点欄・ND項目）を背景描画、その上に手書き
 3. タッチターゲット 44px 以上（競技中の素早い操作）
 4. ダークモード対応（`dark:` プレフィックス、class ベース切替）
-5. スワイプで次の選手へ移動
-6. Apple Pencil のパームリジェクション対応
+5. Apple Pencil のパームリジェクション対応（`pointerType` で pen/touch を分離）
 
 ## カラーテーマ（`src/index.css` @theme）
 - Primary: `#1B4F72`（ダークブルー）
@@ -97,12 +116,23 @@ src/
 - Background: `#F8F9FA`（Light）/ `#1A1A2E`（Dark）
 
 ## Canvas 手書きメモ実装ルール
-- Pointer Events API（pointerdown / pointermove / pointerup）
-- `pointerType === 'pen'` で Apple Pencil 判別（finger はスクロール等に使う）
+- **ネイティブ DOM イベント**（`addEventListener`、React synthetic events は使わない）
+- `activePointerId` で描画中のポインターを追跡（タッチ干渉防止）
+- `getCoalescedEvents()` で Apple Pencil の高頻度入力（120-240Hz）を全取得
+- `requestAnimationFrame` で直線モード描画を最適化
+- `pointerType === 'pen'` で Apple Pencil 判別
 - `pressure` で筆圧による線太さ変更（1〜6px）
-- CSS: `touch-action: none; user-select: none;`
+- CSS: `touch-action: none; user-select: none;`（Canvas と親 div 両方に設定）
 - ペン色: 黒・赤・青（3色切替）、消しゴム・Undo/Redo・クリア
-- 保存: `canvas.toDataURL('image/png', 0.5)` → IndexedDB
+- 保存: StrokeData（座標配列）を IndexedDB に保存（1秒デバウンス + 画面離脱時即時保存）
+
+## PWA 設定
+- `vite.config.ts` で `VitePWA({ registerType: 'autoUpdate' })` を設定
+- Workbox: 静的アセット precache + Google Fonts CacheFirst キャッシュ
+- `index.html`: Apple メタタグ（`apple-mobile-web-app-capable`, `black-translucent`, `apple-touch-icon`）
+- `src/main.tsx`: `registerSW()` で Service Worker 自動登録・自動更新
+- アイコン: `public/icon-192x192.png`, `public/icon-512x512.png`（`scripts/generate-icons.mjs` で生成）
+- マニフェスト: `display: standalone`, `orientation: landscape`
 
 ## コーディングルール
 - TypeScript strict モード
