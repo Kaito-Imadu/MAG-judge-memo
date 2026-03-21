@@ -435,6 +435,16 @@ export default function JudgeSheet({
 
   useEffect(() => { redrawStatic(); }, [redrawStatic]);
 
+  // redrawStatic / clearActive を ref 化し、Pointer Events の useEffect 依存を安定化
+  const redrawStaticRef = useRef(redrawStatic);
+  useEffect(() => { redrawStaticRef.current = redrawStatic; }, [redrawStatic]);
+  const clearActiveRef = useRef(clearActive);
+  useEffect(() => { clearActiveRef.current = clearActive; }, [clearActive]);
+  const getStaticCtxRef = useRef(getStaticCtx);
+  useEffect(() => { getStaticCtxRef.current = getStaticCtx; }, [getStaticCtx]);
+  const getActiveCtxRef = useRef(getActiveCtx);
+  useEffect(() => { getActiveCtxRef.current = getActiveCtx; }, [getActiveCtx]);
+
   // ページ離脱時に即時保存
   useEffect(() => {
     return () => {
@@ -456,7 +466,8 @@ export default function JudgeSheet({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ========== ネイティブ Pointer Events（2層Canvas版） ==========
+  // ========== ネイティブ Pointer Events（2層Canvas版・安定化） ==========
+  // 依存配列を空にし、ref 経由で最新の関数を参照。描画中にリスナーが再登録されることを防ぐ。
   useEffect(() => {
     const activeCv = activeCanvasRef.current;
     if (!activeCv) return;
@@ -493,7 +504,7 @@ export default function JudgeSheet({
         rafId = null;
         if (!straightDirty || !cur.current) return;
         straightDirty = false;
-        const ac = getActiveCtx();
+        const ac = getActiveCtxRef.current();
         if (!ac || !activeCv) return;
         ac.clearRect(0, 0, activeCv.width, activeCv.height);
         const pts = cur.current.points;
@@ -520,7 +531,7 @@ export default function JudgeSheet({
       curDrawnIndex.current = 0;
 
       // Active Canvas クリア
-      clearActive();
+      clearActiveRef.current();
 
       // スクラブ消去判定
       if (scrubDirs.current.length >= SCRUB_DIRS_NEEDED && finished.points.length > 5) {
@@ -530,7 +541,7 @@ export default function JudgeSheet({
           strokes.current.splice(idx, 1);
           spatialGrid.current = rebuildGrid(strokes.current);
           redoStack.current = [];
-          redrawStatic();
+          redrawStaticRef.current();
           saveRef.current();
           return;
         }
@@ -539,7 +550,7 @@ export default function JudgeSheet({
       if (finished.points.length < 2) return;
 
       // 確定ストロークを Static Canvas に描画
-      const sc = getStaticCtx();
+      const sc = getStaticCtxRef.current();
       if (sc) drawSmoothStroke(sc, finished);
 
       // データに追加
@@ -570,8 +581,12 @@ export default function JudgeSheet({
       if (!drawing.current || !cur.current || e.pointerId !== activePointerId.current) return;
       e.preventDefault();
 
-      // getCoalescedEvents: 高周波入力を全取得
-      const events: PointerEvent[] = (e as any).getCoalescedEvents?.() ?? [e];
+      // FIX: getCoalescedEvents() は Safari で空配列を返す場合がある
+      // nullish coalescing (??) は [] に対して発動しないため、length チェックが必要
+      const coalesced = typeof (e as any).getCoalescedEvents === 'function'
+        ? (e as any).getCoalescedEvents() as PointerEvent[]
+        : [];
+      const events: PointerEvent[] = coalesced.length > 0 ? coalesced : [e];
       const prevDrawn = curDrawnIndex.current;
 
       for (const ce of events) {
@@ -608,7 +623,7 @@ export default function JudgeSheet({
         scheduleStraightRedraw();
       } else if (!straight.current) {
         // フリーハンド: Active Canvas にインクリメンタル曲線描画
-        const ac = getActiveCtx();
+        const ac = getActiveCtxRef.current();
         if (ac && cur.current) {
           drawIncrementalSmooth(ac, cur.current.points, cur.current.color, prevDrawn);
           curDrawnIndex.current = cur.current.points.length - 1;
@@ -621,11 +636,24 @@ export default function JudgeSheet({
       finishStroke();
     };
 
+    // FIX: pointerleave は iPad Safari で誤発火することがあるため、
+    // 実際に Canvas 外に出た場合のみ finishStroke する
     const onLeave = (e: PointerEvent) => {
       if (e.pointerId !== activePointerId.current) return;
-      finishStroke();
+      const rect = activeCv.getBoundingClientRect();
+      if (e.clientX < rect.left || e.clientX > rect.right ||
+          e.clientY < rect.top || e.clientY > rect.bottom) {
+        finishStroke();
+      }
     };
 
+    // FIX: iPadOS Scribble がペンイベントを横取りする問題への対策
+    // touch イベントを preventDefault して Scribble の介入を防ぐ
+    const onTouchStart = (e: TouchEvent) => { e.preventDefault(); };
+    const onTouchMove = (e: TouchEvent) => { e.preventDefault(); };
+
+    activeCv.addEventListener('touchstart', onTouchStart, { passive: false });
+    activeCv.addEventListener('touchmove', onTouchMove, { passive: false });
     activeCv.addEventListener('pointerdown', onDown, { passive: false });
     activeCv.addEventListener('pointermove', onMove, { passive: false });
     activeCv.addEventListener('pointerup', onUp);
@@ -633,6 +661,8 @@ export default function JudgeSheet({
     activeCv.addEventListener('pointercancel', onUp);
 
     return () => {
+      activeCv.removeEventListener('touchstart', onTouchStart);
+      activeCv.removeEventListener('touchmove', onTouchMove);
       activeCv.removeEventListener('pointerdown', onDown);
       activeCv.removeEventListener('pointermove', onMove);
       activeCv.removeEventListener('pointerup', onUp);
@@ -641,7 +671,7 @@ export default function JudgeSheet({
       if (rafId !== null) cancelAnimationFrame(rafId);
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [getStaticCtx, getActiveCtx, redrawStatic, clearActive]);
+  }, []); // 依存配列空: ref 経由で最新関数を参照するため再登録不要
 
   // === UI Actions (React state は最小限) ===
   const undo = () => {
