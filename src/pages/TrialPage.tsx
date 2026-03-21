@@ -4,6 +4,7 @@ import { db } from '../db/database';
 import type { Session, MemoRecord } from '../db/database';
 import { APPARATUS_LIST } from '../constants/apparatus';
 import type { Apparatus } from '../types';
+import { exportAthleteSheet, shareOrDownload } from '../utils/exportSheet';
 
 export default function TrialPage() {
   const { sessionId } = useParams<{ sessionId: string }>();
@@ -13,6 +14,7 @@ export default function TrialPage() {
   const [records, setRecords] = useState<MemoRecord[]>([]);
   const [newAthlete, setNewAthlete] = useState('');
   const [showAddInput, setShowAddInput] = useState(false);
+  const [exporting, setExporting] = useState(false);
 
   const reload = async () => {
     if (!sessionId) return;
@@ -52,6 +54,18 @@ export default function TrialPage() {
   const openJudge = (apparatus: Apparatus) => {
     if (!selectedAthlete || !sessionId) return;
     navigate(`/trial/${sessionId}/judge/${encodeURIComponent(selectedAthlete)}/${apparatus}`);
+  };
+
+  const handleExport = async () => {
+    if (!selectedAthlete || !session || !sessionId) return;
+    setExporting(true);
+    try {
+      const blob = await exportAthleteSheet(sessionId, selectedAthlete, session.name, session.eJudgeCount);
+      const filename = `${selectedAthlete}_${session.name}_${new Date().toISOString().slice(0, 10)}.png`;
+      await shareOrDownload(blob, filename);
+    } finally {
+      setExporting(false);
+    }
   };
 
   if (!session) return null;
@@ -139,6 +153,14 @@ export default function TrialPage() {
                     </button>
                   );
                 })}
+              </div>
+              {/* 共有ボタン */}
+              <div className="mt-6 text-center">
+                <button onClick={handleExport} disabled={exporting}
+                  className="px-6 py-2.5 min-h-[44px] rounded-lg bg-accent text-white font-bold
+                             hover:bg-accent/90 disabled:opacity-50 transition-colors">
+                  {exporting ? '作成中...' : '採点結果を共有'}
+                </button>
               </div>
             </div>
           ) : (
