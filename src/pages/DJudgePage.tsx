@@ -14,16 +14,7 @@ export default function DJudgePage() {
   const currentApparatus = (apparatus?.toUpperCase() ?? 'FX') as Apparatus;
   const info = APPARATUS_MAP[currentApparatus];
   const hasND = getNDChecklist(currentApparatus).length > 0;
-
-  const [dScore, setDScore] = useState('');
-  const [eScores, setEScores] = useState<string[]>(['']);
-  const [nd, setNd] = useState('');
-  const [cv, setCv] = useState('');
   const [ndOpen, setNdOpen] = useState(false);
-
-  const handleEScoreChange = (i: number, v: string) => {
-    setEScores((prev) => { const n = [...prev]; n[i] = v; return n; });
-  };
 
   const handleApparatusChange = (a: Apparatus) => {
     navigate(`/judge/${a}/d`, { replace: true });
@@ -32,15 +23,15 @@ export default function DJudgePage() {
   return (
     <div className="h-screen flex flex-col bg-bg-light dark:bg-bg-dark overflow-hidden">
       {/* ヘッダー */}
-      <div className="bg-primary text-white px-3 py-1.5 flex items-center justify-between shrink-0">
+      <div className="bg-primary text-white px-3 py-1 flex items-center justify-between shrink-0">
         <div className="flex items-center gap-3">
-          <span className="font-bold">{info.code} {info.name}</span>
-          <span className="text-xs opacity-60">D審判</span>
+          <span className="font-bold text-sm">{info.code} {info.name}</span>
+          <span className="text-[10px] opacity-60">D審判</span>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1">
           <ApparatusSelector current={currentApparatus} onSelect={handleApparatusChange} />
           <button onClick={() => navigate('/')}
-            className="px-3 py-1 min-h-[36px] rounded text-xs text-white/70 hover:text-white hover:bg-white/10">
+            className="px-2 py-1 min-h-[32px] rounded text-[10px] text-white/70 hover:text-white hover:bg-white/10">
             ホーム
           </button>
         </div>
@@ -54,18 +45,8 @@ export default function DJudgePage() {
         )}
       </div>
 
-      {/* 下部: スコアバー */}
-      <ScoreBar
-        apparatus={currentApparatus}
-        dScore={dScore}
-        eScores={eScores}
-        nd={nd}
-        cv={cv}
-        onDScoreChange={setDScore}
-        onEScoreChange={handleEScoreChange}
-        onNDChange={setNd}
-        onCVChange={setCv}
-      />
+      {/* 下部: 手書きスコアバー */}
+      <ScoreBar apparatus={currentApparatus} eScoreCount={1} />
     </div>
   );
 }
