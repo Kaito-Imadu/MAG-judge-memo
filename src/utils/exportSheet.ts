@@ -95,15 +95,32 @@ function drawStrokes(
   scale: number,
 ) {
   for (const s of strokes) {
-    if (s.points.length < 2) continue;
+    const pts = s.points;
+    if (pts.length < 2) continue;
     c.strokeStyle = s.color;
     c.lineWidth = 1.5;
     c.lineCap = 'round';
     c.lineJoin = 'round';
     c.beginPath();
-    c.moveTo(offsetX + s.points[0].x * scale, offsetY + s.points[0].y * scale);
-    for (let i = 1; i < s.points.length; i++) {
-      c.lineTo(offsetX + s.points[i].x * scale, offsetY + s.points[i].y * scale);
+    const sx = (x: number) => offsetX + x * scale;
+    const sy = (y: number) => offsetY + y * scale;
+    c.moveTo(sx(pts[0].x), sy(pts[0].y));
+
+    if (pts.length === 2) {
+      c.lineTo(sx(pts[1].x), sy(pts[1].y));
+    } else {
+      // 二次ベジェ曲線で滑らか描画
+      for (let i = 0; i < pts.length - 1; i++) {
+        const curr = pts[i];
+        const next = pts[i + 1];
+        if (i === pts.length - 2) {
+          c.quadraticCurveTo(sx(curr.x), sy(curr.y), sx(next.x), sy(next.y));
+        } else {
+          const mx = (curr.x + next.x) / 2;
+          const my = (curr.y + next.y) / 2;
+          c.quadraticCurveTo(sx(curr.x), sy(curr.y), sx(mx), sy(my));
+        }
+      }
     }
     c.stroke();
   }

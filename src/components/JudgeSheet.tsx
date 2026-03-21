@@ -41,6 +41,128 @@ const SCORE_ROW_H = 160;
 const CV_LABEL_H = 28;
 const ND_WIDTH_RATIO = 0.2;
 
+// 空間インデックス: グリッドセルサイズ
+const GRID_CELL = 40;
+
+// ---------- 空間インデックス ----------
+interface SpatialGrid {
+  cells: Map<string, Set<number>>;
+  cellSize: number;
+}
+
+function createGrid(): SpatialGrid {
+  return { cells: new Map(), cellSize: GRID_CELL };
+}
+
+function gridKey(gx: number, gy: number): string {
+  return `${gx},${gy}`;
+}
+
+function insertStroke(grid: SpatialGrid, idx: number, stroke: Stroke) {
+  const cs = grid.cellSize;
+  for (const p of stroke.points) {
+    const gx = Math.floor(p.x / cs);
+    const gy = Math.floor(p.y / cs);
+    const key = gridKey(gx, gy);
+    let set = grid.cells.get(key);
+    if (!set) { set = new Set(); grid.cells.set(key, set); }
+    set.add(idx);
+  }
+}
+
+function rebuildGrid(strokes: Stroke[]): SpatialGrid {
+  const grid = createGrid();
+  for (let i = 0; i < strokes.length; i++) {
+    insertStroke(grid, i, strokes[i]);
+  }
+  return grid;
+}
+
+function queryNear(grid: SpatialGrid, p: Point, radius: number): Set<number> {
+  const cs = grid.cellSize;
+  const r = Math.ceil(radius / cs);
+  const gx = Math.floor(p.x / cs);
+  const gy = Math.floor(p.y / cs);
+  const result = new Set<number>();
+  for (let dx = -r; dx <= r; dx++) {
+    for (let dy = -r; dy <= r; dy++) {
+      const set = grid.cells.get(gridKey(gx + dx, gy + dy));
+      if (set) for (const idx of set) result.add(idx);
+    }
+  }
+  return result;
+}
+
+// ---------- ベジェ曲線描画 ----------
+function drawSmoothStroke(c: CanvasRenderingContext2D, s: Stroke) {
+  const pts = s.points;
+  if (pts.length < 2) return;
+  c.strokeStyle = s.color;
+  c.lineWidth = LINE_WIDTH;
+  c.lineCap = 'round';
+  c.lineJoin = 'round';
+  c.globalCompositeOperation = 'source-over';
+  c.beginPath();
+  c.moveTo(pts[0].x, pts[0].y);
+
+  if (pts.length === 2) {
+    c.lineTo(pts[1].x, pts[1].y);
+  } else {
+    // 二次ベジェ曲線: 隣接2点の中点を通過点にし、元の点をコントロールポイントに
+    for (let i = 0; i < pts.length - 1; i++) {
+      const curr = pts[i];
+      const next = pts[i + 1];
+      if (i === pts.length - 2) {
+        // 最終セグメント: 終点へ直接
+        c.quadraticCurveTo(curr.x, curr.y, next.x, next.y);
+      } else {
+        const mx = (curr.x + next.x) / 2;
+        const my = (curr.y + next.y) / 2;
+        c.quadraticCurveTo(curr.x, curr.y, mx, my);
+      }
+    }
+  }
+  c.stroke();
+}
+
+// インクリメンタル: 直近追加された点だけを描画（Active Canvas 用）
+function drawIncrementalSmooth(
+  c: CanvasRenderingContext2D,
+  pts: Point[],
+  color: string,
+  fromIndex: number,
+) {
+  if (pts.length < 2 || fromIndex < 1) return;
+  c.strokeStyle = color;
+  c.lineWidth = LINE_WIDTH;
+  c.lineCap = 'round';
+  c.lineJoin = 'round';
+  c.globalCompositeOperation = 'source-over';
+
+  // 新規追加された各点について、前の点からの曲線セグメントを描画
+  const start = Math.max(1, fromIndex);
+  for (let i = start; i < pts.length; i++) {
+    const prev2 = i >= 2 ? pts[i - 2] : null;
+    const prev = pts[i - 1];
+    const curr = pts[i];
+
+    c.beginPath();
+    if (prev2) {
+      // 中点間を曲線で結ぶ
+      const mx0 = (prev2.x + prev.x) / 2;
+      const my0 = (prev2.y + prev.y) / 2;
+      const mx1 = (prev.x + curr.x) / 2;
+      const my1 = (prev.y + curr.y) / 2;
+      c.moveTo(mx0, my0);
+      c.quadraticCurveTo(prev.x, prev.y, mx1, my1);
+    } else {
+      c.moveTo(prev.x, prev.y);
+      c.lineTo(curr.x, curr.y);
+    }
+    c.stroke();
+  }
+}
+
 export default function JudgeSheet({
   apparatus,
   judgeMode,
@@ -53,11 +175,16 @@ export default function JudgeSheet({
   toolbarExtra,
   onBack,
 }: Props) {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
+  // === Refs ===
+  const staticCanvasRef = useRef<HTMLCanvasElement>(null);
+  const activeCanvasRef = useRef<HTMLCanvasElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
+
   const strokes = useRef<Stroke[]>([]);
+  const spatialGrid = useRef<SpatialGrid>(createGrid());
   const redoStack = useRef<Stroke[]>([]);
   const cur = useRef<Stroke | null>(null);
+  const curDrawnIndex = useRef(0); // Active Canvas にどこまで描画済みか
   const colorRef = useRef('#000000');
   const drawing = useRef(false);
   const activePointerId = useRef<number | null>(null);
@@ -75,7 +202,15 @@ export default function JudgeSheet({
   const hasND = ndItems.length > 0;
   const hasCV = apparatus === 'FX' || apparatus === 'HB';
 
-  const getCtx = useCallback(() => canvasRef.current?.getContext('2d') ?? null, []);
+  // === Context getters (desynchronized for active layer) ===
+  const getStaticCtx = useCallback(() =>
+    staticCanvasRef.current?.getContext('2d') ?? null, []);
+
+  const getActiveCtx = useCallback((): CanvasRenderingContext2D | null => {
+    const cv = activeCanvasRef.current;
+    if (!cv) return null;
+    return cv.getContext('2d', { desynchronized: true } as CanvasRenderingContext2DSettings) as CanvasRenderingContext2D | null;
+  }, []);
 
   // --- 即時保存 ---
   const flushSave = useCallback((id: string, data: Stroke[]) => {
@@ -92,7 +227,7 @@ export default function JudgeSheet({
     });
   }, [sessionId, athleteName, apparatus, pageNumber]);
 
-  // --- デバウンス保存（refで最新を保持） ---
+  // --- デバウンス保存 ---
   const saveRef = useRef<() => void>(() => {});
   useEffect(() => {
     saveRef.current = () => {
@@ -104,9 +239,9 @@ export default function JudgeSheet({
     };
   }, [recordId, flushSave]);
 
-  // テンプレート描画
+  // === テンプレート描画 (Static Canvas のみ) ===
   const drawTemplate = useCallback(() => {
-    const c = getCtx();
+    const c = getStaticCtx();
     if (!c) return;
     const { w, h } = sizeRef.current;
     if (w === 0) return;
@@ -191,29 +326,25 @@ export default function JudgeSheet({
     }
 
     c.restore();
-  }, [getCtx, hasND, hasCV, ndItems, eJudgeCount]);
+  }, [getStaticCtx, hasND, hasCV, ndItems, eJudgeCount]);
 
-  const drawStroke = useCallback((c: CanvasRenderingContext2D, s: Stroke) => {
-    if (s.points.length < 2) return;
-    c.strokeStyle = s.color;
-    c.lineWidth = LINE_WIDTH;
-    c.lineCap = 'round';
-    c.lineJoin = 'round';
-    c.globalCompositeOperation = 'source-over';
-    c.beginPath();
-    c.moveTo(s.points[0].x, s.points[0].y);
-    for (let i = 1; i < s.points.length; i++) c.lineTo(s.points[i].x, s.points[i].y);
-    c.stroke();
-  }, []);
-
-  const redrawAll = useCallback(() => {
-    const c = getCtx();
-    const cv = canvasRef.current;
+  // === Static Canvas 全再描画 ===
+  const redrawStatic = useCallback(() => {
+    const c = getStaticCtx();
+    const cv = staticCanvasRef.current;
     if (!c || !cv) return;
     c.clearRect(0, 0, cv.width, cv.height);
     drawTemplate();
-    for (const s of strokes.current) drawStroke(c, s);
-  }, [getCtx, drawTemplate, drawStroke]);
+    for (const s of strokes.current) drawSmoothStroke(c, s);
+  }, [getStaticCtx, drawTemplate]);
+
+  // === Active Canvas クリア ===
+  const clearActive = useCallback(() => {
+    const c = getActiveCtx();
+    const cv = activeCanvasRef.current;
+    if (!c || !cv) return;
+    c.clearRect(0, 0, cv.width, cv.height);
+  }, [getActiveCtx]);
 
   // --- recordId変更時: 前を保存 → 新を復元 ---
   useEffect(() => {
@@ -226,26 +357,37 @@ export default function JudgeSheet({
       strokes.current = saved
         ? saved.strokes.map(s => ({ points: s.points, color: s.color }))
         : [];
+      spatialGrid.current = rebuildGrid(strokes.current);
       redoStack.current = [];
-      redrawAll();
+      redrawStatic();
+      clearActive();
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [recordId]);
 
-  // resize
+  // === resize: 両Canvas を同期 ===
   useEffect(() => {
     const wrap = wrapRef.current;
-    const canvas = canvasRef.current;
-    if (!canvas || !wrap) return;
+    const staticCv = staticCanvasRef.current;
+    const activeCv = activeCanvasRef.current;
+    if (!staticCv || !activeCv || !wrap) return;
+
     const resize = () => {
       const rect = wrap.getBoundingClientRect();
       const dpr = window.devicePixelRatio || 1;
       sizeRef.current = { w: rect.width, h: rect.height };
-      canvas.width = rect.width * dpr;
-      canvas.height = rect.height * dpr;
-      const c = canvas.getContext('2d');
-      if (c) c.scale(dpr, dpr);
-      redrawAll();
+
+      for (const cv of [staticCv, activeCv]) {
+        cv.width = rect.width * dpr;
+        cv.height = rect.height * dpr;
+      }
+      // scale は getContext ごとにセットが必要
+      const sc = staticCv.getContext('2d');
+      if (sc) sc.scale(dpr, dpr);
+      const ac = activeCv.getContext('2d', { desynchronized: true } as CanvasRenderingContext2DSettings) as CanvasRenderingContext2D | null;
+      if (ac) ac.scale(dpr, dpr);
+
+      redrawStatic();
     };
     resize();
     const ro = new ResizeObserver(resize);
@@ -254,7 +396,7 @@ export default function JudgeSheet({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [apparatus, eJudgeCount]);
 
-  useEffect(() => { redrawAll(); }, [redrawAll]);
+  useEffect(() => { redrawStatic(); }, [redrawStatic]);
 
   // ページ離脱時に即時保存
   useEffect(() => {
@@ -277,16 +419,16 @@ export default function JudgeSheet({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ========== ネイティブ Pointer Events（最適化版） ==========
+  // ========== ネイティブ Pointer Events（2層Canvas版） ==========
   useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
+    const activeCv = activeCanvasRef.current;
+    if (!activeCv) return;
 
     let rafId: number | null = null;
     let straightDirty = false;
 
     const getPos = (e: PointerEvent): Point => {
-      const r = canvas.getBoundingClientRect();
+      const r = activeCv.getBoundingClientRect();
       return { x: e.clientX - r.left, y: e.clientY - r.top };
     };
 
@@ -301,30 +443,30 @@ export default function JudgeSheet({
         straight.current = true;
         const s = startPt.current!;
         cur.current = { points: [s, p], color: cur.current.color };
+        curDrawnIndex.current = 0;
         straightDirty = true;
         scheduleStraightRedraw();
       }, STRAIGHT_DELAY);
     };
 
-    // 直線モード: rAF で1フレーム1回だけ redrawAll
+    // 直線モード: rAF で Active Canvas に直線プレビュー
     const scheduleStraightRedraw = () => {
       if (rafId !== null) return;
       rafId = requestAnimationFrame(() => {
         rafId = null;
         if (!straightDirty || !cur.current) return;
         straightDirty = false;
-        redrawAll();
-        const c = getCtx();
-        if (c && cur.current) {
-          const pts = cur.current.points;
-          c.strokeStyle = cur.current.color;
-          c.lineWidth = LINE_WIDTH;
-          c.lineCap = 'round';
-          c.beginPath();
-          c.moveTo(pts[0].x, pts[0].y);
-          c.lineTo(pts[1].x, pts[1].y);
-          c.stroke();
-        }
+        const ac = getActiveCtx();
+        if (!ac || !activeCv) return;
+        ac.clearRect(0, 0, activeCv.width, activeCv.height);
+        const pts = cur.current.points;
+        ac.strokeStyle = cur.current.color;
+        ac.lineWidth = LINE_WIDTH;
+        ac.lineCap = 'round';
+        ac.beginPath();
+        ac.moveTo(pts[0].x, pts[0].y);
+        ac.lineTo(pts[pts.length - 1].x, pts[pts.length - 1].y);
+        ac.stroke();
       });
     };
 
@@ -338,19 +480,35 @@ export default function JudgeSheet({
       cur.current = null;
       straight.current = false;
       straightDirty = false;
+      curDrawnIndex.current = 0;
+
+      // Active Canvas クリア
+      clearActive();
+
+      // スクラブ消去判定
       if (scrubDirs.current.length >= SCRUB_DIRS_NEEDED && finished.points.length > 5) {
         const center = finished.points[Math.floor(finished.points.length / 2)];
-        const idx = findStrokeAt(strokes.current, center, ERASER_WIDTH);
+        const idx = findStrokeAtIndexed(strokes.current, spatialGrid.current, center, ERASER_WIDTH);
         if (idx >= 0) {
           strokes.current.splice(idx, 1);
+          spatialGrid.current = rebuildGrid(strokes.current);
           redoStack.current = [];
-          redrawAll();
+          redrawStatic();
           saveRef.current();
           return;
         }
       }
+
       if (finished.points.length < 2) return;
+
+      // 確定ストロークを Static Canvas に描画
+      const sc = getStaticCtx();
+      if (sc) drawSmoothStroke(sc, finished);
+
+      // データに追加
+      const idx = strokes.current.length;
       strokes.current.push(finished);
+      insertStroke(spatialGrid.current, idx, finished);
       redoStack.current = [];
       saveRef.current();
     };
@@ -364,6 +522,7 @@ export default function JudgeSheet({
       straight.current = false;
       straightDirty = false;
       scrubDirs.current = [];
+      curDrawnIndex.current = 0;
       const p = getPos(e);
       startPt.current = p;
       cur.current = { points: [p], color: colorRef.current };
@@ -374,8 +533,9 @@ export default function JudgeSheet({
       if (!drawing.current || !cur.current || e.pointerId !== activePointerId.current) return;
       e.preventDefault();
 
-      // getCoalescedEvents: Apple Pencil 等の高周波入力を全取得
+      // getCoalescedEvents: 高周波入力を全取得
       const events: PointerEvent[] = (e as any).getCoalescedEvents?.() ?? [e];
+      const prevDrawn = curDrawnIndex.current;
 
       for (const ce of events) {
         const p = getPos(ce);
@@ -384,7 +544,7 @@ export default function JudgeSheet({
         const dx = p.x - prev.x;
         const dy = p.y - prev.y;
 
-        // スクラブ方向検出（最後のイベントのみ、軽量化）
+        // スクラブ方向検出（最後のイベントのみ）
         if (ce === events[events.length - 1] && Math.abs(dx) > 2) {
           const d = dx > 0 ? 1 : -1;
           const sd = scrubDirs.current;
@@ -392,36 +552,30 @@ export default function JudgeSheet({
         }
 
         if (straight.current) {
-          // 直線モード: 座標更新のみ、描画はrAFにまかせる
           const s = startPt.current!;
           cur.current = { points: [s, p], color: cur.current!.color };
+          curDrawnIndex.current = 0;
           straightDirty = true;
           continue;
         }
 
-        // 直線判定タイマーのリセット（最後のイベントのみ）
+        // 直線判定タイマーのリセット
         if (ce === events[events.length - 1] && Math.hypot(dx, dy) > STRAIGHT_THRESHOLD) {
           startHold(p);
         }
 
-        // フリーハンド描画: 即座にCanvasへ描画
         pts.push(p);
-        const c = getCtx();
-        if (c) {
-          c.strokeStyle = cur.current!.color;
-          c.lineWidth = LINE_WIDTH;
-          c.lineCap = 'round';
-          c.lineJoin = 'round';
-          c.beginPath();
-          c.moveTo(prev.x, prev.y);
-          c.lineTo(p.x, p.y);
-          c.stroke();
-        }
       }
 
-      // 直線モードのrAF描画をスケジュール
       if (straight.current && straightDirty) {
         scheduleStraightRedraw();
+      } else if (!straight.current) {
+        // フリーハンド: Active Canvas にインクリメンタル曲線描画
+        const ac = getActiveCtx();
+        if (ac && cur.current) {
+          drawIncrementalSmooth(ac, cur.current.points, cur.current.color, prevDrawn);
+          curDrawnIndex.current = cur.current.points.length - 1;
+        }
       }
     };
 
@@ -435,26 +589,51 @@ export default function JudgeSheet({
       finishStroke();
     };
 
-    canvas.addEventListener('pointerdown', onDown, { passive: false });
-    canvas.addEventListener('pointermove', onMove, { passive: false });
-    canvas.addEventListener('pointerup', onUp);
-    canvas.addEventListener('pointerleave', onLeave);
-    canvas.addEventListener('pointercancel', onUp);
+    activeCv.addEventListener('pointerdown', onDown, { passive: false });
+    activeCv.addEventListener('pointermove', onMove, { passive: false });
+    activeCv.addEventListener('pointerup', onUp);
+    activeCv.addEventListener('pointerleave', onLeave);
+    activeCv.addEventListener('pointercancel', onUp);
 
     return () => {
-      canvas.removeEventListener('pointerdown', onDown);
-      canvas.removeEventListener('pointermove', onMove);
-      canvas.removeEventListener('pointerup', onUp);
-      canvas.removeEventListener('pointerleave', onLeave);
-      canvas.removeEventListener('pointercancel', onUp);
+      activeCv.removeEventListener('pointerdown', onDown);
+      activeCv.removeEventListener('pointermove', onMove);
+      activeCv.removeEventListener('pointerup', onUp);
+      activeCv.removeEventListener('pointerleave', onLeave);
+      activeCv.removeEventListener('pointercancel', onUp);
       if (rafId !== null) cancelAnimationFrame(rafId);
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [getCtx, redrawAll]);
+  }, [getStaticCtx, getActiveCtx, redrawStatic, clearActive]);
 
-  const undo = () => { if (strokes.current.length === 0) return; redoStack.current.push(strokes.current.pop()!); redrawAll(); saveRef.current(); setTick(t => t + 1); };
-  const redo = () => { if (redoStack.current.length === 0) return; strokes.current.push(redoStack.current.pop()!); redrawAll(); saveRef.current(); setTick(t => t + 1); };
-  const clear = () => { strokes.current = []; redoStack.current = []; redrawAll(); saveRef.current(); setTick(t => t + 1); };
+  // === UI Actions (React state は最小限) ===
+  const undo = () => {
+    if (strokes.current.length === 0) return;
+    redoStack.current.push(strokes.current.pop()!);
+    spatialGrid.current = rebuildGrid(strokes.current);
+    redrawStatic();
+    saveRef.current();
+    setTick(t => t + 1);
+  };
+  const redo = () => {
+    if (redoStack.current.length === 0) return;
+    const s = redoStack.current.pop()!;
+    const idx = strokes.current.length;
+    strokes.current.push(s);
+    insertStroke(spatialGrid.current, idx, s);
+    redrawStatic();
+    saveRef.current();
+    setTick(t => t + 1);
+  };
+  const clear = () => {
+    strokes.current = [];
+    spatialGrid.current = createGrid();
+    redoStack.current = [];
+    redrawStatic();
+    clearActive();
+    saveRef.current();
+    setTick(t => t + 1);
+  };
   const pickColor = (c: string) => { colorRef.current = c; setTick(t => t + 1); };
 
   const handleApparatusChange = (a: Apparatus) => {
@@ -506,25 +685,38 @@ export default function JudgeSheet({
         </div>
       </div>
 
-      <div ref={wrapRef} className="flex-1 min-h-0" style={{ touchAction: 'none' }}>
-        <canvas ref={canvasRef}
-          className="w-full h-full bg-white dark:bg-gray-950 cursor-crosshair"
+      {/* 2層Canvas: Static(下) + Active(上) を絶対配置で重ねる */}
+      <div ref={wrapRef} className="flex-1 min-h-0 relative" style={{ touchAction: 'none' }}>
+        <canvas ref={staticCanvasRef}
+          className="absolute inset-0 w-full h-full bg-white dark:bg-gray-950"
+          style={{ touchAction: 'none', userSelect: 'none', pointerEvents: 'none' }} />
+        <canvas ref={activeCanvasRef}
+          className="absolute inset-0 w-full h-full cursor-crosshair"
           style={{ touchAction: 'none', userSelect: 'none' }} />
       </div>
     </div>
   );
 }
 
-function findStrokeAt(strokes: Stroke[], p: Point, threshold: number): number {
-  for (let si = strokes.length - 1; si >= 0; si--) {
+// 空間インデックス付きストローク検索
+function findStrokeAtIndexed(
+  strokes: Stroke[], grid: SpatialGrid, p: Point, threshold: number,
+): number {
+  const candidates = queryNear(grid, p, threshold);
+  let best = -1;
+  for (const si of candidates) {
+    if (si >= strokes.length) continue;
     const pts = strokes[si].points;
     for (let i = 0; i < pts.length - 1; i++) {
       const a = pts[i], b = pts[i + 1];
       const dx = b.x - a.x, dy = b.y - a.y, lenSq = dx * dx + dy * dy;
       let t = lenSq === 0 ? 0 : ((p.x - a.x) * dx + (p.y - a.y) * dy) / lenSq;
       t = Math.max(0, Math.min(1, t));
-      if (Math.hypot(p.x - (a.x + t * dx), p.y - (a.y + t * dy)) < threshold) return si;
+      if (Math.hypot(p.x - (a.x + t * dx), p.y - (a.y + t * dy)) < threshold) {
+        // 最も上のストロークを優先
+        if (si > best) best = si;
+      }
     }
   }
-  return -1;
+  return best;
 }
