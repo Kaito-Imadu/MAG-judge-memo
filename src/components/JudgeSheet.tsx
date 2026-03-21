@@ -26,7 +26,7 @@ const SCRUB_DIRS_NEEDED = 4;
 
 // レイアウト定数（割合）
 const HEADER_H = 36;       // ヘッダー高さ px
-const SCORE_ROW_H = 56;    // スコア行の高さ px
+const SCORE_ROW_H = 120;   // スコア行の高さ px
 const ND_WIDTH_RATIO = 0.2; // ND列幅の割合
 
 export default function JudgeSheet({ apparatus, mode, eJudgeCount }: Props) {
@@ -47,6 +47,8 @@ export default function JudgeSheet({ apparatus, mode, eJudgeCount }: Props) {
 
   const ndItems = getNDChecklist(apparatus);
   const hasND = ndItems.length > 0;
+  const hasCV = apparatus === 'FX' || apparatus === 'HB';
+
   const getCtx = useCallback(() => canvasRef.current?.getContext('2d') ?? null, []);
 
   // テンプレート描画（罫線・ラベル・ND項目）
@@ -76,18 +78,8 @@ export default function JudgeSheet({ apparatus, mode, eJudgeCount }: Props) {
     c.font = '13px "Noto Sans JP", sans-serif';
     c.fillText('選手名', 8, HEADER_H - 10);
 
-    // --- ND列 点線（右下に配置） ---
+    // --- ND項目（右下に配置） ---
     if (hasND) {
-      c.strokeStyle = '#999';
-      c.lineWidth = 1;
-      c.setLineDash([6, 4]);
-      // 縦線
-      c.beginPath();
-      c.moveTo(mainW, HEADER_H);
-      c.lineTo(mainW, scoreRowTop);
-      c.stroke();
-      c.setLineDash([]);
-
       // ND項目（右下に濃い字で配置）
       c.fillStyle = '#555';
       c.font = '12px "Noto Sans JP", sans-serif';
@@ -112,11 +104,12 @@ export default function JudgeSheet({ apparatus, mode, eJudgeCount }: Props) {
     c.lineTo(w, scoreRowTop);
     c.stroke();
 
-    // スコア列: D, E1, E2..., ND, 決定点
+    // スコア列: D, E1, E2..., CV(FX/HB), ND, 決定点
     const cols: string[] = ['D'];
     for (let i = 0; i < eJudgeCount; i++) {
       cols.push(i === 0 ? 'E1' : `E${i + 1}`);
     }
+    if (hasCV) cols.push('CV');
     cols.push('ND', '決定点');
 
     const colCount = cols.length;
