@@ -1,30 +1,18 @@
 import { HashRouter, Routes, Route } from 'react-router-dom';
-import HomePage from './pages/HomePage';
-import EJudgePage from './pages/EJudgePage';
-import DJudgePage from './pages/DJudgePage';
+import EntryPage from './pages/EntryPage';
+import TrialPage from './pages/TrialPage';
+import TrialJudgePage from './pages/TrialJudgePage';
+import CompetitionPage from './pages/CompetitionPage';
 
 export default function App() {
   return (
     <HashRouter>
       <Routes>
-        <Route path="/" element={<HomePage />} />
-        <Route path="/judge/:apparatus/e" element={<EJudgePage />} />
-        <Route path="/judge/:apparatus/d" element={<DJudgePage />} />
-        <Route path="/players" element={<PlaceholderPage title="選手管理" />} />
-        <Route path="/history" element={<PlaceholderPage title="採点履歴" />} />
+        <Route path="/" element={<EntryPage />} />
+        <Route path="/trial/:sessionId" element={<TrialPage />} />
+        <Route path="/trial/:sessionId/judge/:athlete/:apparatus" element={<TrialJudgePage />} />
+        <Route path="/competition/:sessionId" element={<CompetitionPage />} />
       </Routes>
     </HashRouter>
-  );
-}
-
-function PlaceholderPage({ title }: { title: string }) {
-  return (
-    <div className="min-h-screen bg-bg-light dark:bg-bg-dark flex items-center justify-center">
-      <div className="text-center">
-        <h1 className="text-2xl font-bold text-primary dark:text-accent">{title}</h1>
-        <p className="text-gray-500 mt-2">実装予定</p>
-        <a href="#/" className="text-accent underline mt-4 inline-block">ホームへ戻る</a>
-      </div>
-    </div>
   );
 }

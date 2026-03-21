@@ -1,4 +1,5 @@
 import { useRef, useState, useCallback, useEffect } from 'react';
+import type { ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
 import type { Apparatus } from '../types';
 import { APPARATUS_LIST } from '../constants/apparatus';
@@ -11,8 +12,15 @@ interface Stroke { points: Point[]; color: string }
 
 interface Props {
   apparatus: Apparatus;
-  mode: 'D' | 'E';
+  judgeMode: 'D' | 'E';
   eJudgeCount: number;
+  recordId: string;
+  sessionId: string;
+  athleteName?: string;
+  pageNumber?: number;
+  showApparatusTabs?: boolean;
+  toolbarExtra?: ReactNode;
+  onBack?: () => void;
 }
 
 const COLORS = [
@@ -33,11 +41,18 @@ const SCORE_ROW_H = 160;
 const CV_LABEL_H = 28;
 const ND_WIDTH_RATIO = 0.2;
 
-function sheetKey(apparatus: Apparatus, mode: 'D' | 'E', eJudgeCount: number): string {
-  return mode === 'E' ? `${apparatus}_E_${eJudgeCount}` : `${apparatus}_D`;
-}
-
-export default function JudgeSheet({ apparatus, mode, eJudgeCount }: Props) {
+export default function JudgeSheet({
+  apparatus,
+  judgeMode,
+  eJudgeCount,
+  recordId,
+  sessionId,
+  athleteName = '',
+  pageNumber = 0,
+  showApparatusTabs = true,
+  toolbarExtra,
+  onBack,
+}: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
   const strokes = useRef<Stroke[]>([]);
@@ -52,7 +67,7 @@ export default function JudgeSheet({ apparatus, mode, eJudgeCount }: Props) {
   const startPt = useRef<Point | null>(null);
   const scrubDirs = useRef<number[]>([]);
   const sizeRef = useRef({ w: 0, h: 0 });
-  const prevKeyRef = useRef<string>('');
+  const prevRecordId = useRef<string>('');
   const navigate = useNavigate();
   const [tick, setTick] = useState(0);
 
@@ -63,23 +78,31 @@ export default function JudgeSheet({ apparatus, mode, eJudgeCount }: Props) {
   const getCtx = useCallback(() => canvasRef.current?.getContext('2d') ?? null, []);
 
   // --- 即時保存 ---
-  const flushSave = useCallback((key: string, data: Stroke[]) => {
+  const flushSave = useCallback((id: string, data: Stroke[]) => {
     if (saveTimer.current) { clearTimeout(saveTimer.current); saveTimer.current = null; }
-    const strokesToSave: StrokeData[] = data.map(s => ({ points: s.points, color: s.color }));
-    db.sheets.put({ key, strokes: strokesToSave, updatedAt: new Date() });
-  }, []);
+    if (data.length === 0 && !prevRecordId.current) return;
+    db.memoRecords.put({
+      id,
+      sessionId,
+      athleteName,
+      apparatus,
+      pageNumber,
+      strokes: data.map(s => ({ points: s.points, color: s.color })),
+      updatedAt: new Date(),
+    });
+  }, [sessionId, athleteName, apparatus, pageNumber]);
 
-  // --- デバウンス保存 ---
-  const saveStrokesRef = useRef<() => void>(() => {});
+  // --- デバウンス保存（refで最新を保持） ---
+  const saveRef = useRef<() => void>(() => {});
   useEffect(() => {
-    saveStrokesRef.current = () => {
+    saveRef.current = () => {
       if (saveTimer.current) clearTimeout(saveTimer.current);
-      const key = sheetKey(apparatus, mode, eJudgeCount);
+      const id = recordId;
       saveTimer.current = setTimeout(() => {
-        flushSave(key, strokes.current);
+        flushSave(id, strokes.current);
       }, SAVE_DEBOUNCE);
     };
-  }, [apparatus, mode, eJudgeCount, flushSave]);
+  }, [recordId, flushSave]);
 
   // テンプレート描画
   const drawTemplate = useCallback(() => {
@@ -192,14 +215,14 @@ export default function JudgeSheet({ apparatus, mode, eJudgeCount }: Props) {
     for (const s of strokes.current) drawStroke(c, s);
   }, [getCtx, drawTemplate, drawStroke]);
 
-  // --- 種目切替時: 前のストロークを即時保存 → 新しいストロークを復元 ---
+  // --- recordId変更時: 前を保存 → 新を復元 ---
   useEffect(() => {
-    const newKey = sheetKey(apparatus, mode, eJudgeCount);
-    if (prevKeyRef.current && prevKeyRef.current !== newKey && strokes.current.length > 0) {
-      flushSave(prevKeyRef.current, strokes.current);
+    if (prevRecordId.current && prevRecordId.current !== recordId) {
+      flushSave(prevRecordId.current, strokes.current);
     }
-    prevKeyRef.current = newKey;
-    db.sheets.get(newKey).then((saved) => {
+    prevRecordId.current = recordId;
+
+    db.memoRecords.get(recordId).then((saved) => {
       strokes.current = saved
         ? saved.strokes.map(s => ({ points: s.points, color: s.color }))
         : [];
@@ -207,7 +230,7 @@ export default function JudgeSheet({ apparatus, mode, eJudgeCount }: Props) {
       redrawAll();
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [apparatus, mode, eJudgeCount]);
+  }, [recordId]);
 
   // resize
   useEffect(() => {
@@ -237,16 +260,24 @@ export default function JudgeSheet({ apparatus, mode, eJudgeCount }: Props) {
   useEffect(() => {
     return () => {
       if (saveTimer.current) clearTimeout(saveTimer.current);
-      const key = prevKeyRef.current;
-      if (key && strokes.current.length > 0) {
+      const id = prevRecordId.current;
+      if (id && strokes.current.length > 0) {
         const data: StrokeData[] = strokes.current.map(s => ({ points: s.points, color: s.color }));
-        db.sheets.put({ key, strokes: data, updatedAt: new Date() });
+        db.memoRecords.put({
+          id,
+          sessionId,
+          athleteName,
+          apparatus,
+          pageNumber,
+          strokes: data,
+          updatedAt: new Date(),
+        });
       }
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ========== ネイティブ Pointer Events（React経由ではなくDOMに直接登録） ==========
+  // ========== ネイティブ Pointer Events ==========
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -296,24 +327,20 @@ export default function JudgeSheet({ apparatus, mode, eJudgeCount }: Props) {
           strokes.current.splice(idx, 1);
           redoStack.current = [];
           redrawAll();
-          saveStrokesRef.current();
+          saveRef.current();
           return;
         }
       }
       if (finished.points.length < 2) return;
       strokes.current.push(finished);
       redoStack.current = [];
-      saveStrokesRef.current();
+      saveRef.current();
     };
 
     const onDown = (e: PointerEvent) => {
-      // タッチは無視（Apple Pencil = 'pen', マウス = 'mouse'）
       if (e.pointerType === 'touch') return;
       e.preventDefault();
-
-      // 前のストロークが残っていたら強制完了
       if (drawing.current) finishStroke();
-
       activePointerId.current = e.pointerId;
       drawing.current = true;
       straight.current = false;
@@ -325,20 +352,17 @@ export default function JudgeSheet({ apparatus, mode, eJudgeCount }: Props) {
     };
 
     const onMove = (e: PointerEvent) => {
-      // このポインターのイベントだけ処理
       if (!drawing.current || !cur.current || e.pointerId !== activePointerId.current) return;
       e.preventDefault();
       const p = getPos(e);
       const pts = cur.current.points;
       const prev = pts[pts.length - 1];
       const dx = p.x - prev.x;
-
       if (Math.abs(dx) > 2) {
         const d = dx > 0 ? 1 : -1;
         const sd = scrubDirs.current;
         if (sd.length === 0 || sd[sd.length - 1] !== d) sd.push(d);
       }
-
       if (straight.current) {
         const s = startPt.current!;
         cur.current = { points: [s, p], color: cur.current.color };
@@ -355,7 +379,6 @@ export default function JudgeSheet({ apparatus, mode, eJudgeCount }: Props) {
         }
         return;
       }
-
       if (Math.hypot(dx, p.y - prev.y) > STRAIGHT_THRESHOLD) startHold(p);
       pts.push(p);
       const c = getCtx();
@@ -380,7 +403,6 @@ export default function JudgeSheet({ apparatus, mode, eJudgeCount }: Props) {
       finishStroke();
     };
 
-    // passive: false で preventDefault を有効にする
     canvas.addEventListener('pointerdown', onDown, { passive: false });
     canvas.addEventListener('pointermove', onMove, { passive: false });
     canvas.addEventListener('pointerup', onUp);
@@ -397,16 +419,21 @@ export default function JudgeSheet({ apparatus, mode, eJudgeCount }: Props) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [getCtx, redrawAll]);
 
-  const undo = () => { if (strokes.current.length === 0) return; redoStack.current.push(strokes.current.pop()!); redrawAll(); saveStrokesRef.current(); setTick(t => t + 1); };
-  const redo = () => { if (redoStack.current.length === 0) return; strokes.current.push(redoStack.current.pop()!); redrawAll(); saveStrokesRef.current(); setTick(t => t + 1); };
-  const clear = () => { strokes.current = []; redoStack.current = []; redrawAll(); saveStrokesRef.current(); setTick(t => t + 1); };
+  const undo = () => { if (strokes.current.length === 0) return; redoStack.current.push(strokes.current.pop()!); redrawAll(); saveRef.current(); setTick(t => t + 1); };
+  const redo = () => { if (redoStack.current.length === 0) return; strokes.current.push(redoStack.current.pop()!); redrawAll(); saveRef.current(); setTick(t => t + 1); };
+  const clear = () => { strokes.current = []; redoStack.current = []; redrawAll(); saveRef.current(); setTick(t => t + 1); };
   const pickColor = (c: string) => { colorRef.current = c; setTick(t => t + 1); };
 
   const handleApparatusChange = (a: Apparatus) => {
-    const key = sheetKey(apparatus, mode, eJudgeCount);
-    flushSave(key, strokes.current);
-    const path = mode === 'E' ? `/judge/${a}/e?eCount=${eJudgeCount}` : `/judge/${a}/d`;
+    flushSave(recordId, strokes.current);
+    const path = judgeMode === 'E' ? `/judge/${a}/e?eCount=${eJudgeCount}` : `/judge/${a}/d`;
     navigate(path, { replace: true });
+  };
+
+  const handleBack = () => {
+    flushSave(recordId, strokes.current);
+    if (onBack) onBack();
+    else navigate('/');
   };
 
   void tick;
@@ -416,15 +443,22 @@ export default function JudgeSheet({ apparatus, mode, eJudgeCount }: Props) {
       <div className="flex items-center gap-2 px-2 py-0.5 bg-gray-100 dark:bg-gray-800 shrink-0">
         {COLORS.map((c) => (
           <button key={c.value} onClick={() => pickColor(c.value)}
-            className={`w-6 h-6 rounded-full border-2 ${colorRef.current === c.value ? 'border-accent scale-110 ring-2 ring-accent/30' : 'border-gray-300 dark:border-gray-600'}`}
+            className={`w-6 h-6 rounded-full border-2 ${
+              colorRef.current === c.value
+                ? 'border-accent scale-110 ring-2 ring-accent/30'
+                : 'border-gray-300 dark:border-gray-600'
+            }`}
             style={{ backgroundColor: c.value }} />
         ))}
         <div className="w-px h-4 bg-gray-300" />
         <button onClick={undo} className="px-1.5 py-0.5 rounded text-[10px] bg-white dark:bg-gray-700 text-gray-500">↩</button>
         <button onClick={redo} className="px-1.5 py-0.5 rounded text-[10px] bg-white dark:bg-gray-700 text-gray-500">↪</button>
         <button onClick={clear} className="px-1.5 py-0.5 rounded text-[10px] text-danger">全消去</button>
+
+        {toolbarExtra}
+
         <div className="ml-auto flex items-center gap-1">
-          {APPARATUS_LIST.map((a) => (
+          {showApparatusTabs && APPARATUS_LIST.map((a) => (
             <button key={a.code} onClick={() => handleApparatusChange(a.code)}
               className={`px-2 py-0.5 rounded text-[10px] font-bold ${
                 apparatus === a.code ? 'bg-primary text-white' : 'text-gray-500 hover:bg-gray-200'
@@ -432,9 +466,9 @@ export default function JudgeSheet({ apparatus, mode, eJudgeCount }: Props) {
               {a.code}
             </button>
           ))}
-          <button onClick={() => navigate('/')}
+          <button onClick={handleBack}
             className="px-2 py-0.5 rounded text-[10px] text-gray-400 hover:text-gray-600 ml-1">
-            ホーム
+            {onBack ? '← 戻る' : 'ホーム'}
           </button>
         </div>
       </div>

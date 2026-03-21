@@ -1,17 +1,40 @@
 import Dexie, { type EntityTable } from 'dexie';
-import type { Gymnast, JudgingRecord } from '../types';
+import type { Apparatus } from '../types';
 
 export interface StrokePoint { x: number; y: number }
 export interface StrokeData { points: StrokePoint[]; color: string }
+
+export interface Session {
+  id: string;
+  name: string;
+  date: Date;
+  mode: 'trial' | 'competition';
+  judgeMode: 'D' | 'E';
+  eJudgeCount: number;
+  apparatus?: Apparatus;
+  athletes: string[];
+}
+
+export interface MemoRecord {
+  id: string;
+  sessionId: string;
+  athleteName: string;
+  apparatus: Apparatus;
+  pageNumber: number;
+  strokes: StrokeData[];
+  updatedAt: Date;
+}
+
+// 旧テーブル用（後方互換）
 export interface SheetSave {
-  key: string;          // e.g. "FX_D" or "FX_E_4"
+  key: string;
   strokes: StrokeData[];
   updatedAt: Date;
 }
 
 const db = new Dexie('MAGJudgeDB') as Dexie & {
-  gymnasts: EntityTable<Gymnast, 'id'>;
-  records: EntityTable<JudgingRecord, 'id'>;
+  sessions: EntityTable<Session, 'id'>;
+  memoRecords: EntityTable<MemoRecord, 'id'>;
   sheets: EntityTable<SheetSave, 'key'>;
 };
 
@@ -24,6 +47,14 @@ db.version(2).stores({
   gymnasts: 'id, name, team, createdAt',
   records: 'id, gymnastId, apparatus, judgeMode, date, competition, [gymnastId+apparatus]',
   sheets: 'key, updatedAt',
+});
+
+db.version(3).stores({
+  gymnasts: 'id, name, team, createdAt',
+  records: 'id, gymnastId, apparatus, judgeMode, date, competition, [gymnastId+apparatus]',
+  sheets: 'key, updatedAt',
+  sessions: 'id, date, mode',
+  memoRecords: 'id, sessionId, apparatus, [sessionId+apparatus], [sessionId+pageNumber]',
 });
 
 export { db };
