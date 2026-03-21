@@ -27,11 +27,11 @@ const STRAIGHT_THRESHOLD = 4;
 const SCRUB_DIRS_NEEDED = 4;
 const SAVE_DEBOUNCE = 1500;
 
-// レイアウト定数（割合）
-const HEADER_H = 36;       // ヘッダー高さ px
-const SCORE_ROW_H = 160;   // スコア行の高さ px
-const CV_LABEL_H = 28;     // CV行の高さ px
-const ND_WIDTH_RATIO = 0.2; // ND列幅の割合
+// レイアウト定数
+const HEADER_H = 36;
+const SCORE_ROW_H = 160;
+const CV_LABEL_H = 28;
+const ND_WIDTH_RATIO = 0.2;
 
 function sheetKey(apparatus: Apparatus, mode: 'D' | 'E', eJudgeCount: number): string {
   return mode === 'E' ? `${apparatus}_E_${eJudgeCount}` : `${apparatus}_D`;
@@ -45,6 +45,7 @@ export default function JudgeSheet({ apparatus, mode, eJudgeCount }: Props) {
   const cur = useRef<Stroke | null>(null);
   const colorRef = useRef('#000000');
   const drawing = useRef(false);
+  const activePointerId = useRef<number | null>(null);
   const holdTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const straight = useRef(false);
@@ -69,15 +70,18 @@ export default function JudgeSheet({ apparatus, mode, eJudgeCount }: Props) {
   }, []);
 
   // --- デバウンス保存 ---
-  const saveStrokes = useCallback(() => {
-    if (saveTimer.current) clearTimeout(saveTimer.current);
-    const key = sheetKey(apparatus, mode, eJudgeCount);
-    saveTimer.current = setTimeout(() => {
-      flushSave(key, strokes.current);
-    }, SAVE_DEBOUNCE);
+  const saveStrokesRef = useRef<() => void>(() => {});
+  useEffect(() => {
+    saveStrokesRef.current = () => {
+      if (saveTimer.current) clearTimeout(saveTimer.current);
+      const key = sheetKey(apparatus, mode, eJudgeCount);
+      saveTimer.current = setTimeout(() => {
+        flushSave(key, strokes.current);
+      }, SAVE_DEBOUNCE);
+    };
   }, [apparatus, mode, eJudgeCount, flushSave]);
 
-  // テンプレート描画（罫線・ラベル・ND項目）
+  // テンプレート描画
   const drawTemplate = useCallback(() => {
     const c = getCtx();
     if (!c) return;
@@ -91,7 +95,6 @@ export default function JudgeSheet({ apparatus, mode, eJudgeCount }: Props) {
 
     c.save();
 
-    // --- ヘッダー下線 ---
     c.strokeStyle = '#222';
     c.lineWidth = 2;
     c.beginPath();
@@ -99,12 +102,10 @@ export default function JudgeSheet({ apparatus, mode, eJudgeCount }: Props) {
     c.lineTo(w, HEADER_H);
     c.stroke();
 
-    // --- ヘッダーラベル ---
     c.fillStyle = '#aaa';
     c.font = '13px "Noto Sans JP", sans-serif';
     c.fillText('選手名', 8, HEADER_H - 10);
 
-    // --- ND項目（右下に配置） ---
     if (hasND) {
       c.fillStyle = '#555';
       c.font = '12px "Noto Sans JP", sans-serif';
@@ -114,14 +115,11 @@ export default function JudgeSheet({ apparatus, mode, eJudgeCount }: Props) {
         const y = ndStartY + i * 28;
         c.fillText(`□ ${item.label}`, mainW + 10, y);
       });
-
-      // NDラベル（項目の上）
       c.fillStyle = '#666';
       c.font = 'bold 13px "Noto Sans JP", sans-serif';
       c.fillText('ND', mainW + 8, ndStartY - 14);
     }
 
-    // --- CV行（FX/HBのみ、スコア行の上） ---
     if (hasCV) {
       const cvTop = scoreRowTop - CV_LABEL_H;
       c.strokeStyle = '#999';
@@ -135,7 +133,6 @@ export default function JudgeSheet({ apparatus, mode, eJudgeCount }: Props) {
       c.fillText('CV：', 6, cvTop + 18);
     }
 
-    // --- スコア行の上線 ---
     c.strokeStyle = '#222';
     c.lineWidth = 2;
     c.beginPath();
@@ -143,7 +140,6 @@ export default function JudgeSheet({ apparatus, mode, eJudgeCount }: Props) {
     c.lineTo(w, scoreRowTop);
     c.stroke();
 
-    // スコア列: D, E1, E2..., ND, 決定点
     const cols: string[] = ['D'];
     for (let i = 0; i < eJudgeCount; i++) {
       cols.push(i === 0 ? 'E1' : `E${i + 1}`);
@@ -199,23 +195,14 @@ export default function JudgeSheet({ apparatus, mode, eJudgeCount }: Props) {
   // --- 種目切替時: 前のストロークを即時保存 → 新しいストロークを復元 ---
   useEffect(() => {
     const newKey = sheetKey(apparatus, mode, eJudgeCount);
-
-    // 前の種目のストロークを即時保存
     if (prevKeyRef.current && prevKeyRef.current !== newKey && strokes.current.length > 0) {
       flushSave(prevKeyRef.current, strokes.current);
     }
     prevKeyRef.current = newKey;
-
-    // 新しい種目のストロークを復元
     db.sheets.get(newKey).then((saved) => {
-      if (saved) {
-        strokes.current = saved.strokes.map(s => ({
-          points: s.points,
-          color: s.color,
-        }));
-      } else {
-        strokes.current = [];
-      }
+      strokes.current = saved
+        ? saved.strokes.map(s => ({ points: s.points, color: s.color }))
+        : [];
       redoStack.current = [];
       redrawAll();
     });
@@ -244,7 +231,6 @@ export default function JudgeSheet({ apparatus, mode, eJudgeCount }: Props) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [apparatus, eJudgeCount]);
 
-  // redraw when template deps change
   useEffect(() => { redrawAll(); }, [redrawAll]);
 
   // ページ離脱時に即時保存
@@ -260,104 +246,163 @@ export default function JudgeSheet({ apparatus, mode, eJudgeCount }: Props) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const pos = (e: React.PointerEvent): Point => {
-    const r = canvasRef.current!.getBoundingClientRect();
-    return { x: e.clientX - r.left, y: e.clientY - r.top };
-  };
+  // ========== ネイティブ Pointer Events（React経由ではなくDOMに直接登録） ==========
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
 
-  const clearHoldTimer = () => { if (holdTimer.current) { clearTimeout(holdTimer.current); holdTimer.current = null; } };
-  const startHoldTimer = (p: Point) => {
-    clearHoldTimer();
-    holdTimer.current = setTimeout(() => {
+    const getPos = (e: PointerEvent): Point => {
+      const r = canvas.getBoundingClientRect();
+      return { x: e.clientX - r.left, y: e.clientY - r.top };
+    };
+
+    const clearHold = () => {
+      if (holdTimer.current) { clearTimeout(holdTimer.current); holdTimer.current = null; }
+    };
+
+    const startHold = (p: Point) => {
+      clearHold();
+      holdTimer.current = setTimeout(() => {
+        if (!drawing.current || !cur.current) return;
+        straight.current = true;
+        const s = startPt.current!;
+        cur.current = { points: [s, p], color: cur.current.color };
+        redrawAll();
+        const c = getCtx();
+        if (c) {
+          c.strokeStyle = colorRef.current;
+          c.lineWidth = LINE_WIDTH;
+          c.lineCap = 'round';
+          c.beginPath();
+          c.moveTo(s.x, s.y);
+          c.lineTo(p.x, p.y);
+          c.stroke();
+        }
+      }, STRAIGHT_DELAY);
+    };
+
+    const finishStroke = () => {
       if (!drawing.current || !cur.current) return;
-      straight.current = true;
-      const s = startPt.current!;
-      cur.current = { points: [s, p], color: cur.current.color };
-      redrawAll();
+      drawing.current = false;
+      activePointerId.current = null;
+      clearHold();
+      const finished = cur.current;
+      cur.current = null;
+      straight.current = false;
+      if (scrubDirs.current.length >= SCRUB_DIRS_NEEDED && finished.points.length > 5) {
+        const center = finished.points[Math.floor(finished.points.length / 2)];
+        const idx = findStrokeAt(strokes.current, center, ERASER_WIDTH);
+        if (idx >= 0) {
+          strokes.current.splice(idx, 1);
+          redoStack.current = [];
+          redrawAll();
+          saveStrokesRef.current();
+          return;
+        }
+      }
+      if (finished.points.length < 2) return;
+      strokes.current.push(finished);
+      redoStack.current = [];
+      saveStrokesRef.current();
+    };
+
+    const onDown = (e: PointerEvent) => {
+      // タッチは無視（Apple Pencil = 'pen', マウス = 'mouse'）
+      if (e.pointerType === 'touch') return;
+      e.preventDefault();
+
+      // 前のストロークが残っていたら強制完了
+      if (drawing.current) finishStroke();
+
+      activePointerId.current = e.pointerId;
+      drawing.current = true;
+      straight.current = false;
+      scrubDirs.current = [];
+      const p = getPos(e);
+      startPt.current = p;
+      cur.current = { points: [p], color: colorRef.current };
+      startHold(p);
+    };
+
+    const onMove = (e: PointerEvent) => {
+      // このポインターのイベントだけ処理
+      if (!drawing.current || !cur.current || e.pointerId !== activePointerId.current) return;
+      e.preventDefault();
+      const p = getPos(e);
+      const pts = cur.current.points;
+      const prev = pts[pts.length - 1];
+      const dx = p.x - prev.x;
+
+      if (Math.abs(dx) > 2) {
+        const d = dx > 0 ? 1 : -1;
+        const sd = scrubDirs.current;
+        if (sd.length === 0 || sd[sd.length - 1] !== d) sd.push(d);
+      }
+
+      if (straight.current) {
+        const s = startPt.current!;
+        cur.current = { points: [s, p], color: cur.current.color };
+        redrawAll();
+        const c = getCtx();
+        if (c) {
+          c.strokeStyle = cur.current.color;
+          c.lineWidth = LINE_WIDTH;
+          c.lineCap = 'round';
+          c.beginPath();
+          c.moveTo(s.x, s.y);
+          c.lineTo(p.x, p.y);
+          c.stroke();
+        }
+        return;
+      }
+
+      if (Math.hypot(dx, p.y - prev.y) > STRAIGHT_THRESHOLD) startHold(p);
+      pts.push(p);
       const c = getCtx();
-      if (c) { c.strokeStyle = colorRef.current; c.lineWidth = LINE_WIDTH; c.lineCap = 'round'; c.beginPath(); c.moveTo(s.x, s.y); c.lineTo(p.x, p.y); c.stroke(); }
-    }, STRAIGHT_DELAY);
-  };
+      if (!c) return;
+      c.strokeStyle = cur.current.color;
+      c.lineWidth = LINE_WIDTH;
+      c.lineCap = 'round';
+      c.lineJoin = 'round';
+      c.beginPath();
+      c.moveTo(prev.x, prev.y);
+      c.lineTo(p.x, p.y);
+      c.stroke();
+    };
 
-  // ストローク完了処理（onUp/onLeave共通）
-  const finishStroke = () => {
-    if (!drawing.current || !cur.current) return;
-    drawing.current = false;
-    clearHoldTimer();
-    const finished = cur.current;
-    cur.current = null;
-    straight.current = false;
-    if (scrubDirs.current.length >= SCRUB_DIRS_NEEDED && finished.points.length > 5) {
-      const center = finished.points[Math.floor(finished.points.length / 2)];
-      const idx = findStrokeAt(strokes.current, center, ERASER_WIDTH);
-      if (idx >= 0) { strokes.current.splice(idx, 1); redoStack.current = []; redrawAll(); saveStrokes(); return; }
-    }
-    if (finished.points.length < 2) return;
-    strokes.current.push(finished);
-    redoStack.current = [];
-    saveStrokes();
-  };
-
-  const onDown = (e: React.PointerEvent) => {
-    if (e.pointerType === 'touch') return;
-    e.preventDefault();
-    // 前のストロークが完了していなければ強制完了
-    if (drawing.current && cur.current) {
+    const onUp = (e: PointerEvent) => {
+      if (e.pointerId !== activePointerId.current) return;
       finishStroke();
-    }
-    drawing.current = true;
-    straight.current = false;
-    scrubDirs.current = [];
-    const p = pos(e);
-    startPt.current = p;
-    cur.current = { points: [p], color: colorRef.current };
-    startHoldTimer(p);
-  };
+    };
 
-  const onMove = (e: React.PointerEvent) => {
-    if (!drawing.current || !cur.current) return;
-    e.preventDefault();
-    const p = pos(e);
-    const pts = cur.current.points;
-    const prev = pts[pts.length - 1];
-    const dx = p.x - prev.x;
-    if (Math.abs(dx) > 2) {
-      const d = dx > 0 ? 1 : -1;
-      const sd = scrubDirs.current;
-      if (sd.length === 0 || sd[sd.length - 1] !== d) sd.push(d);
-    }
-    if (straight.current) {
-      const s = startPt.current!;
-      cur.current = { points: [s, p], color: cur.current.color };
-      redrawAll();
-      const c = getCtx();
-      if (c) { c.strokeStyle = cur.current.color; c.lineWidth = LINE_WIDTH; c.lineCap = 'round'; c.beginPath(); c.moveTo(s.x, s.y); c.lineTo(p.x, p.y); c.stroke(); }
-      return;
-    }
-    if (Math.hypot(dx, p.y - prev.y) > STRAIGHT_THRESHOLD) startHoldTimer(p);
-    pts.push(p);
-    const c = getCtx();
-    if (!c) return;
-    c.strokeStyle = cur.current.color;
-    c.lineWidth = LINE_WIDTH;
-    c.lineCap = 'round';
-    c.lineJoin = 'round';
-    c.beginPath();
-    c.moveTo(prev.x, prev.y);
-    c.lineTo(p.x, p.y);
-    c.stroke();
-  };
+    const onLeave = (e: PointerEvent) => {
+      if (e.pointerId !== activePointerId.current) return;
+      finishStroke();
+    };
 
-  const onUp = () => { finishStroke(); };
-  const onLeave = () => { finishStroke(); };
+    // passive: false で preventDefault を有効にする
+    canvas.addEventListener('pointerdown', onDown, { passive: false });
+    canvas.addEventListener('pointermove', onMove, { passive: false });
+    canvas.addEventListener('pointerup', onUp);
+    canvas.addEventListener('pointerleave', onLeave);
+    canvas.addEventListener('pointercancel', onUp);
 
-  const undo = () => { if (strokes.current.length === 0) return; redoStack.current.push(strokes.current.pop()!); redrawAll(); saveStrokes(); setTick(t => t + 1); };
-  const redo = () => { if (redoStack.current.length === 0) return; strokes.current.push(redoStack.current.pop()!); redrawAll(); saveStrokes(); setTick(t => t + 1); };
-  const clear = () => { strokes.current = []; redoStack.current = []; redrawAll(); saveStrokes(); setTick(t => t + 1); };
+    return () => {
+      canvas.removeEventListener('pointerdown', onDown);
+      canvas.removeEventListener('pointermove', onMove);
+      canvas.removeEventListener('pointerup', onUp);
+      canvas.removeEventListener('pointerleave', onLeave);
+      canvas.removeEventListener('pointercancel', onUp);
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [getCtx, redrawAll]);
+
+  const undo = () => { if (strokes.current.length === 0) return; redoStack.current.push(strokes.current.pop()!); redrawAll(); saveStrokesRef.current(); setTick(t => t + 1); };
+  const redo = () => { if (redoStack.current.length === 0) return; strokes.current.push(redoStack.current.pop()!); redrawAll(); saveStrokesRef.current(); setTick(t => t + 1); };
+  const clear = () => { strokes.current = []; redoStack.current = []; redrawAll(); saveStrokesRef.current(); setTick(t => t + 1); };
   const pickColor = (c: string) => { colorRef.current = c; setTick(t => t + 1); };
 
   const handleApparatusChange = (a: Apparatus) => {
-    // 切替前に即時保存
     const key = sheetKey(apparatus, mode, eJudgeCount);
     flushSave(key, strokes.current);
     const path = mode === 'E' ? `/judge/${a}/e?eCount=${eJudgeCount}` : `/judge/${a}/d`;
@@ -368,7 +413,6 @@ export default function JudgeSheet({ apparatus, mode, eJudgeCount }: Props) {
 
   return (
     <div className="h-screen flex flex-col overflow-hidden select-none">
-      {/* ツールバー（極小） */}
       <div className="flex items-center gap-2 px-2 py-0.5 bg-gray-100 dark:bg-gray-800 shrink-0">
         {COLORS.map((c) => (
           <button key={c.value} onClick={() => pickColor(c.value)}
@@ -395,12 +439,10 @@ export default function JudgeSheet({ apparatus, mode, eJudgeCount }: Props) {
         </div>
       </div>
 
-      {/* Canvas（全面） */}
       <div ref={wrapRef} className="flex-1 min-h-0">
         <canvas ref={canvasRef}
           className="w-full h-full bg-white dark:bg-gray-950 cursor-crosshair"
-          style={{ touchAction: 'none', userSelect: 'none' }}
-          onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerLeave={onLeave} />
+          style={{ touchAction: 'none', userSelect: 'none' }} />
       </div>
     </div>
   );
