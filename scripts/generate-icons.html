@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html>
+<head><title>Icon Generator</title></head>
+<body>
+<p>右クリックで保存してください:</p>
+<canvas id="c192" width="192" height="192"></canvas>
+<canvas id="c512" width="512" height="512"></canvas>
+<script>
+function draw(canvas) {
+  const s = canvas.width;
+  const c = canvas.getContext('2d');
+  // 背景
+  c.fillStyle = '#1B4F72';
+  c.beginPath();
+  c.roundRect(0, 0, s, s, s * 0.18);
+  c.fill();
+  // テキスト
+  c.fillStyle = '#ffffff';
+  c.font = `bold ${s * 0.22}px "Helvetica Neue", Arial, sans-serif`;
+  c.textAlign = 'center';
+  c.textBaseline = 'middle';
+  c.fillText('MAG', s / 2, s * 0.35);
+  c.font = `${s * 0.11}px "Helvetica Neue", Arial, sans-serif`;
+  c.fillStyle = '#ffffffcc';
+  c.fillText('Judge Memo', s / 2, s * 0.55);
+  // 下部にライン
+  c.fillStyle = '#2E86C1';
+  c.fillRect(s * 0.15, s * 0.68, s * 0.7, s * 0.03);
+  // 小さい種目コード
+  const codes = ['FX','PH','SR','VT','PB','HB'];
+  c.font = `bold ${s * 0.055}px monospace`;
+  c.fillStyle = '#ffffff88';
+  const startX = s * 0.12;
+  const gap = s * 0.76 / 5;
+  codes.forEach((code, i) => {
+    c.fillText(code, startX + i * gap, s * 0.82);
+  });
+}
+draw(document.getElementById('c192'));
+draw(document.getElementById('c512'));
+
+// 自動ダウンロード
+['c192','c512'].forEach(id => {
+  const canvas = document.getElementById(id);
+  canvas.toBlob(blob => {
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `icon-${canvas.width}x${canvas.height}.png`;
+    a.click();
+  });
+});
+</script>
+</body>
+</html>
