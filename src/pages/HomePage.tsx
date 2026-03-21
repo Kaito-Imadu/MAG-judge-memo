@@ -107,7 +107,7 @@ export default function HomePage() {
               E審判の人数
             </h2>
             <div className="flex items-center justify-center gap-4 mb-6">
-              {[2, 3, 4, 5, 6].map((n) => (
+              {[1, 2, 3, 4, 5, 6].map((n) => (
                 <button
                   key={n}
                   onClick={() => setEJudgeCount(n)}
