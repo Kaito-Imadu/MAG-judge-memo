@@ -192,6 +192,7 @@ export default function JudgeSheet({
   const cur = useRef<Stroke | null>(null);
   const curDrawnIndex = useRef(0); // Active Canvas にどこまで描画済みか
   const colorRef = useRef('#000000');
+  const eraserMode = useRef(false);
   const drawing = useRef(false);
   const activePointerId = useRef<number | null>(null);
   const holdTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -561,28 +562,57 @@ export default function JudgeSheet({
       saveRef.current();
     };
 
+    // 消しゴムモード: ポインター位置のストロークを削除
+    const eraseAt = (p: Point) => {
+      const idx = findStrokeAtIndexed(strokes.current, spatialGrid.current, p, ERASER_WIDTH);
+      if (idx >= 0) {
+        strokes.current.splice(idx, 1);
+        spatialGrid.current = rebuildGrid(strokes.current);
+        redoStack.current = [];
+        redrawStaticRef.current();
+        saveRef.current();
+      }
+    };
+
     const onDown = (e: PointerEvent) => {
       if (e.pointerType === 'touch') return;
       e.preventDefault();
       if (drawing.current) finishStroke();
       activePointerId.current = e.pointerId;
+      const p = getPos(e);
+
+      // 消しゴムモード
+      if (eraserMode.current) {
+        drawing.current = true;
+        cur.current = { points: [p], color: '' }; // ダミー（finishStroke 用）
+        eraseAt(p);
+        return;
+      }
+
       drawing.current = true;
       straight.current = false;
       straightDirty = false;
       scrubDirs.current = [];
       curDrawnIndex.current = 0;
-      const p = getPos(e);
       startPt.current = p;
       cur.current = { points: [p], color: colorRef.current };
       startHold(p);
     };
 
     const onMove = (e: PointerEvent) => {
-      if (!drawing.current || !cur.current || e.pointerId !== activePointerId.current) return;
+      if (!drawing.current || e.pointerId !== activePointerId.current) return;
       e.preventDefault();
 
+      // 消しゴムモード: 移動中もリアルタイム消去
+      if (eraserMode.current) {
+        const p = getPos(e);
+        eraseAt(p);
+        return;
+      }
+
+      if (!cur.current) return;
+
       // FIX: getCoalescedEvents() は Safari で空配列を返す場合がある
-      // nullish coalescing (??) は [] に対して発動しないため、length チェックが必要
       const coalesced = typeof (e as any).getCoalescedEvents === 'function'
         ? (e as any).getCoalescedEvents() as PointerEvent[]
         : [];
@@ -701,7 +731,8 @@ export default function JudgeSheet({
     saveRef.current();
     setTick(t => t + 1);
   };
-  const pickColor = (c: string) => { colorRef.current = c; setTick(t => t + 1); };
+  const pickColor = (c: string) => { colorRef.current = c; eraserMode.current = false; setTick(t => t + 1); };
+  const toggleEraser = () => { eraserMode.current = !eraserMode.current; setTick(t => t + 1); };
 
   const handleApparatusChange = (a: Apparatus) => {
     flushSave(recordId, strokes.current);
@@ -723,34 +754,51 @@ export default function JudgeSheet({
 
   return (
     <div className="h-screen flex flex-col overflow-hidden select-none">
-      <div className="flex items-center gap-2 px-2 py-0.5 bg-gray-100 dark:bg-gray-800 shrink-0">
+      {/* ツールバー（大きめ・タッチ操作しやすいサイズ） */}
+      <div className="flex items-center gap-2 px-3 py-1.5 bg-gray-100 dark:bg-gray-800 shrink-0">
+        {/* ペン色選択 */}
         {COLORS.map((c) => (
           <button key={c.value} onClick={() => pickColor(c.value)}
-            className={`w-6 h-6 rounded-full border-2 ${
-              colorRef.current === c.value
+            className={`w-8 h-8 rounded-full border-2 transition-transform ${
+              !eraserMode.current && colorRef.current === c.value
                 ? 'border-accent scale-110 ring-2 ring-accent/30'
                 : 'border-gray-300 dark:border-gray-600'
             }`}
             style={{ backgroundColor: c.value }} />
         ))}
-        <div className="w-px h-4 bg-gray-300" />
-        <button onClick={undo} className="px-1.5 py-0.5 rounded text-[10px] bg-white dark:bg-gray-700 text-gray-500">↩</button>
-        <button onClick={redo} className="px-1.5 py-0.5 rounded text-[10px] bg-white dark:bg-gray-700 text-gray-500">↪</button>
-        <button onClick={clear} className="px-1.5 py-0.5 rounded text-[10px] text-danger">全消去</button>
+
+        <div className="w-px h-6 bg-gray-300" />
+
+        {/* 消しゴム */}
+        <button onClick={toggleEraser}
+          className={`px-3 py-1 rounded text-sm font-bold min-h-[36px] transition-colors ${
+            eraserMode.current
+              ? 'bg-danger text-white'
+              : 'bg-white dark:bg-gray-700 text-gray-600 dark:text-gray-300'
+          }`}>
+          消しゴム
+        </button>
+
+        <div className="w-px h-6 bg-gray-300" />
+
+        {/* Undo/Redo/Clear */}
+        <button onClick={undo} className="px-2.5 py-1 rounded text-sm bg-white dark:bg-gray-700 text-gray-600 dark:text-gray-300 min-h-[36px]">↩ 戻す</button>
+        <button onClick={redo} className="px-2.5 py-1 rounded text-sm bg-white dark:bg-gray-700 text-gray-600 dark:text-gray-300 min-h-[36px]">↪ やり直し</button>
+        <button onClick={clear} className="px-2.5 py-1 rounded text-sm text-danger font-bold min-h-[36px]">全消去</button>
 
         {toolbarExtra}
 
-        <div className="ml-auto flex items-center gap-1">
+        <div className="ml-auto flex items-center gap-1.5">
           {showApparatusTabs && APPARATUS_LIST.map((a) => (
             <button key={a.code} onClick={() => handleApparatusChange(a.code)}
-              className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                apparatus === a.code ? 'bg-primary text-white' : 'text-gray-500 hover:bg-gray-200'
+              className={`px-2.5 py-1 rounded text-xs font-bold min-h-[36px] ${
+                apparatus === a.code ? 'bg-primary text-white' : 'text-gray-500 hover:bg-gray-200 dark:hover:bg-gray-600'
               }`}>
               {a.code}
             </button>
           ))}
           <button onClick={handleBack}
-            className="px-2 py-0.5 rounded text-[10px] text-gray-400 hover:text-gray-600 ml-1">
+            className="px-3 py-1 rounded text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 ml-1 min-h-[36px]">
             {onBack ? '← 戻る' : 'ホーム'}
           </button>
         </div>
