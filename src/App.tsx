@@ -1,12 +1,15 @@
 import { HashRouter, Routes, Route } from 'react-router-dom';
 import HomePage from './pages/HomePage';
+import EJudgePage from './pages/EJudgePage';
+import DJudgePage from './pages/DJudgePage';
 
 export default function App() {
   return (
     <HashRouter>
       <Routes>
         <Route path="/" element={<HomePage />} />
-        <Route path="/judge/:apparatus/:mode" element={<PlaceholderPage title="採点画面" />} />
+        <Route path="/judge/:apparatus/e" element={<EJudgePage />} />
+        <Route path="/judge/:apparatus/d" element={<DJudgePage />} />
         <Route path="/players" element={<PlaceholderPage title="選手管理" />} />
         <Route path="/history" element={<PlaceholderPage title="採点履歴" />} />
       </Routes>

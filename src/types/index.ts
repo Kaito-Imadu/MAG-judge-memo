@@ -32,7 +32,7 @@ export interface Deduction {
 }
 
 // ND項目
-export type NDType = 'LINE' | 'TIME';
+export type NDType = 'LINE' | 'TIME' | 'COMPOSITION';
 
 export interface NDItem {
   type: NDType;
@@ -45,8 +45,6 @@ export interface NDDefinition {
   apparatus: Apparatus;
   type: NDType;
   label: string;
-  description: string;
-  values: number[];
 }
 
 // 採点レコード
