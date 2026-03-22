@@ -98,7 +98,7 @@ function drawStrokes(
     const pts = s.points;
     if (pts.length < 2) continue;
     c.strokeStyle = s.color;
-    c.lineWidth = 1.5;
+    c.lineWidth = (s.width ?? 2) * scale;
     c.lineCap = 'round';
     c.lineJoin = 'round';
     c.beginPath();

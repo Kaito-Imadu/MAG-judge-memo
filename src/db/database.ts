@@ -2,7 +2,7 @@ import Dexie, { type EntityTable } from 'dexie';
 import type { Apparatus } from '../types';
 
 export interface StrokePoint { x: number; y: number }
-export interface StrokeData { points: StrokePoint[]; color: string }
+export interface StrokeData { points: StrokePoint[]; color: string; width?: number }
 
 export interface Session {
   id: string;

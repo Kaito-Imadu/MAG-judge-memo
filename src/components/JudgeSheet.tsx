@@ -8,7 +8,7 @@ import { db } from '../db/database';
 import type { StrokeData } from '../db/database';
 
 interface Point { x: number; y: number }
-interface Stroke { points: Point[]; color: string }
+interface Stroke { points: Point[]; color: string; width: number }
 
 interface Props {
   apparatus: Apparatus;
@@ -102,7 +102,7 @@ function drawSmoothStroke(c: CanvasRenderingContext2D, s: Stroke) {
   const pts = s.points;
   if (pts.length < 2) return;
   c.strokeStyle = s.color;
-  c.lineWidth = LINE_WIDTH;
+  c.lineWidth = s.width;
   c.lineCap = 'round';
   c.lineJoin = 'round';
   c.globalCompositeOperation = 'source-over';
@@ -134,11 +134,12 @@ function drawIncrementalSmooth(
   c: CanvasRenderingContext2D,
   pts: Point[],
   color: string,
+  width: number,
   fromIndex: number,
 ) {
   if (pts.length < 2 || fromIndex < 1) return;
   c.strokeStyle = color;
-  c.lineWidth = LINE_WIDTH;
+  c.lineWidth = width;
   c.lineCap = 'round';
   c.lineJoin = 'round';
   c.globalCompositeOperation = 'source-over';
@@ -192,6 +193,7 @@ export default function JudgeSheet({
   const cur = useRef<Stroke | null>(null);
   const curDrawnIndex = useRef(0); // Active Canvas にどこまで描画済みか
   const colorRef = useRef('#000000');
+  const lineWidthRef = useRef(LINE_WIDTH);
   const eraserMode = useRef(false);
   const drawing = useRef(false);
   const activePointerId = useRef<number | null>(null);
@@ -230,7 +232,7 @@ export default function JudgeSheet({
       athleteName,
       apparatus,
       pageNumber,
-      strokes: data.map(s => ({ points: s.points, color: s.color })),
+      strokes: data.map(s => ({ points: s.points, color: s.color, width: s.width })),
       updatedAt: new Date(),
     });
   }, [sessionId, athleteName, apparatus, pageNumber]);
@@ -393,7 +395,7 @@ export default function JudgeSheet({
 
     db.memoRecords.get(recordId).then((saved) => {
       strokes.current = saved
-        ? saved.strokes.map(s => ({ points: s.points, color: s.color }))
+        ? saved.strokes.map(s => ({ points: s.points, color: s.color, width: s.width ?? LINE_WIDTH }))
         : [];
       spatialGrid.current = rebuildGrid(strokes.current);
       redoStack.current = [];
@@ -452,7 +454,7 @@ export default function JudgeSheet({
       if (saveTimer.current) clearTimeout(saveTimer.current);
       const id = prevRecordId.current;
       if (id && strokes.current.length > 0) {
-        const data: StrokeData[] = strokes.current.map(s => ({ points: s.points, color: s.color }));
+        const data: StrokeData[] = strokes.current.map(s => ({ points: s.points, color: s.color, width: s.width }));
         db.memoRecords.put({
           id,
           sessionId,
@@ -491,7 +493,7 @@ export default function JudgeSheet({
         if (!drawing.current || !cur.current) return;
         straight.current = true;
         const s = startPt.current!;
-        cur.current = { points: [s, p], color: cur.current.color };
+        cur.current = { points: [s, p], color: cur.current.color, width: cur.current.width };
         curDrawnIndex.current = 0;
         straightDirty = true;
         scheduleStraightRedraw();
@@ -510,7 +512,7 @@ export default function JudgeSheet({
         ac.clearRect(0, 0, activeCv.width, activeCv.height);
         const pts = cur.current.points;
         ac.strokeStyle = cur.current.color;
-        ac.lineWidth = LINE_WIDTH;
+        ac.lineWidth = cur.current.width;
         ac.lineCap = 'round';
         ac.beginPath();
         ac.moveTo(pts[0].x, pts[0].y);
@@ -584,7 +586,7 @@ export default function JudgeSheet({
       // 消しゴムモード
       if (eraserMode.current) {
         drawing.current = true;
-        cur.current = { points: [p], color: '' }; // ダミー（finishStroke 用）
+        cur.current = { points: [p], color: '', width: 0 }; // ダミー（finishStroke 用）
         eraseAt(p);
         return;
       }
@@ -595,7 +597,7 @@ export default function JudgeSheet({
       scrubDirs.current = [];
       curDrawnIndex.current = 0;
       startPt.current = p;
-      cur.current = { points: [p], color: colorRef.current };
+      cur.current = { points: [p], color: colorRef.current, width: lineWidthRef.current };
       startHold(p);
     };
 
@@ -635,7 +637,7 @@ export default function JudgeSheet({
 
         if (straight.current) {
           const s = startPt.current!;
-          cur.current = { points: [s, p], color: cur.current!.color };
+          cur.current = { points: [s, p], color: cur.current!.color, width: cur.current!.width };
           curDrawnIndex.current = 0;
           straightDirty = true;
           continue;
@@ -655,7 +657,7 @@ export default function JudgeSheet({
         // フリーハンド: Active Canvas にインクリメンタル曲線描画
         const ac = getActiveCtxRef.current();
         if (ac && cur.current) {
-          drawIncrementalSmooth(ac, cur.current.points, cur.current.color, prevDrawn);
+          drawIncrementalSmooth(ac, cur.current.points, cur.current.color, cur.current.width, prevDrawn);
           curDrawnIndex.current = cur.current.points.length - 1;
         }
       }
@@ -744,6 +746,7 @@ export default function JudgeSheet({
   };
   const pickColor = (c: string) => { colorRef.current = c; eraserMode.current = false; setTick(t => t + 1); };
   const toggleEraser = () => { eraserMode.current = !eraserMode.current; setTick(t => t + 1); };
+  const setLineWidth = (w: number) => { lineWidthRef.current = w; setTick(t => t + 1); };
 
   const handleApparatusChange = (a: Apparatus) => {
     flushSave(recordId, strokes.current);
@@ -794,6 +797,20 @@ export default function JudgeSheet({
           </svg>
           消しゴム
         </button>
+
+        <div className="w-px h-6 bg-gray-300" />
+
+        {/* 線の太さ */}
+        <div className="flex items-center gap-1.5 min-h-[40px]">
+          <svg width="14" height="14" viewBox="0 0 20 20" className="text-gray-400 shrink-0">
+            <circle cx="10" cy="10" r={Math.max(2, lineWidthRef.current * 2.5)} fill="currentColor" />
+          </svg>
+          <input type="range" min="0.5" max="6" step="0.5"
+            value={lineWidthRef.current}
+            onChange={(e) => setLineWidth(parseFloat(e.target.value))}
+            className="w-20 h-2 accent-accent cursor-pointer" />
+          <span className="text-[10px] text-gray-400 font-mono w-5 text-center">{lineWidthRef.current}</span>
+        </div>
 
         <div className="w-px h-6 bg-gray-300" />
 

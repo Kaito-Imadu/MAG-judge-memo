@@ -54,7 +54,7 @@ function drawThumbnail(canvas: HTMLCanvasElement, strokes: StrokeData[]) {
   for (const s of strokes) {
     if (s.points.length < 2) continue;
     c.strokeStyle = s.color;
-    c.lineWidth = 1;
+    c.lineWidth = Math.max(0.5, (s.width ?? 2) * scale);
     c.lineCap = 'round';
     c.lineJoin = 'round';
     c.beginPath();
