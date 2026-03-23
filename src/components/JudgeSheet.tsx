@@ -16,7 +16,7 @@ interface Props {
   eJudgeCount: number;
   recordId: string;
   sessionId: string;
-  mode: 'trial' | 'competition';
+  mode: 'trial' | 'competition' | 'individual';
   athleteName?: string;
   pageNumber?: number;
   showApparatusTabs?: boolean;
@@ -264,7 +264,7 @@ export default function JudgeSheet({
     c.save();
 
     // --- モード別ヘッダー領域 ---
-    if (mode === 'trial') {
+    if (mode === 'trial' || mode === 'individual') {
       // 試技会モード: 選手名 + 種目名をラベル表示
       c.fillStyle = '#1B4F72';
       c.font = 'bold 16px "Noto Sans JP", sans-serif';

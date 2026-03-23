@@ -4,6 +4,7 @@ import type { Apparatus } from '../types';
 import { APPARATUS_LIST } from '../constants/apparatus';
 import { getNDChecklist } from '../constants/deductions';
 
+// ---------- 6種目シート用定数 ----------
 const EXPORT_W = 1200;
 const EXPORT_H = 1800;
 const HEADER_H = 100;
@@ -12,104 +13,147 @@ const ROWS = 3;
 const CELL_W = EXPORT_W / COLS;
 const CELL_H = (EXPORT_H - HEADER_H) / ROWS;
 const CELL_PAD = 12;
-const SCORE_ROW_H = 60;
 
-// 各種目の順序
+// ---------- 単一種目シート用定数 ----------
+const SINGLE_W = 1200;
+const SINGLE_H = 900;
+const SINGLE_HEADER_H = 80;
+const SINGLE_PAD = 16;
+
+// ---------- JudgeSheet と同じ比率のレイアウト定数 ----------
+// JudgeSheet: LABEL_H=52, SCORE_ROW_H=160, ND_WIDTH_RATIO=0.2, lastColRatio=1.4
+// iPad landscape canvas ≈ 700px height を基準に比率を算出
+const LABEL_H_RATIO = 52 / 700;       // ~7.4%
+const SCORE_ROW_H_RATIO = 160 / 700;  // ~22.9%
+const ND_WIDTH_RATIO = 0.2;
+const LAST_COL_RATIO = 1.4;
+
 const APPARATUS_ORDER: Apparatus[] = ['FX', 'PH', 'SR', 'VT', 'PB', 'HB'];
 
+// ---------- セルテンプレート描画（比率修正版） ----------
 function drawCellTemplate(
   c: CanvasRenderingContext2D,
   x: number, y: number,
+  cellW: number, cellH: number,
+  pad: number,
   apparatus: Apparatus,
   eJudgeCount: number,
 ) {
-  const innerW = CELL_W - CELL_PAD * 2;
-  const innerH = CELL_H - CELL_PAD * 2;
-  const scoreTop = y + CELL_H - CELL_PAD - SCORE_ROW_H;
+  const innerW = cellW - pad * 2;
+  const innerH = cellH - pad * 2;
+  const labelH = Math.round(innerH * LABEL_H_RATIO);
+  const scoreRowH = Math.round(innerH * SCORE_ROW_H_RATIO);
+  const ndW = Math.round(innerW * ND_WIDTH_RATIO);
+  const mainW = innerW - ndW;
+  const scoreTop = y + cellH - pad - scoreRowH;
 
   // 枠線
   c.strokeStyle = '#ccc';
   c.lineWidth = 1;
-  c.strokeRect(x + CELL_PAD, y + CELL_PAD, innerW, innerH);
+  c.strokeRect(x + pad, y + pad, innerW, innerH);
 
   // 種目ヘッダー
   const info = APPARATUS_LIST.find(a => a.code === apparatus);
   c.fillStyle = '#1B4F72';
-  c.font = 'bold 18px "Noto Sans JP", sans-serif';
-  c.fillText(`${apparatus}  ${info?.name ?? ''}`, x + CELL_PAD + 8, y + CELL_PAD + 24);
+  const headerFontSize = Math.max(12, Math.round(labelH * 0.5));
+  c.font = `bold ${headerFontSize}px "Noto Sans JP", sans-serif`;
+  c.fillText(`${apparatus}  ${info?.name ?? ''}`, x + pad + 8, y + pad + labelH * 0.65);
 
   // ヘッダー下線
   c.strokeStyle = '#ddd';
   c.lineWidth = 1;
   c.beginPath();
-  c.moveTo(x + CELL_PAD, y + CELL_PAD + 32);
-  c.lineTo(x + CELL_W - CELL_PAD, y + CELL_PAD + 32);
+  c.moveTo(x + pad, y + pad + labelH);
+  c.lineTo(x + cellW - pad, y + pad + labelH);
   c.stroke();
 
-  // ND項目（右側に小さく）
+  // ND項目（右側 — JudgeSheet と同じ比率で配置、枠内にクリップ）
   const ndItems = getNDChecklist(apparatus);
   if (ndItems.length > 0) {
+    c.save();
+    // ND領域をクリップして枠外にはみ出さないようにする
+    const ndX = x + pad + mainW;
+    const ndAreaTop = y + pad + labelH + 4;
+    const ndAreaBottom = scoreTop - 4;
+    c.beginPath();
+    c.rect(ndX, ndAreaTop, ndW, ndAreaBottom - ndAreaTop);
+    c.clip();
+
+    const ndFontSize = Math.max(7, Math.min(9, Math.round((ndAreaBottom - ndAreaTop) / ndItems.length * 0.5)));
+    const ndLineH = Math.round((ndAreaBottom - ndAreaTop) / Math.max(ndItems.length, 1));
+
+    // NDラベル
+    c.fillStyle = '#666';
+    c.font = `bold ${ndFontSize + 1}px "Noto Sans JP", sans-serif`;
+    c.fillText('ND', ndX + 4, ndAreaTop + ndFontSize + 2);
+
     c.fillStyle = '#888';
-    c.font = '9px "Noto Sans JP", sans-serif';
+    c.font = `${ndFontSize}px "Noto Sans JP", sans-serif`;
     ndItems.forEach((item, i) => {
-      const ny = y + CELL_PAD + 50 + i * 16;
-      if (ny < scoreTop - 10) {
-        c.fillText(`□ ${item.label}`, x + CELL_W - CELL_PAD - 120, ny);
-      }
+      const ny = ndAreaTop + ndFontSize + 8 + i * ndLineH;
+      c.fillText(`□ ${item.label}`, ndX + 4, ny + ndFontSize);
     });
+    c.restore();
   }
 
-  // スコア行
+  // スコア行区切り線
   c.strokeStyle = '#444';
   c.lineWidth = 1.5;
   c.beginPath();
-  c.moveTo(x + CELL_PAD, scoreTop);
-  c.lineTo(x + CELL_W - CELL_PAD, scoreTop);
+  c.moveTo(x + pad, scoreTop);
+  c.lineTo(x + cellW - pad, scoreTop);
   c.stroke();
 
-  // スコア列
+  // スコア列（JudgeSheet と同じ lastColRatio=1.4 を使用）
   const cols: string[] = ['D'];
   for (let i = 0; i < eJudgeCount; i++) cols.push(i === 0 ? 'E1' : `E${i + 1}`);
   cols.push('ND', '決定点');
-  const colW = innerW / cols.length;
+
+  const colCount = cols.length;
+  const normalCols = colCount - 1;
+  const unit = innerW / (normalCols + LAST_COL_RATIO);
+  const labelFontSize = Math.max(7, Math.round(scoreRowH * 0.08));
+
+  let cx = x + pad;
   c.lineWidth = 0.5;
   c.strokeStyle = '#888';
   c.fillStyle = '#999';
-  c.font = '8px "Noto Sans JP", sans-serif';
-  for (let i = 0; i < cols.length; i++) {
-    const cx = x + CELL_PAD + i * colW;
+  c.font = `${labelFontSize}px "Noto Sans JP", sans-serif`;
+  for (let i = 0; i < colCount; i++) {
+    const colW = i === colCount - 1 ? unit * LAST_COL_RATIO : unit;
     if (i > 0) {
       c.beginPath();
       c.moveTo(cx, scoreTop);
-      c.lineTo(cx, y + CELL_H - CELL_PAD);
+      c.lineTo(cx, y + cellH - pad);
       c.stroke();
     }
-    c.fillText(cols[i], cx + 3, scoreTop + 10);
+    c.fillText(cols[i], cx + 3, scoreTop + labelFontSize + 2);
+    cx += colW;
   }
 }
 
+// ---------- ストローク描画 ----------
 function drawStrokes(
   c: CanvasRenderingContext2D,
   strokes: StrokeData[],
   offsetX: number, offsetY: number,
-  scale: number,
+  scaleX: number, scaleY: number,
 ) {
   for (const s of strokes) {
     const pts = s.points;
     if (pts.length < 2) continue;
     c.strokeStyle = s.color;
-    c.lineWidth = (s.width ?? 2) * scale;
+    c.lineWidth = (s.width ?? 2) * Math.min(scaleX, scaleY);
     c.lineCap = 'round';
     c.lineJoin = 'round';
     c.beginPath();
-    const sx = (x: number) => offsetX + x * scale;
-    const sy = (y: number) => offsetY + y * scale;
+    const sx = (x: number) => offsetX + x * scaleX;
+    const sy = (y: number) => offsetY + y * scaleY;
     c.moveTo(sx(pts[0].x), sy(pts[0].y));
 
     if (pts.length === 2) {
       c.lineTo(sx(pts[1].x), sy(pts[1].y));
     } else {
-      // 二次ベジェ曲線で滑らか描画
       for (let i = 0; i < pts.length - 1; i++) {
         const curr = pts[i];
         const next = pts[i + 1];
@@ -126,13 +170,31 @@ function drawStrokes(
   }
 }
 
+// ストロークのバウンディングボックスからスケールを計算
+function calcStrokeScale(
+  strokes: StrokeData[],
+  targetW: number, targetH: number,
+): { scaleX: number; scaleY: number } {
+  let maxX = 0, maxY = 0;
+  for (const s of strokes) {
+    for (const p of s.points) {
+      if (p.x > maxX) maxX = p.x;
+      if (p.y > maxY) maxY = p.y;
+    }
+  }
+  // フル Canvas 領域にマッピング（score row 含む）
+  const scaleX = maxX > 0 ? targetW / maxX : 1;
+  const scaleY = maxY > 0 ? targetH / maxY : 1;
+  return { scaleX, scaleY };
+}
+
+// ---------- 6種目シートエクスポート ----------
 export async function exportAthleteSheet(
   sessionId: string,
   athleteName: string,
   sessionName: string,
   eJudgeCount: number,
 ): Promise<Blob> {
-  // 全種目のレコードを取得
   const allRecords = await db.memoRecords
     .where('sessionId').equals(sessionId)
     .toArray();
@@ -143,7 +205,6 @@ export async function exportAthleteSheet(
     }
   }
 
-  // Canvas作成
   const canvas = document.createElement('canvas');
   canvas.width = EXPORT_W;
   canvas.height = EXPORT_H;
@@ -162,8 +223,6 @@ export async function exportAthleteSheet(
   c.font = '16px "Noto Sans JP", sans-serif';
   c.fillStyle = '#ffffffcc';
   c.fillText(`${sessionName}  /  ${new Date().toLocaleDateString('ja-JP')}`, 24, 72);
-
-  // アプリ名
   c.font = '12px "Noto Sans JP", sans-serif';
   c.fillStyle = '#ffffff88';
   c.fillText('MAG Judge Memo', EXPORT_W - 140, 72);
@@ -176,28 +235,21 @@ export async function exportAthleteSheet(
     const cellX = col * CELL_W;
     const cellY = HEADER_H + row * CELL_H;
 
-    drawCellTemplate(c, cellX, cellY, apparatus, eJudgeCount);
+    drawCellTemplate(c, cellX, cellY, CELL_W, CELL_H, CELL_PAD, apparatus, eJudgeCount);
 
     const record = recordMap.get(apparatus);
     if (record && record.strokes.length > 0) {
-      // ストロークのスケール計算
-      // ストロークの座標範囲を見て適切なスケールを決定
-      let maxX = 0, maxY = 0;
-      for (const s of record.strokes) {
-        for (const p of s.points) {
-          if (p.x > maxX) maxX = p.x;
-          if (p.y > maxY) maxY = p.y;
-        }
-      }
       const innerW = CELL_W - CELL_PAD * 2;
-      const innerH = CELL_H - CELL_PAD * 2 - SCORE_ROW_H;
-      const scaleX = maxX > 0 ? innerW / (maxX + 20) : 0.5;
-      const scaleY = maxY > 0 ? innerH / (maxY + 20) : 0.5;
-      const scale = Math.min(scaleX, scaleY, 0.7);
+      const innerH = CELL_H - CELL_PAD * 2;
+      const { scaleX, scaleY } = calcStrokeScale(record.strokes, innerW, innerH);
 
-      drawStrokes(c, record.strokes, cellX + CELL_PAD, cellY + CELL_PAD, scale);
+      c.save();
+      c.beginPath();
+      c.rect(cellX + CELL_PAD, cellY + CELL_PAD, innerW, innerH);
+      c.clip();
+      drawStrokes(c, record.strokes, cellX + CELL_PAD, cellY + CELL_PAD, scaleX, scaleY);
+      c.restore();
     } else {
-      // 未採点
       c.fillStyle = '#ddd';
       c.font = '14px "Noto Sans JP", sans-serif';
       c.fillText('未採点', cellX + CELL_W / 2 - 20, cellY + CELL_H / 2);
@@ -209,10 +261,70 @@ export async function exportAthleteSheet(
   });
 }
 
+// ---------- 単一種目シートエクスポート（個別モード用） ----------
+export async function exportSingleSheet(
+  sessionId: string,
+  athleteName: string,
+  apparatus: Apparatus,
+  sessionName: string,
+  eJudgeCount: number,
+): Promise<Blob> {
+  const recordId = `individual:${sessionId}:${athleteName}:${apparatus}`;
+  const record = await db.memoRecords.get(recordId);
+
+  const canvas = document.createElement('canvas');
+  canvas.width = SINGLE_W;
+  canvas.height = SINGLE_H;
+  const c = canvas.getContext('2d')!;
+
+  // 背景
+  c.fillStyle = '#ffffff';
+  c.fillRect(0, 0, SINGLE_W, SINGLE_H);
+
+  // ヘッダー
+  const info = APPARATUS_LIST.find(a => a.code === apparatus);
+  c.fillStyle = '#1B4F72';
+  c.fillRect(0, 0, SINGLE_W, SINGLE_HEADER_H);
+  c.fillStyle = '#ffffff';
+  c.font = 'bold 24px "Noto Sans JP", sans-serif';
+  // eslint-disable-next-line no-irregular-whitespace
+  c.fillText(`${athleteName}　${apparatus} ${info?.name ?? ''}`, 20, 32);
+  c.font = '14px "Noto Sans JP", sans-serif';
+  c.fillStyle = '#ffffffcc';
+  c.fillText(`${sessionName}  /  ${new Date().toLocaleDateString('ja-JP')}`, 20, 58);
+  c.font = '11px "Noto Sans JP", sans-serif';
+  c.fillStyle = '#ffffff88';
+  c.fillText('MAG Judge Memo', SINGLE_W - 130, 58);
+
+  // メインエリア
+  const contentX = SINGLE_PAD;
+  const contentY = SINGLE_HEADER_H + SINGLE_PAD;
+  const contentW = SINGLE_W - SINGLE_PAD * 2;
+  const contentH = SINGLE_H - SINGLE_HEADER_H - SINGLE_PAD * 2;
+
+  drawCellTemplate(c, contentX - SINGLE_PAD, contentY - SINGLE_PAD,
+    contentW + SINGLE_PAD * 2, contentH + SINGLE_PAD * 2, SINGLE_PAD,
+    apparatus, eJudgeCount);
+
+  if (record && record.strokes.length > 0) {
+    const { scaleX, scaleY } = calcStrokeScale(record.strokes, contentW, contentH);
+    c.save();
+    c.beginPath();
+    c.rect(contentX, contentY, contentW, contentH);
+    c.clip();
+    drawStrokes(c, record.strokes, contentX, contentY, scaleX, scaleY);
+    c.restore();
+  }
+
+  return new Promise((resolve) => {
+    canvas.toBlob((blob) => resolve(blob!), 'image/png');
+  });
+}
+
+// ---------- 共有 / ダウンロード ----------
 export async function shareOrDownload(blob: Blob, filename: string): Promise<void> {
   const file = new File([blob], filename, { type: 'image/png' });
 
-  // Web Share API (iOS Safari対応)
   if (navigator.share && navigator.canShare?.({ files: [file] })) {
     try {
       await navigator.share({ files: [file], title: filename });
@@ -222,7 +334,6 @@ export async function shareOrDownload(blob: Blob, filename: string): Promise<voi
     }
   }
 
-  // フォールバック: ダウンロード
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
