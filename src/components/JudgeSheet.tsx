@@ -16,7 +16,7 @@ interface Props {
   eJudgeCount: number;
   recordId: string;
   sessionId: string;
-  mode: 'trial' | 'competition';
+  mode: 'trial' | 'competition' | 'individual';
   athleteName?: string;
   pageNumber?: number;
   showApparatusTabs?: boolean;
@@ -264,11 +264,11 @@ export default function JudgeSheet({
     c.save();
 
     // --- モード別ヘッダー領域 ---
-    if (mode === 'trial') {
+    if (mode === 'trial' || mode === 'individual') {
       // 試技会モード: 選手名 + 種目名をラベル表示
       c.fillStyle = '#1B4F72';
       c.font = 'bold 16px "Noto Sans JP", sans-serif';
-      const label = `${athleteName}　${apparatus} ${apparatusInfo?.name ?? ''}`;
+      const label = `${athleteName}\u3000${apparatus} ${apparatusInfo?.name ?? ''}`;
       c.fillText(label, 10, LABEL_H / 2 + 6);
       // ラベル下に薄い区切り線
       c.strokeStyle = '#ddd';
@@ -615,9 +615,11 @@ export default function JudgeSheet({
       if (!cur.current) return;
 
       // FIX: getCoalescedEvents() は Safari で空配列を返す場合がある
-      const coalesced = typeof (e as any).getCoalescedEvents === 'function'
-        ? (e as any).getCoalescedEvents() as PointerEvent[]
+      /* eslint-disable @typescript-eslint/no-explicit-any -- getCoalescedEvents is not in PointerEvent type yet */
+      const coalesced: PointerEvent[] = typeof (e as any).getCoalescedEvents === 'function'
+        ? (e as any).getCoalescedEvents()
         : [];
+      /* eslint-enable @typescript-eslint/no-explicit-any */
       const events: PointerEvent[] = coalesced.length > 0 ? coalesced : [e];
       const prevDrawn = curDrawnIndex.current;
 
@@ -702,7 +704,6 @@ export default function JudgeSheet({
       activeCv.removeEventListener('pointercancel', onUp);
       if (rafId !== null) cancelAnimationFrame(rafId);
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // 依存配列空: ref 経由で最新関数を参照するため再登録不要
 
   // === UI Actions ===

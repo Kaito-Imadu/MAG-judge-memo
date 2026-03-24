@@ -8,7 +8,7 @@ import { APPARATUS_LIST } from '../constants/apparatus';
 export default function EntryPage() {
   const navigate = useNavigate();
   const [sessions, setSessions] = useState<Session[]>([]);
-  const [showModal, setShowModal] = useState<'trial' | 'competition' | null>(null);
+  const [showModal, setShowModal] = useState<'trial' | 'competition' | 'individual' | null>(null);
   const [sessionName, setSessionName] = useState('');
   const [judgeMode, setJudgeMode] = useState<'D' | 'E'>('E');
   const [eJudgeCount, setEJudgeCount] = useState(4);
@@ -21,7 +21,7 @@ export default function EntryPage() {
   const createSession = async () => {
     const session: Session = {
       id: crypto.randomUUID(),
-      name: sessionName.trim() || (showModal === 'trial' ? '試技会' : '大会'),
+      name: sessionName.trim() || (showModal === 'trial' ? '試技会' : showModal === 'competition' ? '大会' : '個別採点'),
       date: new Date(),
       mode: showModal!,
       judgeMode,
@@ -34,6 +34,8 @@ export default function EntryPage() {
     setSessionName('');
     if (session.mode === 'trial') {
       navigate(`/trial/${session.id}`);
+    } else if (session.mode === 'individual') {
+      navigate(`/individual/${session.id}`);
     } else {
       navigate(`/competition/${session.id}`);
     }
@@ -41,6 +43,7 @@ export default function EntryPage() {
 
   const resumeSession = (s: Session) => {
     if (s.mode === 'trial') navigate(`/trial/${s.id}`);
+    else if (s.mode === 'individual') navigate(`/individual/${s.id}`);
     else navigate(`/competition/${s.id}`);
   };
 
@@ -57,7 +60,7 @@ export default function EntryPage() {
       </header>
 
       <main className="flex-1 p-6 max-w-3xl mx-auto w-full">
-        <div className="grid grid-cols-2 gap-4 mb-8">
+        <div className="grid grid-cols-3 gap-4 mb-8">
           <button onClick={() => setShowModal('trial')}
             className="bg-white dark:bg-gray-800 rounded-xl shadow-md hover:shadow-lg
                        border-2 border-transparent hover:border-accent transition-all
@@ -72,6 +75,13 @@ export default function EntryPage() {
             <div className="text-lg font-bold text-primary dark:text-accent">大会モード</div>
             <div className="text-sm text-gray-500 mt-1">1種目で選手を連続採点</div>
           </button>
+          <button onClick={() => setShowModal('individual')}
+            className="bg-white dark:bg-gray-800 rounded-xl shadow-md hover:shadow-lg
+                       border-2 border-transparent hover:border-accent transition-all
+                       p-6 text-center active:scale-95">
+            <div className="text-lg font-bold text-primary dark:text-accent">個別モード</div>
+            <div className="text-sm text-gray-500 mt-1">選手×種目を個別に採点</div>
+          </button>
         </div>
 
         {sessions.length > 0 && (
@@ -83,7 +93,7 @@ export default function EntryPage() {
                   <button onClick={() => resumeSession(s)} className="flex-1 text-left min-h-[44px]">
                     <div className="font-semibold text-gray-800 dark:text-gray-100">{s.name}</div>
                     <div className="text-xs text-gray-500">
-                      {s.mode === 'trial' ? '試技会' : '大会'}
+                      {s.mode === 'trial' ? '試技会' : s.mode === 'individual' ? '個別' : '大会'}
                       {s.apparatus ? ` / ${s.apparatus}` : ''}
                       {' / '}{s.judgeMode}審判
                       {s.judgeMode === 'E' ? ` (${s.eJudgeCount}人)` : ''}
@@ -105,7 +115,7 @@ export default function EntryPage() {
           <div className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-xl min-w-[360px]"
                onClick={e => e.stopPropagation()}>
             <h2 className="text-lg font-bold text-gray-800 dark:text-gray-100 mb-4">
-              {showModal === 'trial' ? '試技会セッション作成' : '大会セッション作成'}
+              {showModal === 'trial' ? '試技会セッション作成' : showModal === 'competition' ? '大会セッション作成' : '個別セッション作成'}
             </h2>
 
             <input value={sessionName} onChange={e => setSessionName(e.target.value)}

@@ -8,7 +8,7 @@ export interface Session {
   id: string;
   name: string;
   date: Date;
-  mode: 'trial' | 'competition';
+  mode: 'trial' | 'competition' | 'individual';
   judgeMode: 'D' | 'E';
   eJudgeCount: number;
   apparatus?: Apparatus;
