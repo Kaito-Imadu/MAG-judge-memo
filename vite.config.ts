@@ -4,7 +4,7 @@ import tailwindcss from '@tailwindcss/vite'
 import { VitePWA } from 'vite-plugin-pwa'
 
 export default defineConfig({
-  base: '/Tenkai/',
+  base: '/MAG-judge-memo/',
   plugins: [
     react(),
     tailwindcss(),
@@ -19,8 +19,8 @@ export default defineConfig({
         background_color: '#F8F9FA',
         display: 'standalone',
         orientation: 'landscape',
-        start_url: '/Tenkai/',
-        scope: '/Tenkai/',
+        start_url: '/MAG-judge-memo/',
+        scope: '/MAG-judge-memo/',
         icons: [
           {
             src: 'icon-192x192.png',

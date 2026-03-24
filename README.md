@@ -3,7 +3,7 @@
 体操競技男子（MAG: Men's Artistic Gymnastics）審判向けの採点メモ Web アプリ。
 iPad + Apple Pencil での利用に最適化した PWA。
 
-> **Live App:** [https://kaito-imadu.github.io/Tenkai/](https://kaito-imadu.github.io/Tenkai/)
+> **Live App:** [https://kaito-imadu.github.io/MAG-judge-memo/](https://kaito-imadu.github.io/MAG-judge-memo/)
 
 ---
 
@@ -13,7 +13,7 @@ iPad + Apple Pencil での利用に最適化した PWA。
 
 ### iPad / iPhone（Safari）
 
-1. Safari で [https://kaito-imadu.github.io/Tenkai/](https://kaito-imadu.github.io/Tenkai/) を開く
+1. Safari で [https://kaito-imadu.github.io/MAG-judge-memo/](https://kaito-imadu.github.io/MAG-judge-memo/) を開く
 2. 画面下部（または上部）の **共有ボタン**（□↑）をタップ
 3. **「ホーム画面に追加」** をタップ
 4. 名前を確認して **「追加」** をタップ
@@ -126,8 +126,8 @@ FX（ゆか）/ PH（あん馬）/ SR（つり輪）/ VT（跳馬）/ PB（平�
 
 ```bash
 # クローン
-git clone https://github.com/Kaito-Imadu/Tenkai.git
-cd Tenkai
+git clone https://github.com/Kaito-Imadu/MAG-judge-memo.git
+cd MAG-judge-memo
 
 # 依存関係インストール
 npm install

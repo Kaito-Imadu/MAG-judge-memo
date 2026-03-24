@@ -3,7 +3,7 @@
 ## プロジェクト概要
 体操競技男子（MAG）審判向けの採点メモ PWA アプリ。
 iPad + Apple Pencil での利用を想定。完全オフライン動作。
-GitHub Pages にデプロイ: https://kaito-imadu.github.io/Tenkai/
+GitHub Pages にデプロイ: https://kaito-imadu.github.io/MAG-judge-memo/
 
 ## 技術スタック
 - React 19 / TypeScript 5.9 (strict) / Vite 8
@@ -16,7 +16,7 @@ GitHub Pages にデプロイ: https://kaito-imadu.github.io/Tenkai/
 ## デプロイ
 - GitHub Actions → GitHub Pages（`.github/workflows/deploy.yml`）
 - `main` ブランチへの push で自動デプロイ
-- `vite.config.ts` の `base: '/Tenkai/'` でサブパス対応
+- `vite.config.ts` の `base: '/MAG-judge-memo/'` でサブパス対応
 
 ## ビルド・開発コマンド
 ```bash
