@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { db } from '../db/database';
 import type { Session, MemoRecord, StrokeData } from '../db/database';
@@ -115,20 +115,24 @@ export default function CompetitionPage() {
   const [showPageList, setShowPageList] = useState(false);
   const [pageRecords, setPageRecords] = useState<MemoRecord[]>([]);
 
-  const loadSession = useCallback(async () => {
+  useEffect(() => {
     if (!sessionId) return;
-    const s = await db.sessions.get(sessionId);
-    if (s) setSession(s);
-    const recs = await db.memoRecords.where('sessionId').equals(sessionId).toArray();
-    recs.sort((a, b) => a.pageNumber - b.pageNumber);
-    setPageRecords(recs);
-    const maxPage = recs.length > 0 ? Math.max(...recs.map(r => r.pageNumber)) : 0;
-    const total = Math.max(1, maxPage);
-    setTotalPages(total);
-    setCurrentPage(total);
+    let cancelled = false;
+    (async () => {
+      const s = await db.sessions.get(sessionId);
+      if (cancelled) return;
+      if (s) setSession(s);
+      const recs = await db.memoRecords.where('sessionId').equals(sessionId).toArray();
+      if (cancelled) return;
+      recs.sort((a, b) => a.pageNumber - b.pageNumber);
+      setPageRecords(recs);
+      const maxPage = recs.length > 0 ? Math.max(...recs.map(r => r.pageNumber)) : 0;
+      const total = Math.max(1, maxPage);
+      setTotalPages(total);
+      setCurrentPage(total);
+    })();
+    return () => { cancelled = true; };
   }, [sessionId]);
-
-  useEffect(() => { loadSession(); }, [loadSession]);
 
   const openPageList = async () => {
     if (!sessionId) return;
