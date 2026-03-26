@@ -5,13 +5,14 @@ import './index.css'
 import App from './App.tsx'
 
 // Service Worker 登録（自動更新）
-registerSW({
+const updateSW = registerSW({
   onNeedRefresh() {
     // 新しいバージョンがある場合、自動で更新
     // ユーザーに確認不要（審判中の操作を妨げない）
+    updateSW(true)
   },
   onOfflineReady() {
-    console.log('オフライン準備完了');
+    console.log('オフライン準備完了')
   },
 })
 
