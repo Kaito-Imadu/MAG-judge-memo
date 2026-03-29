@@ -191,7 +191,7 @@ export default function CompetitionPage() {
   );
 
   return (
-    <div className="relative h-screen">
+    <div className="relative h-full">
       <JudgeSheet
         key={recordId}
         apparatus={session.apparatus}

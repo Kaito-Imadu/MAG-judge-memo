@@ -55,7 +55,7 @@ export default function EntryPage() {
   };
 
   return (
-    <div className="min-h-screen bg-bg-light dark:bg-bg-dark flex flex-col">
+    <div className="h-full bg-bg-light dark:bg-bg-dark flex flex-col overflow-y-auto">
       <header className="bg-primary text-white px-6 py-4 flex items-baseline justify-between">
         <h1 className="text-xl font-bold tracking-tight">MAG Judge Memo</h1>
         <span className="text-xs text-white/50">v{version}</span>

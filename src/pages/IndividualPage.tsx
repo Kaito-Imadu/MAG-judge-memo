@@ -194,7 +194,7 @@ export default function IndividualPage() {
   );
 
   return (
-    <div className="relative h-screen">
+    <div className="relative h-full">
       <JudgeSheet
         key={`${recordId}-${apparatus}`}
         apparatus={apparatus}

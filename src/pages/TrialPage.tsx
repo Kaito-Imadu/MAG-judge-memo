@@ -71,7 +71,7 @@ export default function TrialPage() {
   if (!session) return null;
 
   return (
-    <div className="h-screen flex flex-col overflow-hidden bg-bg-light dark:bg-bg-dark">
+    <div className="h-full flex flex-col overflow-hidden bg-bg-light dark:bg-bg-dark">
       <header className="bg-primary text-white px-4 py-2.5 flex items-center gap-3 shrink-0">
         <button onClick={() => navigate('/')}
           className="text-white/70 hover:text-white text-sm min-h-[44px] px-2">戻る</button>

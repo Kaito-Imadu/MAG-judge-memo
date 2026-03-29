@@ -838,7 +838,7 @@ export default function JudgeSheet({
   void tick;
 
   return (
-    <div className="h-screen flex flex-col overflow-hidden select-none">
+    <div className="h-full flex flex-col overflow-hidden select-none">
       {/* ツールバー（大きめ・タッチ操作しやすいサイズ） */}
       <div className="flex items-center gap-2 px-3 py-1.5 bg-gray-100 dark:bg-gray-800 shrink-0">
         {/* ペン色選択 */}

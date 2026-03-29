@@ -10,9 +10,17 @@
   --font-sans: "Noto Sans JP", system-ui, sans-serif;
 }
 
-body {
+html, body, #root {
   margin: 0;
+  padding: 0;
+  height: 100dvh;
+  overflow: hidden;
+  overscroll-behavior: none;
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  /* iOS PWA: バウンススクロール防止 */
+  position: fixed;
+  width: 100%;
+  touch-action: none;
 }
