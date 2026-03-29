@@ -11,7 +11,7 @@ export default function EntryPage() {
   const [sessions, setSessions] = useState<Session[]>([]);
   const [showModal, setShowModal] = useState<'trial' | 'competition' | 'individual' | null>(null);
   const [sessionName, setSessionName] = useState('');
-  const [judgeMode, setJudgeMode] = useState<'D' | 'E'>('E');
+  const [judgeMode, setJudgeMode] = useState<'D' | 'E' | 'D/E'>('E');
   const [eJudgeCount, setEJudgeCount] = useState(4);
   const [selectedApparatus, setSelectedApparatus] = useState<Apparatus>('FX');
 
@@ -25,8 +25,8 @@ export default function EntryPage() {
       name: sessionName.trim() || (showModal === 'trial' ? '試技会' : showModal === 'competition' ? '大会' : '個別採点'),
       date: new Date(),
       mode: showModal!,
-      judgeMode,
-      eJudgeCount: judgeMode === 'E' ? eJudgeCount : 1,
+      judgeMode: showModal === 'individual' ? 'D/E' : judgeMode,
+      eJudgeCount: (showModal === 'individual' || judgeMode === 'E' || judgeMode === 'D/E') ? eJudgeCount : 1,
       apparatus: showModal === 'competition' ? selectedApparatus : undefined,
       athletes: [],
     };
@@ -97,8 +97,8 @@ export default function EntryPage() {
                     <div className="text-xs text-gray-500">
                       {s.mode === 'trial' ? '試技会' : s.mode === 'individual' ? '個別' : '大会'}
                       {s.apparatus ? ` / ${s.apparatus}` : ''}
-                      {' / '}{s.judgeMode}審判
-                      {s.judgeMode === 'E' ? ` (${s.eJudgeCount}人)` : ''}
+                      {' / '}{s.judgeMode === 'D/E' ? 'D/E' : `${s.judgeMode}審判`}
+                      {(s.judgeMode === 'E' || s.judgeMode === 'D/E') ? ` (E${s.eJudgeCount}人)` : ''}
                       {' / '}{new Date(s.date).toLocaleDateString('ja-JP')}
                     </div>
                   </button>
@@ -125,28 +125,36 @@ export default function EntryPage() {
               className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600
                          dark:bg-gray-700 dark:text-gray-100 mb-4" />
 
-            <div className="flex items-center gap-2 mb-4">
-              <span className="text-sm text-gray-600 dark:text-gray-300">審判:</span>
-              <button onClick={() => setJudgeMode('D')}
-                className={`px-4 py-1.5 rounded-l-lg text-sm font-semibold border ${
-                  judgeMode === 'D' ? 'bg-primary text-white border-primary' : 'text-gray-500 border-gray-300'
-                }`}>D審判</button>
-              <button onClick={() => setJudgeMode('E')}
-                className={`px-4 py-1.5 rounded-r-lg text-sm font-semibold border border-l-0 ${
-                  judgeMode === 'E' ? 'bg-primary text-white border-primary' : 'text-gray-500 border-gray-300'
-                }`}>E審判</button>
-            </div>
+            {showModal !== 'individual' && (
+              <>
+                <div className="flex items-center gap-2 mb-4">
+                  <span className="text-sm text-gray-600 dark:text-gray-300">審判:</span>
+                  <button onClick={() => setJudgeMode('D')}
+                    className={`px-4 py-1.5 rounded-l-lg text-sm font-semibold border ${
+                      judgeMode === 'D' ? 'bg-primary text-white border-primary' : 'text-gray-500 border-gray-300'
+                    }`}>D審判</button>
+                  <button onClick={() => setJudgeMode('E')}
+                    className={`px-4 py-1.5 text-sm font-semibold border border-l-0 ${
+                      judgeMode === 'E' ? 'bg-primary text-white border-primary' : 'text-gray-500 border-gray-300'
+                    }`}>E審判</button>
+                  <button onClick={() => setJudgeMode('D/E')}
+                    className={`px-4 py-1.5 rounded-r-lg text-sm font-semibold border border-l-0 ${
+                      judgeMode === 'D/E' ? 'bg-primary text-white border-primary' : 'text-gray-500 border-gray-300'
+                    }`}>D/E</button>
+                </div>
 
-            {judgeMode === 'E' && (
-              <div className="flex items-center gap-2 mb-4">
-                <span className="text-sm text-gray-600 dark:text-gray-300">E審判人数:</span>
-                {[1, 2, 3, 4, 5, 6].map(n => (
-                  <button key={n} onClick={() => setEJudgeCount(n)}
-                    className={`w-9 h-9 rounded-lg text-sm font-bold ${
-                      eJudgeCount === n ? 'bg-primary text-white' : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300'
-                    }`}>{n}</button>
-                ))}
-              </div>
+                {(judgeMode === 'E' || judgeMode === 'D/E') && (
+                  <div className="flex items-center gap-2 mb-4">
+                    <span className="text-sm text-gray-600 dark:text-gray-300">E審判人数:</span>
+                    {[1, 2, 3, 4, 5, 6].map(n => (
+                      <button key={n} onClick={() => setEJudgeCount(n)}
+                        className={`w-9 h-9 rounded-lg text-sm font-bold ${
+                          eJudgeCount === n ? 'bg-primary text-white' : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300'
+                        }`}>{n}</button>
+                    ))}
+                  </div>
+                )}
+              </>
             )}
 
             {showModal === 'competition' && (

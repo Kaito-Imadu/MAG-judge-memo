@@ -9,7 +9,7 @@ export interface Session {
   name: string;
   date: Date;
   mode: 'trial' | 'competition' | 'individual';
-  judgeMode: 'D' | 'E';
+  judgeMode: 'D' | 'E' | 'D/E';
   eJudgeCount: number;
   apparatus?: Apparatus;
   athletes: string[];

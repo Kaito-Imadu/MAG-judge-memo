@@ -12,7 +12,7 @@ interface Stroke { points: Point[]; color: string; width: number }
 
 interface Props {
   apparatus: Apparatus;
-  judgeMode: 'D' | 'E';
+  judgeMode: 'D' | 'E' | 'D/E';
   eJudgeCount: number;
   recordId: string;
   sessionId: string;
@@ -333,17 +333,33 @@ export default function JudgeSheet({
       const drawAreaTop = LABEL_H;
       const drawAreaBottom = scoreRowTop;
       const drawAreaH = drawAreaBottom - drawAreaTop;
-      const scale = vtScale;
-      const imgW = img.width * scale;
-      const imgH = img.height * scale;
-      const cx = mainW / 2;
+      const drawAreaW = mainW;
+      // 描画エリアに余裕を持って収まるようフィット（80%マージン）
+      const fitScale = Math.min(
+        (drawAreaW * 0.8) / img.width,
+        (drawAreaH * 0.8) / img.height,
+      );
+      const scale = fitScale * vtScale;
+      const imgW = Math.ceil(img.width * scale);
+      const imgH = Math.ceil(img.height * scale);
+      const cx = drawAreaW / 2;
       const cy = drawAreaTop + drawAreaH / 2;
 
+      // オフスクリーンCanvasで黒色化
+      const off = document.createElement('canvas');
+      off.width = imgW;
+      off.height = imgH;
+      const oc = off.getContext('2d')!;
+      oc.drawImage(img, 0, 0, imgW, imgH);
+      oc.globalCompositeOperation = 'source-in';
+      oc.fillStyle = '#000000';
+      oc.fillRect(0, 0, imgW, imgH);
+
       c.save();
-      c.globalAlpha = 0.3;
+      c.globalAlpha = 0.2;
       c.translate(cx, cy);
       if (vtFlip) c.scale(-1, 1);
-      c.drawImage(img, -imgW / 2, -imgH / 2, imgW, imgH);
+      c.drawImage(off, -imgW / 2, -imgH / 2);
       c.restore();
     }
 
