@@ -15,6 +15,22 @@ const CV_LABEL_H = 28;
 const ND_WIDTH_RATIO = 0.2;
 const LINE_WIDTH = 2;
 
+// 跳馬画像キャッシュ
+let vaultImgCache: HTMLImageElement | null = null;
+let vaultImgLoading: Promise<HTMLImageElement | null> | null = null;
+
+function loadVaultImage(): Promise<HTMLImageElement | null> {
+  if (vaultImgCache) return Promise.resolve(vaultImgCache);
+  if (vaultImgLoading) return vaultImgLoading;
+  vaultImgLoading = new Promise((resolve) => {
+    const img = new Image();
+    img.src = (import.meta.env.BASE_URL || '/') + 'vault_image.jpeg';
+    img.onload = () => { vaultImgCache = img; resolve(img); };
+    img.onerror = () => resolve(null);
+  });
+  return vaultImgLoading;
+}
+
 interface RenderOptions {
   w: number;
   h: number;
@@ -23,6 +39,7 @@ interface RenderOptions {
   mode: 'trial' | 'competition' | 'individual';
   athleteName: string;
   strokes: StrokeData[];
+  vaultImg?: HTMLImageElement | null;
 }
 
 /**
@@ -30,7 +47,7 @@ interface RenderOptions {
  * 返される Canvas は CSS ピクセルサイズ (w × h) で描画済み。
  */
 export function renderSheetCanvas(opts: RenderOptions): HTMLCanvasElement {
-  const { w, h, apparatus, eJudgeCount, mode, athleteName, strokes } = opts;
+  const { w, h, apparatus, eJudgeCount, mode, athleteName, strokes, vaultImg } = opts;
   const canvas = document.createElement('canvas');
   canvas.width = w;
   canvas.height = h;
@@ -83,6 +100,28 @@ export function renderSheetCanvas(opts: RenderOptions): HTMLCanvasElement {
     c.moveTo(0, LABEL_H);
     c.lineTo(w, LABEL_H);
     c.stroke();
+  }
+
+  // --- 跳馬画像（VT のみ） ---
+  if (apparatus === 'VT' && vaultImg) {
+    const drawAreaTop = LABEL_H;
+    const drawAreaBottom = scoreRowTop;
+    const drawAreaH = drawAreaBottom - drawAreaTop;
+    const drawAreaW = mainW;
+    const fitScale = Math.min(
+      (drawAreaW * 0.8) / vaultImg.width,
+      (drawAreaH * 0.8) / vaultImg.height,
+    );
+    const imgW = Math.ceil(vaultImg.width * fitScale);
+    const imgH = Math.ceil(vaultImg.height * fitScale);
+    const cx = drawAreaW / 2;
+    const cy = drawAreaTop + drawAreaH / 2;
+
+    c.save();
+    c.globalAlpha = 0.25;
+    c.translate(cx, cy);
+    c.drawImage(vaultImg, -imgW / 2, -imgH / 2, imgW, imgH);
+    c.restore();
   }
 
   // --- ND 項目（右下） ---
@@ -183,3 +222,5 @@ export function renderSheetCanvas(opts: RenderOptions): HTMLCanvasElement {
 
   return canvas;
 }
+
+export { loadVaultImage };

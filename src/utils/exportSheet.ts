@@ -1,7 +1,7 @@
 import { db } from '../db/database';
 import type { MemoRecord } from '../db/database';
 import type { Apparatus } from '../types';
-import { renderSheetCanvas } from './renderSheet';
+import { renderSheetCanvas, loadVaultImage } from './renderSheet';
 
 // ---------- 6種目シート用定数（横向き・3列×2行） ----------
 const EXPORT_COLS = 3;
@@ -9,35 +9,50 @@ const EXPORT_ROWS = 2;
 const CELL_GAP = 4;
 const HEADER_H = 60;
 
-// 元のキャンバスサイズを推定するための参照サイズ
-// iPad landscape のメモ領域: ツールバー(≈48px)を除いた領域
-const REF_W = 1024;
-const REF_H = 700;
-
-// エクスポートセルサイズ: 元のアスペクト比を維持
+// エクスポートセルサイズ
 const CELL_W = 500;
-const CELL_H = Math.round(CELL_W * REF_H / REF_W);
+const CELL_H = Math.round(CELL_W * 700 / 1024); // iPad landscape のアスペクト比
 const EXPORT_W = CELL_W * EXPORT_COLS + CELL_GAP * (EXPORT_COLS - 1);
 const EXPORT_H = HEADER_H + CELL_H * EXPORT_ROWS + CELL_GAP * (EXPORT_ROWS - 1);
 
 const APPARATUS_ORDER: Apparatus[] = ['FX', 'PH', 'SR', 'VT', 'PB', 'HB'];
 
-// ストロークから元のキャンバスサイズを推定
-function estimateSourceSize(records: Map<Apparatus, MemoRecord>): { w: number; h: number } {
-  let maxX = 0, maxY = 0;
-  for (const rec of records.values()) {
-    for (const s of rec.strokes) {
+// レコードからキャンバスサイズを取得（保存されていなければフォールバック）
+function getCanvasSize(record: MemoRecord | undefined): { w: number; h: number } {
+  if (record?.canvasW && record?.canvasH) {
+    return { w: record.canvasW, h: record.canvasH };
+  }
+  // 旧データ: ストロークの最大座標から推定
+  if (record && record.strokes.length > 0) {
+    let maxX = 0, maxY = 0;
+    for (const s of record.strokes) {
       for (const p of s.points) {
         if (p.x > maxX) maxX = p.x;
         if (p.y > maxY) maxY = p.y;
       }
     }
+    // ストロークの範囲にマージンを足して推定
+    return { w: Math.max(maxX * 1.1, 800), h: Math.max(maxY * 1.1, 500) };
   }
-  // ストロークがない場合やキャンバス端まで描いていない場合のフォールバック
-  return {
-    w: Math.max(maxX + 50, REF_W),
-    h: Math.max(maxY + 50, REF_H),
-  };
+  return { w: 1024, h: 700 };
+}
+
+// 全レコードから共通のキャンバスサイズを決定（最大のもの）
+function getCommonCanvasSize(records: Map<Apparatus, MemoRecord>): { w: number; h: number } {
+  let bestW = 0, bestH = 0;
+  // canvasW/H が保存されているレコードを優先
+  for (const rec of records.values()) {
+    if (rec.canvasW && rec.canvasH) {
+      if (rec.canvasW > bestW) { bestW = rec.canvasW; bestH = rec.canvasH; }
+    }
+  }
+  if (bestW > 0) return { w: bestW, h: bestH };
+  // 保存されていない場合は各レコードから推定
+  for (const rec of records.values()) {
+    const size = getCanvasSize(rec);
+    if (size.w > bestW) { bestW = size.w; bestH = size.h; }
+  }
+  return bestW > 0 ? { w: bestW, h: bestH } : { w: 1024, h: 700 };
 }
 
 // ---------- 6種目シートエクスポート ----------
@@ -57,8 +72,11 @@ export async function exportAthleteSheet(
     }
   }
 
-  // 元のキャンバスサイズを推定（全種目共通）
-  const src = estimateSourceSize(recordMap);
+  // 共通キャンバスサイズ（全種目同一デバイスで採点した前提）
+  const src = getCommonCanvasSize(recordMap);
+
+  // 跳馬画像を事前読み込み
+  const vaultImg = await loadVaultImage();
 
   const canvas = document.createElement('canvas');
   canvas.width = EXPORT_W;
@@ -101,6 +119,7 @@ export async function exportAthleteSheet(
       mode: 'trial',
       athleteName,
       strokes: record?.strokes ?? [],
+      vaultImg: apparatus === 'VT' ? vaultImg : null,
     });
 
     // 縮小してセルに配置
@@ -117,7 +136,7 @@ export async function exportAthleteSheet(
   });
 }
 
-// ---------- 単一種目シートエクスポート（個別モード用） ----------
+// ---------- 単一種目シートエクスポート ----------
 export async function exportSingleSheet(
   sessionId: string,
   athleteName: string,
@@ -131,6 +150,9 @@ export async function exportSingleSheet(
   const SINGLE_W = 1200;
   const SINGLE_H = 900;
   const HEADER = 60;
+
+  const vaultImg = apparatus === 'VT' ? await loadVaultImage() : null;
+  const src = getCanvasSize(record);
 
   const canvas = document.createElement('canvas');
   canvas.width = SINGLE_W;
@@ -146,7 +168,7 @@ export async function exportSingleSheet(
   c.fillRect(0, 0, SINGLE_W, HEADER);
   c.fillStyle = '#ffffff';
   c.font = 'bold 20px "Noto Sans JP", sans-serif';
-  c.fillText(`${athleteName}`, 16, 26);
+  c.fillText(athleteName, 16, 26);
   c.font = '12px "Noto Sans JP", sans-serif';
   c.fillStyle = '#ffffffcc';
   c.fillText(`${sessionName}  /  ${new Date().toLocaleDateString('ja-JP')}`, 16, 46);
@@ -154,35 +176,19 @@ export async function exportSingleSheet(
   c.fillStyle = '#ffffff88';
   c.fillText('MAG Judge Memo', SINGLE_W - 110, 46);
 
-  // コンテンツ: JudgeSheet と同じロジックで描画
-  const contentW = SINGLE_W;
-  const contentH = SINGLE_H - HEADER;
-
-  // ソースサイズ推定
-  let srcW = REF_W, srcH = REF_H;
-  if (record && record.strokes.length > 0) {
-    let maxX = 0, maxY = 0;
-    for (const s of record.strokes) {
-      for (const p of s.points) {
-        if (p.x > maxX) maxX = p.x;
-        if (p.y > maxY) maxY = p.y;
-      }
-    }
-    srcW = Math.max(maxX + 50, REF_W);
-    srcH = Math.max(maxY + 50, REF_H);
-  }
-
+  // JudgeSheet と同じロジックで描画
   const sheet = renderSheetCanvas({
-    w: srcW,
-    h: srcH,
+    w: src.w,
+    h: src.h,
     apparatus,
     eJudgeCount,
     mode: 'individual',
     athleteName,
     strokes: record?.strokes ?? [],
+    vaultImg,
   });
 
-  c.drawImage(sheet, 0, HEADER, contentW, contentH);
+  c.drawImage(sheet, 0, HEADER, SINGLE_W, SINGLE_H - HEADER);
 
   return new Promise((resolve) => {
     canvas.toBlob((blob) => resolve(blob!), 'image/png');

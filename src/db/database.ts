@@ -22,6 +22,8 @@ export interface MemoRecord {
   apparatus: Apparatus;
   pageNumber: number;
   strokes: StrokeData[];
+  canvasW?: number;
+  canvasH?: number;
   updatedAt: Date;
 }
 

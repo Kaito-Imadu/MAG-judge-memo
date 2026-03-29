@@ -252,6 +252,7 @@ export default function JudgeSheet({
   const flushSave = useCallback((id: string, data: Stroke[]) => {
     if (saveTimer.current) { clearTimeout(saveTimer.current); saveTimer.current = null; }
     if (data.length === 0 && !prevRecordId.current) return;
+    const { w, h } = sizeRef.current;
     db.memoRecords.put({
       id,
       sessionId,
@@ -259,6 +260,8 @@ export default function JudgeSheet({
       apparatus,
       pageNumber,
       strokes: data.map(s => ({ points: s.points, color: s.color, width: s.width })),
+      canvasW: w || undefined,
+      canvasH: h || undefined,
       updatedAt: new Date(),
     });
   }, [sessionId, athleteName, apparatus, pageNumber]);
@@ -506,6 +509,7 @@ export default function JudgeSheet({
       if (saveTimer.current) clearTimeout(saveTimer.current);
       const id = prevRecordId.current;
       if (id && strokes.current.length > 0) {
+        const { w, h } = sizeRef.current;
         const data: StrokeData[] = strokes.current.map(s => ({ points: s.points, color: s.color, width: s.width }));
         db.memoRecords.put({
           id,
@@ -514,6 +518,8 @@ export default function JudgeSheet({
           apparatus,
           pageNumber,
           strokes: data,
+          canvasW: w || undefined,
+          canvasH: h || undefined,
           updatedAt: new Date(),
         });
       }
