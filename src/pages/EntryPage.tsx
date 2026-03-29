@@ -4,6 +4,7 @@ import { db } from '../db/database';
 import type { Session } from '../db/database';
 import type { Apparatus } from '../types';
 import { APPARATUS_LIST } from '../constants/apparatus';
+import { version } from '../../package.json';
 
 export default function EntryPage() {
   const navigate = useNavigate();
@@ -55,8 +56,9 @@ export default function EntryPage() {
 
   return (
     <div className="min-h-screen bg-bg-light dark:bg-bg-dark flex flex-col">
-      <header className="bg-primary text-white px-6 py-4">
+      <header className="bg-primary text-white px-6 py-4 flex items-baseline justify-between">
         <h1 className="text-xl font-bold tracking-tight">MAG Judge Memo</h1>
+        <span className="text-xs text-white/50">v{version}</span>
       </header>
 
       <main className="flex-1 p-6 max-w-3xl mx-auto w-full">

@@ -10,7 +10,7 @@ export default defineConfig({
     tailwindcss(),
     VitePWA({
       registerType: 'autoUpdate',
-      includeAssets: ['favicon.svg', 'icon-192x192.png', 'icon-512x512.png'],
+      includeAssets: ['favicon.svg', 'icon-192x192.png', 'icon-512x512.png', 'vault_image.jpeg'],
       manifest: {
         name: 'MAG Judge Memo',
         short_name: 'MAG Memo',

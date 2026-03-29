@@ -37,6 +37,11 @@ const STRAIGHT_THRESHOLD = 4;
 const SCRUB_DIRS_NEEDED = 4;
 const SAVE_DEBOUNCE = 1500;
 
+// 跳馬画像設定の永続化キー
+const VT_IMG_FLIP_KEY = 'vt-image-flip';
+const VT_IMG_SCALE_KEY = 'vt-image-scale';
+const VT_SCALE_OPTIONS = [0.5, 0.75, 1.0, 1.25, 1.5];
+
 // レイアウト定数
 const LABEL_H = 52;          // モード別ラベル領域の高さ
 const SCORE_ROW_H = 160;
@@ -212,6 +217,27 @@ export default function JudgeSheet({
   const hasCV = apparatus === 'FX' || apparatus === 'HB';
   const apparatusInfo = APPARATUS_LIST.find(a => a.code === apparatus);
 
+  // 跳馬画像の状態
+  const vaultImg = useRef<HTMLImageElement | null>(null);
+  const [vtFlip, setVtFlip] = useState(() => localStorage.getItem(VT_IMG_FLIP_KEY) === 'true');
+  const [vtScale, setVtScale] = useState(() => {
+    const saved = localStorage.getItem(VT_IMG_SCALE_KEY);
+    return saved ? parseFloat(saved) : 1.0;
+  });
+
+  // 跳馬画像の読み込み
+  useEffect(() => {
+    if (apparatus !== 'VT') return;
+    if (vaultImg.current) return;
+    const img = new Image();
+    img.src = import.meta.env.BASE_URL + 'vault_image.jpeg';
+    img.onload = () => {
+      vaultImg.current = img;
+      redrawStatic();
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [apparatus]);
+
   // === Context getters (desynchronized for active layer) ===
   const getStaticCtx = useCallback(() =>
     staticCanvasRef.current?.getContext('2d') ?? null, []);
@@ -301,6 +327,26 @@ export default function JudgeSheet({
       c.stroke();
     }
 
+    // --- 跳馬画像（VT のみ） ---
+    if (apparatus === 'VT' && vaultImg.current) {
+      const img = vaultImg.current;
+      const drawAreaTop = LABEL_H;
+      const drawAreaBottom = scoreRowTop;
+      const drawAreaH = drawAreaBottom - drawAreaTop;
+      const scale = vtScale;
+      const imgW = img.width * scale;
+      const imgH = img.height * scale;
+      const cx = mainW / 2;
+      const cy = drawAreaTop + drawAreaH / 2;
+
+      c.save();
+      c.globalAlpha = 0.3;
+      c.translate(cx, cy);
+      if (vtFlip) c.scale(-1, 1);
+      c.drawImage(img, -imgW / 2, -imgH / 2, imgW, imgH);
+      c.restore();
+    }
+
     // --- ND 項目（右下） ---
     if (hasND) {
       c.fillStyle = '#555';
@@ -366,7 +412,7 @@ export default function JudgeSheet({
     }
 
     c.restore();
-  }, [getStaticCtx, hasND, hasCV, ndItems, eJudgeCount, mode, athleteName, apparatus, apparatusInfo]);
+  }, [getStaticCtx, hasND, hasCV, ndItems, eJudgeCount, mode, athleteName, apparatus, apparatusInfo, vtFlip, vtScale]);
 
   // === Static Canvas 全再描画 ===
   const redrawStatic = useCallback(() => {
@@ -749,6 +795,24 @@ export default function JudgeSheet({
   const toggleEraser = () => { eraserMode.current = !eraserMode.current; setTick(t => t + 1); };
   const setLineWidth = (w: number) => { lineWidthRef.current = w; setTick(t => t + 1); };
 
+  // 跳馬画像: 左右反転
+  const toggleVtFlip = () => {
+    setVtFlip(prev => {
+      const next = !prev;
+      localStorage.setItem(VT_IMG_FLIP_KEY, String(next));
+      return next;
+    });
+  };
+  // 跳馬画像: サイズ変更（サイクル）
+  const cycleVtScale = () => {
+    setVtScale(prev => {
+      const idx = VT_SCALE_OPTIONS.indexOf(prev);
+      const next = VT_SCALE_OPTIONS[(idx + 1) % VT_SCALE_OPTIONS.length];
+      localStorage.setItem(VT_IMG_SCALE_KEY, String(next));
+      return next;
+    });
+  };
+
   const handleApparatusChange = (a: Apparatus) => {
     flushSave(recordId, strokes.current);
     if (onApparatusChange) {
@@ -831,6 +895,40 @@ export default function JudgeSheet({
                      hover:bg-red-50 dark:hover:bg-red-900/20 active:bg-red-100">
           全消去
         </button>
+
+        {/* 跳馬画像操作（VTのみ） */}
+        {apparatus === 'VT' && (
+          <>
+            <div className="w-px h-6 bg-gray-300" />
+            <button onClick={toggleVtFlip}
+              className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm font-bold min-h-[40px] transition-all ${
+                vtFlip
+                  ? 'bg-accent text-white ring-2 ring-accent/30'
+                  : 'bg-white dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200'
+              }`}>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M8 3H5a2 2 0 0 0-2 2v14c0 1.1.9 2 2 2h3" />
+                <path d="M16 3h3a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-3" />
+                <path d="M12 20v2" />
+                <path d="M12 14v2" />
+                <path d="M12 8v2" />
+                <path d="M12 2v2" />
+              </svg>
+              反転
+            </button>
+            <button onClick={cycleVtScale}
+              className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm font-bold min-h-[40px]
+                         bg-white dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="11" cy="11" r="8" />
+                <path d="M21 21l-4.35-4.35" />
+                <path d="M11 8v6" />
+                <path d="M8 11h6" />
+              </svg>
+              {Math.round(vtScale * 100)}%
+            </button>
+          </>
+        )}
 
         {toolbarExtra}
 

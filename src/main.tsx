@@ -7,7 +7,7 @@ import App from './App.tsx'
 // Service Worker 登録（自動更新）
 // iOS PWAはSW更新チェックが不安定なため、60秒ごとに手動チェック
 const updateSW = registerSW({
-  onRegisteredSW(swUrl, registration) {
+  onRegisteredSW(_swUrl, registration) {
     if (registration) {
       setInterval(() => {
         registration.update()
