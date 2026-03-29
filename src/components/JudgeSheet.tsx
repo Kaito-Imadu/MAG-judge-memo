@@ -209,6 +209,9 @@ export default function JudgeSheet({
   const scrubDirs = useRef<number[]>([]);
   const sizeRef = useRef({ w: 0, h: 0 });
   const prevRecordId = useRef<string>('');
+  const prevApparatus = useRef<Apparatus>(apparatus);
+  const prevAthleteName = useRef(athleteName);
+  const prevPageNumber = useRef(pageNumber);
   const navigate = useNavigate();
   const [tick, setTick] = useState(0);
 
@@ -249,34 +252,46 @@ export default function JudgeSheet({
   }, []);
 
   // --- 即時保存 ---
-  const flushSave = useCallback((id: string, data: Stroke[]) => {
+  // 注意: recordId 変更時に前の種目を保存する際、apparatus props は既に新しい値に
+  // なっている可能性がある。そのため保存に必要な情報は全て引数で受け取る。
+  const flushSave = useCallback((
+    id: string,
+    data: Stroke[],
+    saveApparatus: Apparatus,
+    saveAthleteName: string,
+    savePageNumber: number,
+  ) => {
     if (saveTimer.current) { clearTimeout(saveTimer.current); saveTimer.current = null; }
     if (data.length === 0 && !prevRecordId.current) return;
     const { w, h } = sizeRef.current;
     db.memoRecords.put({
       id,
       sessionId,
-      athleteName,
-      apparatus,
-      pageNumber,
+      athleteName: saveAthleteName,
+      apparatus: saveApparatus,
+      pageNumber: savePageNumber,
       strokes: data.map(s => ({ points: s.points, color: s.color, width: s.width })),
       canvasW: w || undefined,
       canvasH: h || undefined,
       updatedAt: new Date(),
     });
-  }, [sessionId, athleteName, apparatus, pageNumber]);
+  }, [sessionId]);
 
   // --- デバウンス保存 ---
   const saveRef = useRef<() => void>(() => {});
   useEffect(() => {
     saveRef.current = () => {
       if (saveTimer.current) clearTimeout(saveTimer.current);
+      // 現在の値をキャプチャ
       const id = recordId;
+      const a = apparatus;
+      const an = athleteName;
+      const pn = pageNumber;
       saveTimer.current = setTimeout(() => {
-        flushSave(id, strokes.current);
+        flushSave(id, strokes.current, a, an, pn);
       }, SAVE_DEBOUNCE);
     };
-  }, [recordId, flushSave]);
+  }, [recordId, apparatus, athleteName, pageNumber, flushSave]);
 
   // === テンプレート描画 (Static Canvas のみ) ===
   const drawTemplate = useCallback(() => {
@@ -444,9 +459,15 @@ export default function JudgeSheet({
   // --- recordId変更時: 前を保存 → 新を復元 ---
   useEffect(() => {
     if (prevRecordId.current && prevRecordId.current !== recordId) {
-      flushSave(prevRecordId.current, strokes.current);
+      flushSave(
+        prevRecordId.current, strokes.current,
+        prevApparatus.current, prevAthleteName.current, prevPageNumber.current,
+      );
     }
     prevRecordId.current = recordId;
+    prevApparatus.current = apparatus;
+    prevAthleteName.current = athleteName;
+    prevPageNumber.current = pageNumber;
 
     db.memoRecords.get(recordId).then((saved) => {
       strokes.current = saved
@@ -514,9 +535,9 @@ export default function JudgeSheet({
         db.memoRecords.put({
           id,
           sessionId,
-          athleteName,
-          apparatus,
-          pageNumber,
+          athleteName: prevAthleteName.current,
+          apparatus: prevApparatus.current,
+          pageNumber: prevPageNumber.current,
           strokes: data,
           canvasW: w || undefined,
           canvasH: h || undefined,
@@ -826,7 +847,7 @@ export default function JudgeSheet({
   };
 
   const handleApparatusChange = (a: Apparatus) => {
-    flushSave(recordId, strokes.current);
+    flushSave(recordId, strokes.current, apparatus, athleteName, pageNumber);
     if (onApparatusChange) {
       onApparatusChange(a);
     } else {
@@ -836,7 +857,7 @@ export default function JudgeSheet({
   };
 
   const handleBack = () => {
-    flushSave(recordId, strokes.current);
+    flushSave(recordId, strokes.current, apparatus, athleteName, pageNumber);
     if (onBack) onBack();
     else navigate('/');
   };
