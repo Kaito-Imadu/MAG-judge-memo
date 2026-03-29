@@ -1,178 +1,259 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { db } from '../db/database';
-import type { Session, MemoRecord } from '../db/database';
-import { APPARATUS_LIST } from '../constants/apparatus';
+import type { Session, MemoRecord, StrokeData } from '../db/database';
 import type { Apparatus } from '../types';
-import { exportSingleSheet, shareOrDownload } from '../utils/exportSheet';
+import JudgeSheet from '../components/JudgeSheet';
 
-interface RecordEntry {
-  athleteName: string;
-  apparatus: Apparatus;
-  record: MemoRecord;
+// サムネイル描画用定数
+const THUMB_W = 200;
+const THUMB_H = 140;
+
+function drawThumbnail(canvas: HTMLCanvasElement, strokes: StrokeData[]) {
+  const c = canvas.getContext('2d');
+  if (!c) return;
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width = THUMB_W * dpr;
+  canvas.height = THUMB_H * dpr;
+  c.scale(dpr, dpr);
+  c.clearRect(0, 0, THUMB_W, THUMB_H);
+
+  c.fillStyle = '#fafafa';
+  c.fillRect(0, 0, THUMB_W, THUMB_H);
+  c.strokeStyle = '#e0e0e0';
+  c.lineWidth = 1;
+  c.strokeRect(0, 0, THUMB_W, THUMB_H);
+
+  if (strokes.length === 0) {
+    c.fillStyle = '#ccc';
+    c.font = '12px "Noto Sans JP", sans-serif';
+    c.textAlign = 'center';
+    c.fillText('未記入', THUMB_W / 2, THUMB_H / 2 + 4);
+    return;
+  }
+
+  let minX = Infinity, minY = Infinity, maxX = 0, maxY = 0;
+  for (const s of strokes) {
+    for (const p of s.points) {
+      if (p.x < minX) minX = p.x;
+      if (p.y < minY) minY = p.y;
+      if (p.x > maxX) maxX = p.x;
+      if (p.y > maxY) maxY = p.y;
+    }
+  }
+  const rangeX = maxX - minX || 1;
+  const rangeY = maxY - minY || 1;
+  const pad = 8;
+  const scaleX = (THUMB_W - pad * 2) / rangeX;
+  const scaleY = (THUMB_H - pad * 2) / rangeY;
+  const scale = Math.min(scaleX, scaleY, 0.6);
+  const offX = pad + ((THUMB_W - pad * 2) - rangeX * scale) / 2 - minX * scale;
+  const offY = pad + ((THUMB_H - pad * 2) - rangeY * scale) / 2 - minY * scale;
+
+  for (const s of strokes) {
+    if (s.points.length < 2) continue;
+    c.strokeStyle = s.color;
+    c.lineWidth = Math.max(0.5, (s.width ?? 2) * scale);
+    c.lineCap = 'round';
+    c.lineJoin = 'round';
+    c.beginPath();
+    c.moveTo(offX + s.points[0].x * scale, offY + s.points[0].y * scale);
+    for (let i = 1; i < s.points.length; i++) {
+      c.lineTo(offX + s.points[i].x * scale, offY + s.points[i].y * scale);
+    }
+    c.stroke();
+  }
+}
+
+function ThumbCard({ page, rec, isActive, onClick }: {
+  page: number;
+  rec: MemoRecord | undefined;
+  isActive: boolean;
+  onClick: () => void;
+}) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+
+  useEffect(() => {
+    if (canvasRef.current) {
+      drawThumbnail(canvasRef.current, rec?.strokes ?? []);
+    }
+  }, [rec]);
+
+  return (
+    <button onClick={onClick}
+      className={`flex flex-col items-center gap-1 p-2 rounded-lg border-2 transition-all
+                  active:scale-95 ${
+        isActive
+          ? 'border-accent bg-accent/5 shadow-md'
+          : 'border-gray-200 dark:border-gray-700 hover:border-accent/50 hover:shadow'
+      }`}>
+      <canvas ref={canvasRef}
+        style={{ width: THUMB_W, height: THUMB_H }}
+        className="rounded" />
+      <div className="flex items-center gap-2 w-full px-1">
+        <span className={`text-sm font-bold ${isActive ? 'text-accent' : 'text-gray-500'}`}>
+          #{page}
+        </span>
+        {rec && rec.strokes.length > 0 ? (
+          <span className="text-success text-[10px] font-bold ml-auto">記入済</span>
+        ) : (
+          <span className="text-gray-400 text-[10px] ml-auto">未記入</span>
+        )}
+      </div>
+    </button>
+  );
 }
 
 export default function IndividualPage() {
   const { sessionId } = useParams<{ sessionId: string }>();
   const navigate = useNavigate();
   const [session, setSession] = useState<Session | null>(null);
-  const [entries, setEntries] = useState<RecordEntry[]>([]);
-  const [selectedEntry, setSelectedEntry] = useState<RecordEntry | null>(null);
-  const [athleteName, setAthleteName] = useState('');
-  const [selectedApparatus, setSelectedApparatus] = useState<Apparatus>('FX');
-  const [showAddForm, setShowAddForm] = useState(false);
-  const [exporting, setExporting] = useState<string | null>(null);
+  const [apparatus, setApparatus] = useState<Apparatus>('FX');
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [showPageList, setShowPageList] = useState(false);
+  const [pageRecords, setPageRecords] = useState<MemoRecord[]>([]);
 
-  const reload = async () => {
+  useEffect(() => {
     if (!sessionId) return;
-    const s = await db.sessions.get(sessionId);
-    if (s) setSession(s);
+    let cancelled = false;
+    (async () => {
+      const s = await db.sessions.get(sessionId);
+      if (cancelled) return;
+      if (s) setSession(s);
+      const recs = await db.memoRecords.where('sessionId').equals(sessionId).toArray();
+      if (cancelled) return;
+      recs.sort((a, b) => a.pageNumber - b.pageNumber);
+      setPageRecords(recs);
+      const maxPage = recs.length > 0 ? Math.max(...recs.map(r => r.pageNumber)) : 0;
+      const total = Math.max(1, maxPage);
+      setTotalPages(total);
+      setCurrentPage(total);
+    })();
+    return () => { cancelled = true; };
+  }, [sessionId]);
+
+  const openPageList = async () => {
+    if (!sessionId) return;
     const recs = await db.memoRecords.where('sessionId').equals(sessionId).toArray();
-    const list: RecordEntry[] = recs
-      .filter(r => r.strokes.length > 0)
-      .map(r => ({ athleteName: r.athleteName, apparatus: r.apparatus, record: r }));
-    setEntries(list);
+    recs.sort((a, b) => a.pageNumber - b.pageNumber);
+    setPageRecords(recs);
+    const maxPage = recs.length > 0 ? Math.max(...recs.map(r => r.pageNumber)) : 0;
+    setTotalPages(Math.max(totalPages, maxPage));
+    setShowPageList(true);
   };
 
-  useEffect(() => { reload(); }, [sessionId]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const openJudge = (athlete: string, apparatus: Apparatus) => {
-    if (!sessionId) return;
-    navigate(`/individual/${sessionId}/judge/${encodeURIComponent(athlete)}/${apparatus}`);
+  const jumpToPage = (page: number) => {
+    setCurrentPage(page);
+    setShowPageList(false);
   };
 
-  const addAndOpen = () => {
-    const name = athleteName.trim();
-    if (!name || !sessionId) return;
-    setShowAddForm(false);
-    setAthleteName('');
-    openJudge(name, selectedApparatus);
+  if (!session || !sessionId) return null;
+
+  const recordId = `individual:${sessionId}:${apparatus}:${currentPage}`;
+
+  const goPrev = () => { if (currentPage > 1) setCurrentPage(p => p - 1); };
+  const goNext = () => { if (currentPage < totalPages) setCurrentPage(p => p + 1); };
+  const addPage = () => {
+    const newPage = totalPages + 1;
+    setTotalPages(newPage);
+    setCurrentPage(newPage);
+    setShowPageList(false);
   };
 
-  const handleExport = async (entry: RecordEntry) => {
-    if (!session || !sessionId) return;
-    setExporting(entry.record.id);
-    try {
-      const blob = await exportSingleSheet(
-        sessionId, entry.athleteName, entry.apparatus,
-        session.name, session.eJudgeCount,
-      );
-      const filename = `${entry.athleteName}_${APPARATUS_LIST.find(a => a.code === entry.apparatus)?.name ?? entry.apparatus}_${new Date().toISOString().slice(0, 10)}.png`;
-      await shareOrDownload(blob, filename);
-    } finally {
-      setExporting(null);
-    }
+  const handleApparatusChange = (a: Apparatus) => {
+    setApparatus(a);
   };
 
-  if (!session) return null;
+  const pageNav = (
+    <>
+      <div className="w-px h-4 bg-gray-300" />
+      <button onClick={goPrev} disabled={currentPage <= 1}
+        className="px-1.5 py-0.5 rounded text-xs bg-white dark:bg-gray-700 text-gray-500 disabled:opacity-30 min-h-[28px]">
+        ◀
+      </button>
+      <button onClick={openPageList}
+        className="text-xs text-gray-600 dark:text-gray-300 font-mono min-w-[40px] text-center
+                   hover:bg-gray-200 dark:hover:bg-gray-600 rounded px-1 py-0.5 min-h-[28px]">
+        {currentPage} / {totalPages}
+      </button>
+      <button onClick={goNext} disabled={currentPage >= totalPages}
+        className="px-1.5 py-0.5 rounded text-xs bg-white dark:bg-gray-700 text-gray-500 disabled:opacity-30 min-h-[28px]">
+        ▶
+      </button>
+      <button onClick={openPageList}
+        className="px-2 py-0.5 rounded text-xs bg-white dark:bg-gray-700 text-gray-600 dark:text-gray-300 font-bold min-h-[28px]
+                   hover:bg-gray-200 dark:hover:bg-gray-600">
+        一覧
+      </button>
+      <button onClick={addPage}
+        className="px-2 py-0.5 rounded text-xs bg-accent text-white font-bold min-h-[28px]">
+        + 次のページ
+      </button>
+    </>
+  );
 
   return (
-    <div className="h-screen flex flex-col overflow-hidden bg-bg-light dark:bg-bg-dark">
-      <header className="bg-primary text-white px-4 py-2.5 flex items-center gap-3 shrink-0">
-        <button onClick={() => navigate('/')}
-          className="text-white/70 hover:text-white text-sm min-h-[44px] px-2">戻る</button>
-        <h1 className="font-bold">{session.name}</h1>
-        <span className="text-sm text-white/60 ml-auto">
-          {session.judgeMode}審判
-          {session.judgeMode === 'E' ? ` (${session.eJudgeCount}人)` : ''}
-        </span>
-      </header>
+    <div className="relative h-screen">
+      <JudgeSheet
+        key={`${recordId}-${apparatus}`}
+        apparatus={apparatus}
+        judgeMode={session.judgeMode}
+        eJudgeCount={session.eJudgeCount}
+        recordId={recordId}
+        sessionId={sessionId}
+        mode="individual"
+        athleteName=""
+        pageNumber={currentPage}
+        showApparatusTabs={true}
+        toolbarExtra={pageNav}
+        onBack={() => navigate('/')}
+        onApparatusChange={handleApparatusChange}
+      />
 
-      <div className="flex flex-1 min-h-0">
-        {/* 左: 記録一覧 */}
-        <div className="w-64 border-r border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 flex flex-col shrink-0">
-          <div className="p-3 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
-            <span className="font-bold text-sm text-gray-700 dark:text-gray-300">採点記録</span>
-            <button onClick={() => setShowAddForm(true)}
-              className="text-accent font-bold text-xl leading-none min-w-[44px] min-h-[44px] flex items-center justify-center">+</button>
-          </div>
-          <div className="flex-1 overflow-y-auto">
-            {entries.map(entry => {
-              const info = APPARATUS_LIST.find(a => a.code === entry.apparatus);
-              const isSelected = selectedEntry?.record.id === entry.record.id;
-              return (
-                <div key={entry.record.id}
-                  className={`flex items-center px-3 py-2.5 cursor-pointer border-b border-gray-100 dark:border-gray-700 ${
-                    isSelected
-                      ? 'bg-accent/10 border-l-4 border-l-accent'
-                      : 'hover:bg-gray-50 dark:hover:bg-gray-700/50'
-                  }`}>
-                  <button onClick={() => setSelectedEntry(entry)}
-                    className="flex-1 text-left min-h-[36px]">
-                    <div className="text-sm font-medium text-gray-800 dark:text-gray-200">{entry.athleteName}</div>
-                    <div className="text-xs text-gray-500">{entry.apparatus} {info?.name}</div>
-                  </button>
-                </div>
-              );
-            })}
-            {entries.length === 0 && !showAddForm && (
-              <div className="p-4 text-center text-gray-400 text-sm">
-                「+」で新しい採点を追加
-              </div>
-            )}
-          </div>
-        </div>
+      {/* サムネイル付きページ一覧パネル */}
+      {showPageList && (
+        <div className="absolute inset-0 z-50 flex">
+          <div className="absolute inset-0 bg-black/40" onClick={() => setShowPageList(false)} />
 
-        {/* 右: メインエリア */}
-        <div className="flex-1 flex items-center justify-center p-6">
-          {showAddForm ? (
-            <div className="max-w-md w-full">
-              <h2 className="text-lg font-bold text-gray-700 dark:text-gray-300 mb-4 text-center">新しい採点</h2>
-              <input value={athleteName} onChange={e => setAthleteName(e.target.value)}
-                onKeyDown={e => e.key === 'Enter' && addAndOpen()}
-                placeholder="選手名" autoFocus
-                className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600
-                           dark:bg-gray-700 dark:text-gray-100 mb-4" />
-              <div className="grid grid-cols-3 gap-2 mb-6">
-                {APPARATUS_LIST.map(a => (
-                  <button key={a.code} onClick={() => setSelectedApparatus(a.code)}
-                    className={`px-3 py-3 rounded-lg text-sm font-bold min-h-[50px] ${
-                      selectedApparatus === a.code
-                        ? 'bg-primary text-white'
-                        : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300'
-                    }`}>
-                    {a.code} {a.name}
-                  </button>
-                ))}
-              </div>
-              <div className="flex gap-3">
-                <button onClick={() => { setShowAddForm(false); setAthleteName(''); }}
-                  className="flex-1 py-2 min-h-[44px] rounded-lg border border-gray-300 dark:border-gray-600
-                             text-gray-600 dark:text-gray-300 font-medium">キャンセル</button>
-                <button onClick={addAndOpen} disabled={!athleteName.trim()}
-                  className="flex-1 py-2 min-h-[44px] rounded-lg bg-primary text-white font-bold
-                             disabled:opacity-50">採点開始</button>
-              </div>
-            </div>
-          ) : selectedEntry ? (
-            <div className="text-center">
-              <h2 className="text-xl font-bold text-gray-700 dark:text-gray-300 mb-2">
-                {selectedEntry.athleteName}
-              </h2>
-              <p className="text-gray-500 mb-6">
-                {selectedEntry.apparatus} {APPARATUS_LIST.find(a => a.code === selectedEntry.apparatus)?.name}
-              </p>
-              <div className="flex gap-3 justify-center">
-                <button onClick={() => openJudge(selectedEntry.athleteName, selectedEntry.apparatus)}
-                  className="px-6 py-2.5 min-h-[44px] rounded-lg bg-primary text-white font-bold
-                             hover:bg-primary/90 transition-colors">
-                  編集
+          <div className="relative m-auto w-[90vw] max-w-[900px] max-h-[85vh] bg-white dark:bg-gray-800
+                          rounded-xl shadow-2xl flex flex-col overflow-hidden">
+            <div className="px-5 py-3 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between shrink-0">
+              <h3 className="font-bold text-gray-700 dark:text-gray-300">
+                ページ一覧
+              </h3>
+              <div className="flex items-center gap-2">
+                <button onClick={addPage}
+                  className="px-4 py-1.5 min-h-[36px] rounded-lg bg-accent text-white font-bold text-sm">
+                  + ページ追加
                 </button>
-                <button onClick={() => handleExport(selectedEntry)}
-                  disabled={exporting === selectedEntry.record.id}
-                  className="px-6 py-2.5 min-h-[44px] rounded-lg bg-accent text-white font-bold
-                             hover:bg-accent/90 disabled:opacity-50 transition-colors">
-                  {exporting === selectedEntry.record.id ? '作成中...' : '共有'}
+                <button onClick={() => setShowPageList(false)}
+                  className="text-gray-400 hover:text-gray-600 text-xl min-w-[44px] min-h-[44px] flex items-center justify-center">
+                  ×
                 </button>
               </div>
             </div>
-          ) : (
-            <div className="text-gray-400 text-center text-lg">
-              「+」で新しい採点を追加、<br />または左の記録を選択してください
+
+            <div className="flex-1 overflow-y-auto p-4">
+              <div className="grid gap-3"
+                style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${THUMB_W + 16}px, 1fr))` }}>
+                {Array.from({ length: totalPages }, (_, i) => i + 1).map(page => {
+                  const rec = pageRecords.find(r => r.pageNumber === page);
+                  return (
+                    <ThumbCard
+                      key={page}
+                      page={page}
+                      rec={rec}
+                      isActive={page === currentPage}
+                      onClick={() => jumpToPage(page)}
+                    />
+                  );
+                })}
+              </div>
             </div>
-          )}
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }

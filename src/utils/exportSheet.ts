@@ -170,11 +170,12 @@ function drawStrokes(
   }
 }
 
-// ストロークのバウンディングボックスからスケールを計算
+// ストロークの元キャンバスサイズを推定し、ターゲットサイズへの均一スケールを計算
 function calcStrokeScale(
   strokes: StrokeData[],
   targetW: number, targetH: number,
 ): { scaleX: number; scaleY: number } {
+  // ストロークの最大座標から元のキャンバスサイズを推定
   let maxX = 0, maxY = 0;
   for (const s of strokes) {
     for (const p of s.points) {
@@ -182,9 +183,23 @@ function calcStrokeScale(
       if (p.y > maxY) maxY = p.y;
     }
   }
-  // フル Canvas 領域にマッピング（score row 含む）
-  const scaleX = maxX > 0 ? targetW / maxX : 1;
-  const scaleY = maxY > 0 ? targetH / maxY : 1;
+  if (maxX === 0 || maxY === 0) return { scaleX: 1, scaleY: 1 };
+
+  // 元のキャンバスのアスペクト比を維持して均一スケーリング
+  // iPad landscape の典型的なアスペクト比（メモ領域）を使用
+  const sourceAspect = maxX / maxY;
+  const targetAspect = targetW / targetH;
+
+  let scaleX: number, scaleY: number;
+  if (sourceAspect > targetAspect) {
+    // 横長 → 幅に合わせる
+    scaleX = targetW / maxX;
+    scaleY = scaleX;
+  } else {
+    // 縦長 → 高さに合わせる
+    scaleY = targetH / maxY;
+    scaleX = scaleY;
+  }
   return { scaleX, scaleY };
 }
 

@@ -345,21 +345,11 @@ export default function JudgeSheet({
       const cx = drawAreaW / 2;
       const cy = drawAreaTop + drawAreaH / 2;
 
-      // オフスクリーンCanvasで黒色化
-      const off = document.createElement('canvas');
-      off.width = imgW;
-      off.height = imgH;
-      const oc = off.getContext('2d')!;
-      oc.drawImage(img, 0, 0, imgW, imgH);
-      oc.globalCompositeOperation = 'source-in';
-      oc.fillStyle = '#000000';
-      oc.fillRect(0, 0, imgW, imgH);
-
       c.save();
-      c.globalAlpha = 0.2;
+      c.globalAlpha = 0.25;
       c.translate(cx, cy);
       if (vtFlip) c.scale(-1, 1);
-      c.drawImage(off, -imgW / 2, -imgH / 2);
+      c.drawImage(img, -imgW / 2, -imgH / 2, imgW, imgH);
       c.restore();
     }
 
