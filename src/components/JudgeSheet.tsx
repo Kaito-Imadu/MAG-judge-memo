@@ -34,7 +34,7 @@ const LINE_WIDTH = 2;
 const ERASER_WIDTH = 28;
 const STRAIGHT_DELAY = 1500;
 const STRAIGHT_THRESHOLD = 4;
-const SCRUB_DIRS_NEEDED = 4;
+const SCRUB_DIRS_NEEDED = 3;
 const SAVE_DEBOUNCE = 1500;
 
 // 跳馬画像設定の永続化キー
@@ -262,7 +262,6 @@ export default function JudgeSheet({
     savePageNumber: number,
   ) => {
     if (saveTimer.current) { clearTimeout(saveTimer.current); saveTimer.current = null; }
-    if (data.length === 0 && !prevRecordId.current) return;
     const { w, h } = sizeRef.current;
     db.memoRecords.put({
       id,
@@ -710,7 +709,7 @@ export default function JudgeSheet({
         const dy = p.y - prev.y;
 
         // スクラブ方向検出（最後のイベントのみ）
-        if (ce === events[events.length - 1] && Math.abs(dx) > 2) {
+        if (ce === events[events.length - 1] && Math.abs(dx) > 1) {
           const d = dx > 0 ? 1 : -1;
           const sd = scrubDirs.current;
           if (sd.length === 0 || sd[sd.length - 1] !== d) sd.push(d);
@@ -746,7 +745,13 @@ export default function JudgeSheet({
 
     const onUp = (e: PointerEvent) => {
       if (e.pointerId !== activePointerId.current) return;
+      const wasEraser = eraserMode.current;
       finishStroke();
+      // 消しゴム使用後は自動でペンに戻る
+      if (wasEraser) {
+        eraserMode.current = false;
+        setTick(t => t + 1);
+      }
     };
 
     // FIX: pointerleave は iPad Safari で誤発火することがあるため、
@@ -760,9 +765,21 @@ export default function JudgeSheet({
       }
     };
 
-    // FIX: iPadOS Scribble がペンイベントを横取りする問題への対策
-    // touch イベントを preventDefault して Scribble の介入を防ぐ
-    const onTouchStart = (e: TouchEvent) => { e.preventDefault(); };
+    // 2本指ダブルタップでundo
+    let lastTwoFingerTap = 0;
+    const onTouchStart = (e: TouchEvent) => {
+      e.preventDefault();
+      if (e.touches.length === 2) {
+        const now = Date.now();
+        if (now - lastTwoFingerTap < 500) {
+          // ダブルタップ検出 → undo
+          undoRef.current();
+          lastTwoFingerTap = 0;
+        } else {
+          lastTwoFingerTap = now;
+        }
+      }
+    };
     const onTouchMove = (e: TouchEvent) => { e.preventDefault(); };
 
     activeCv.addEventListener('touchstart', onTouchStart, { passive: false });
@@ -803,6 +820,8 @@ export default function JudgeSheet({
     saveRef.current();
     setTick(t => t + 1);
   };
+  const undoRef = useRef(undo);
+  undoRef.current = undo;
   const redo = () => {
     cancelDrawing();
     if (redoStack.current.length === 0) return;
@@ -987,8 +1006,14 @@ export default function JudgeSheet({
           className="absolute inset-0 w-full h-full bg-white dark:bg-gray-950"
           style={{ touchAction: 'none', userSelect: 'none', pointerEvents: 'none' }} />
         <canvas ref={activeCanvasRef}
-          className="absolute inset-0 w-full h-full cursor-crosshair"
-          style={{ touchAction: 'none', userSelect: 'none' }} />
+          className="absolute inset-0 w-full h-full"
+          style={{
+            touchAction: 'none',
+            userSelect: 'none',
+            cursor: eraserMode.current
+              ? `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='${ERASER_WIDTH * 2}' height='${ERASER_WIDTH * 2}'%3E%3Ccircle cx='${ERASER_WIDTH}' cy='${ERASER_WIDTH}' r='${ERASER_WIDTH - 1}' fill='none' stroke='%23E74C3C' stroke-width='2'/%3E%3C/svg%3E") ${ERASER_WIDTH} ${ERASER_WIDTH}, crosshair`
+              : 'crosshair',
+          }} />
       </div>
     </div>
   );

@@ -24,7 +24,12 @@ export default function TrialPage() {
     setRecords(recs);
   };
 
-  useEffect(() => { reload(); }, [sessionId]); // eslint-disable-line react-hooks/exhaustive-deps
+  // マウント時にレコードを読み込み（JudgeSheetの離脱保存との競合を避けるため少し遅延）
+  useEffect(() => {
+    reload();
+    const timer = setTimeout(() => reload(), 300);
+    return () => clearTimeout(timer);
+  }, [sessionId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const addAthlete = async () => {
     if (!session || !newAthlete.trim()) return;
