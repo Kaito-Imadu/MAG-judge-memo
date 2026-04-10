@@ -28,3 +28,23 @@ const ND_CHECKLIST: NDDefinition[] = [
 export function getNDChecklist(apparatus: Apparatus): NDDefinition[] {
   return ND_CHECKLIST.filter((nd) => nd.apparatus === apparatus);
 }
+
+// ゆかのコーナー・トランジション・バリエーション（見逃し防止用）
+export interface CTVItem {
+  id: number;
+  label: string;
+}
+
+export const FX_CTV_CHECKLIST: CTVItem[] = [
+  { id: 1, label: 'Steps' },
+  { id: 2, label: 'Steps w/spins' },
+  { id: 3, label: 'Scissor kick' },
+  { id: 4, label: 'Cartwheel' },
+  { id: 5, label: 'Split jump' },
+  { id: 6, label: 'Handstand' },
+  { id: 7, label: 'Stag Leap (bent)' },
+  { id: 8, label: 'Stag Leap (bent w/turn)' },
+  { id: 9, label: 'Stag Leap (straight w/turn)' },
+  { id: 10, label: 'Kneeling' },
+  { id: 11, label: 'Front support' },
+];

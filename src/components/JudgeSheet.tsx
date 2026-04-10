@@ -3,7 +3,7 @@ import type { ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
 import type { Apparatus } from '../types';
 import { APPARATUS_LIST } from '../constants/apparatus';
-import { getNDChecklist } from '../constants/deductions';
+import { getNDChecklist, FX_CTV_CHECKLIST } from '../constants/deductions';
 import { db } from '../db/database';
 import type { StrokeData } from '../db/database';
 
@@ -371,6 +371,7 @@ export default function JudgeSheet({
     }
 
     // --- ND 項目（右下） ---
+    let ndTopY = scoreRowTop;
     if (hasND) {
       c.fillStyle = '#555';
       c.font = '12px "Noto Sans JP", sans-serif';
@@ -383,6 +384,23 @@ export default function JudgeSheet({
       c.fillStyle = '#666';
       c.font = 'bold 13px "Noto Sans JP", sans-serif';
       c.fillText('ND', mainW + 8, ndStartY - 14);
+      ndTopY = ndStartY - 14;
+    }
+
+    // --- CTV 項目（ゆか・ND の上） ---
+    if (apparatus === 'FX') {
+      const ctvRowH = 18;
+      const ctvTotalH = FX_CTV_CHECKLIST.length * ctvRowH;
+      const ctvStartY = ndTopY - 10 - ctvTotalH;
+      c.fillStyle = '#555';
+      c.font = '10px "Noto Sans JP", sans-serif';
+      FX_CTV_CHECKLIST.forEach((item, i) => {
+        const y = ctvStartY + i * ctvRowH + 10;
+        c.fillText(`□ ${item.id}. ${item.label}`, mainW + 10, y);
+      });
+      c.fillStyle = '#666';
+      c.font = 'bold 12px "Noto Sans JP", sans-serif';
+      c.fillText('CTV', mainW + 8, ctvStartY - 2);
     }
 
     // --- CV ラベル ---
