@@ -35,7 +35,7 @@ const ERASER_WIDTH = 28;
 const STRAIGHT_DELAY = 1500;
 const STRAIGHT_THRESHOLD = 4;
 const SCRUB_DIRS_NEEDED = 5;
-const SCRUB_MIN_DX = 4;          // 方向転換と認める最小X移動量
+const SCRUB_CUMULATIVE_DX = 12;  // 方向転換と認める累積X移動量
 const SCRUB_MAX_Y_RANGE = 100;   // Y方向の振れ幅上限（これ以上はスクラブでない）
 const SAVE_DEBOUNCE = 1500;
 // 横線ハンドル定数
@@ -221,6 +221,8 @@ export default function JudgeSheet({
   const straight = useRef(false);
   const startPt = useRef<Point | null>(null);
   const scrubDirs = useRef<number[]>([]);
+  const scrubAccumX = useRef(0);         // 現在の方向での累積X移動量
+  const scrubLastDir = useRef<number>(0); // 現在の移動方向 (+1/-1)
   const sizeRef = useRef({ w: 0, h: 0 });
   const prevRecordId = useRef<string>('');
   const prevApparatus = useRef<Apparatus>(apparatus);
@@ -683,6 +685,14 @@ export default function JudgeSheet({
       // Active Canvas クリア
       clearActiveRef.current();
 
+      // 最後の方向をフラッシュ
+      if (scrubAccumX.current >= SCRUB_CUMULATIVE_DX && scrubLastDir.current !== 0) {
+        const sd = scrubDirs.current;
+        if (sd.length === 0 || sd[sd.length - 1] !== scrubLastDir.current) {
+          sd.push(scrubLastDir.current);
+        }
+      }
+
       // スクラブ消去判定: 方向転換が十分多く、Y振れ幅が小さい場合のみ
       if (scrubDirs.current.length >= SCRUB_DIRS_NEEDED && finished.points.length > 8) {
         let minY = Infinity, maxY = -Infinity;
@@ -809,6 +819,8 @@ export default function JudgeSheet({
       straight.current = false;
       straightDirty = false;
       scrubDirs.current = [];
+      scrubAccumX.current = 0;
+      scrubLastDir.current = 0;
       curDrawnIndex.current = 0;
       startPt.current = p;
       cur.current = { points: [p], color: colorRef.current, width: lineWidthRef.current };
@@ -861,11 +873,24 @@ export default function JudgeSheet({
         const dx = p.x - prev.x;
         const dy = p.y - prev.y;
 
-        // スクラブ方向検出: 十分なX移動があったときのみカウント
-        if (ce === events[events.length - 1] && Math.abs(dx) > SCRUB_MIN_DX) {
-          const d = dx > 0 ? 1 : -1;
-          const sd = scrubDirs.current;
-          if (sd.length === 0 || sd[sd.length - 1] !== d) sd.push(d);
+        // スクラブ方向検出: 累積X移動量で方向転換を判定
+        {
+          const dir = dx > 0 ? 1 : dx < 0 ? -1 : 0;
+          if (dir !== 0) {
+            if (dir === scrubLastDir.current) {
+              scrubAccumX.current += Math.abs(dx);
+            } else {
+              // 方向が変わった: 前の方向の累積が閾値を超えていたら方向転換を記録
+              if (scrubAccumX.current >= SCRUB_CUMULATIVE_DX) {
+                const sd = scrubDirs.current;
+                if (sd.length === 0 || sd[sd.length - 1] !== scrubLastDir.current) {
+                  sd.push(scrubLastDir.current);
+                }
+              }
+              scrubLastDir.current = dir;
+              scrubAccumX.current = Math.abs(dx);
+            }
+          }
         }
 
         if (straight.current) {
