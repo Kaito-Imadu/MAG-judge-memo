@@ -34,8 +34,17 @@ const LINE_WIDTH = 2;
 const ERASER_WIDTH = 28;
 const STRAIGHT_DELAY = 1500;
 const STRAIGHT_THRESHOLD = 4;
-const SCRUB_DIRS_NEEDED = 3;
+const SCRUB_DIRS_NEEDED = 5;
+const SCRUB_MIN_DX = 8;          // 方向転換と認める最小X移動量
+const SCRUB_MAX_Y_RANGE = 40;    // Y方向の振れ幅上限（これ以上はスクラブでない）
 const SAVE_DEBOUNCE = 1500;
+// 横線ハンドル定数
+const HLINE_HANDLE_R = 8;        // ハンドル円の半径
+const HLINE_HANDLE_HIT = 18;     // ハンドルタップ判定半径
+const HLINE_LEFT_MARGIN = 14;    // 左ハンドルのX座標
+const HLINE_OFFSET_Y = 40;       // 2本目以降のずらし幅
+
+interface HLine { y: number; right: number }
 
 // 跳馬画像設定の永続化キー
 const VT_IMG_FLIP_KEY = 'vt-image-flip';
@@ -195,6 +204,11 @@ export default function JudgeSheet({
   const strokes = useRef<Stroke[]>([]);
   const spatialGrid = useRef<SpatialGrid>(createGrid());
   const redoStack = useRef<Stroke[]>([]);
+  const preClearSnapshot = useRef<Stroke[] | null>(null);
+  const horizontalLines = useRef<HLine[]>([]);
+  const preClearLinesSnapshot = useRef<HLine[] | null>(null);
+  const draggingLineIdx = useRef<number | null>(null);
+  const draggingHandle = useRef<'left' | 'right' | null>(null); // どちらのハンドルをドラッグ中か
   const cur = useRef<Stroke | null>(null);
   const curDrawnIndex = useRef(0); // Active Canvas にどこまで描画済みか
   const colorRef = useRef('#000000');
@@ -260,9 +274,11 @@ export default function JudgeSheet({
     saveApparatus: Apparatus,
     saveAthleteName: string,
     savePageNumber: number,
+    saveLines?: HLine[],
   ) => {
     if (saveTimer.current) { clearTimeout(saveTimer.current); saveTimer.current = null; }
     const { w, h } = sizeRef.current;
+    const linesToSave = saveLines ?? horizontalLines.current;
     db.memoRecords.put({
       id,
       sessionId,
@@ -270,6 +286,7 @@ export default function JudgeSheet({
       apparatus: saveApparatus,
       pageNumber: savePageNumber,
       strokes: data.map(s => ({ points: s.points, color: s.color, width: s.width })),
+      lines: linesToSave.length > 0 ? linesToSave : undefined,
       canvasW: w || undefined,
       canvasH: h || undefined,
       updatedAt: new Date(),
@@ -417,6 +434,32 @@ export default function JudgeSheet({
       c.fillText('CV：', 6, cvTop + 18);
     }
 
+    // --- 横線（VT以外） ---
+    if (apparatus !== 'VT') {
+      for (const hl of horizontalLines.current) {
+        // 線本体
+        c.strokeStyle = '#000000';
+        c.lineWidth = 1.5;
+        c.beginPath();
+        c.moveTo(HLINE_LEFT_MARGIN, hl.y);
+        c.lineTo(hl.right, hl.y);
+        c.stroke();
+        // 左ハンドル（塗りつぶし丸）— 移動用
+        c.fillStyle = '#666';
+        c.beginPath();
+        c.arc(HLINE_LEFT_MARGIN, hl.y, HLINE_HANDLE_R, 0, Math.PI * 2);
+        c.fill();
+        // 右ハンドル（白抜き丸）— 長さ変更用
+        c.strokeStyle = '#666';
+        c.lineWidth = 2;
+        c.fillStyle = '#fff';
+        c.beginPath();
+        c.arc(hl.right, hl.y, HLINE_HANDLE_R, 0, Math.PI * 2);
+        c.fill();
+        c.stroke();
+      }
+    }
+
     // --- スコア行 ---
     c.strokeStyle = '#222';
     c.lineWidth = 2;
@@ -490,8 +533,15 @@ export default function JudgeSheet({
       strokes.current = saved
         ? saved.strokes.map(s => ({ points: s.points, color: s.color, width: s.width ?? LINE_WIDTH }))
         : [];
+      // 旧フォーマット(number[])からの移行対応
+      const rawLines = saved?.lines ?? [];
+      horizontalLines.current = rawLines.map((l: HLine | number) =>
+        typeof l === 'number' ? { y: l, right: sizeRef.current.w * 0.8 } : l
+      );
       spatialGrid.current = rebuildGrid(strokes.current);
       redoStack.current = [];
+      preClearSnapshot.current = null;
+      preClearLinesSnapshot.current = null;
       redrawStatic();
       clearActive();
     });
@@ -546,7 +596,7 @@ export default function JudgeSheet({
     return () => {
       if (saveTimer.current) clearTimeout(saveTimer.current);
       const id = prevRecordId.current;
-      if (id && strokes.current.length > 0) {
+      if (id && (strokes.current.length > 0 || horizontalLines.current.length > 0)) {
         const { w, h } = sizeRef.current;
         const data: StrokeData[] = strokes.current.map(s => ({ points: s.points, color: s.color, width: s.width }));
         db.memoRecords.put({
@@ -556,6 +606,7 @@ export default function JudgeSheet({
           apparatus: prevApparatus.current,
           pageNumber: prevPageNumber.current,
           strokes: data,
+          lines: horizontalLines.current.length > 0 ? horizontalLines.current : undefined,
           canvasW: w || undefined,
           canvasH: h || undefined,
           updatedAt: new Date(),
@@ -632,17 +683,24 @@ export default function JudgeSheet({
       // Active Canvas クリア
       clearActiveRef.current();
 
-      // スクラブ消去判定
-      if (scrubDirs.current.length >= SCRUB_DIRS_NEEDED && finished.points.length > 5) {
-        const center = finished.points[Math.floor(finished.points.length / 2)];
-        const idx = findStrokeAtIndexed(strokes.current, spatialGrid.current, center, ERASER_WIDTH);
-        if (idx >= 0) {
-          strokes.current.splice(idx, 1);
-          spatialGrid.current = rebuildGrid(strokes.current);
-          redoStack.current = [];
-          redrawStaticRef.current();
-          saveRef.current();
-          return;
+      // スクラブ消去判定: 方向転換が十分多く、Y振れ幅が小さい場合のみ
+      if (scrubDirs.current.length >= SCRUB_DIRS_NEEDED && finished.points.length > 8) {
+        let minY = Infinity, maxY = -Infinity;
+        for (const pt of finished.points) {
+          if (pt.y < minY) minY = pt.y;
+          if (pt.y > maxY) maxY = pt.y;
+        }
+        if (maxY - minY < SCRUB_MAX_Y_RANGE) {
+          const center = finished.points[Math.floor(finished.points.length / 2)];
+          const idx = findStrokeAtIndexed(strokes.current, spatialGrid.current, center, ERASER_WIDTH);
+          if (idx >= 0) {
+            strokes.current.splice(idx, 1);
+            spatialGrid.current = rebuildGrid(strokes.current);
+            redoStack.current = [];
+            redrawStaticRef.current();
+            saveRef.current();
+            return;
+          }
         }
       }
 
@@ -679,6 +737,31 @@ export default function JudgeSheet({
       activePointerId.current = e.pointerId;
       const p = getPos(e);
 
+      // 横線ハンドル判定（消しゴムモードでなく、横線が存在する場合）
+      if (!eraserMode.current && horizontalLines.current.length > 0) {
+        for (let i = 0; i < horizontalLines.current.length; i++) {
+          const hl = horizontalLines.current[i];
+          // 左ハンドル（移動）
+          const dxL = p.x - HLINE_LEFT_MARGIN;
+          const dyL = p.y - hl.y;
+          if (Math.hypot(dxL, dyL) < HLINE_HANDLE_HIT) {
+            draggingLineIdx.current = i;
+            draggingHandle.current = 'left';
+            drawing.current = true;
+            return;
+          }
+          // 右ハンドル（長さ変更）
+          const dxR = p.x - hl.right;
+          const dyR = p.y - hl.y;
+          if (Math.hypot(dxR, dyR) < HLINE_HANDLE_HIT) {
+            draggingLineIdx.current = i;
+            draggingHandle.current = 'right';
+            drawing.current = true;
+            return;
+          }
+        }
+      }
+
       // 消しゴムモード
       if (eraserMode.current) {
         drawing.current = true;
@@ -700,6 +783,23 @@ export default function JudgeSheet({
     const onMove = (e: PointerEvent) => {
       if (!drawing.current || e.pointerId !== activePointerId.current) return;
       e.preventDefault();
+
+      // 横線ハンドルドラッグ中
+      if (draggingLineIdx.current !== null && draggingHandle.current) {
+        const p = getPos(e);
+        const hl = horizontalLines.current[draggingLineIdx.current];
+        const { w, h } = sizeRef.current;
+        const scoreRowTop = h - SCORE_ROW_H;
+        if (draggingHandle.current === 'left') {
+          // 左ハンドル: Y方向移動
+          hl.y = Math.max(LABEL_H + 10, Math.min(scoreRowTop - 10, p.y));
+        } else {
+          // 右ハンドル: X方向の長さ変更
+          hl.right = Math.max(HLINE_LEFT_MARGIN + 40, Math.min(w - 10, p.x));
+        }
+        redrawStaticRef.current();
+        return;
+      }
 
       // 消しゴムモード: 移動中もリアルタイム消去
       if (eraserMode.current) {
@@ -726,8 +826,8 @@ export default function JudgeSheet({
         const dx = p.x - prev.x;
         const dy = p.y - prev.y;
 
-        // スクラブ方向検出（最後のイベントのみ）
-        if (ce === events[events.length - 1] && Math.abs(dx) > 1) {
+        // スクラブ方向検出: 十分なX移動があったときのみカウント
+        if (ce === events[events.length - 1] && Math.abs(dx) > SCRUB_MIN_DX) {
           const d = dx > 0 ? 1 : -1;
           const sd = scrubDirs.current;
           if (sd.length === 0 || sd[sd.length - 1] !== d) sd.push(d);
@@ -763,6 +863,17 @@ export default function JudgeSheet({
 
     const onUp = (e: PointerEvent) => {
       if (e.pointerId !== activePointerId.current) return;
+
+      // 横線ハンドルドラッグ完了
+      if (draggingLineIdx.current !== null) {
+        draggingLineIdx.current = null;
+        draggingHandle.current = null;
+        drawing.current = false;
+        activePointerId.current = null;
+        saveRef.current();
+        return;
+      }
+
       const wasEraser = eraserMode.current;
       finishStroke();
       // 消しゴム使用後は自動でペンに戻る
@@ -779,7 +890,15 @@ export default function JudgeSheet({
       const rect = activeCv.getBoundingClientRect();
       if (e.clientX < rect.left || e.clientX > rect.right ||
           e.clientY < rect.top || e.clientY > rect.bottom) {
-        finishStroke();
+        if (draggingLineIdx.current !== null) {
+          draggingLineIdx.current = null;
+          draggingHandle.current = null;
+          drawing.current = false;
+          activePointerId.current = null;
+          saveRef.current();
+        } else {
+          finishStroke();
+        }
       }
     };
 
@@ -831,6 +950,21 @@ export default function JudgeSheet({
 
   const undo = () => {
     cancelDrawing();
+    // 全消去直後: スナップショットから全復元
+    if (strokes.current.length === 0 && preClearSnapshot.current) {
+      strokes.current = preClearSnapshot.current;
+      preClearSnapshot.current = null;
+      if (preClearLinesSnapshot.current) {
+        horizontalLines.current = preClearLinesSnapshot.current;
+        preClearLinesSnapshot.current = null;
+      }
+      spatialGrid.current = rebuildGrid(strokes.current);
+      redoStack.current = [];
+      redrawStaticRef.current();
+      saveRef.current();
+      setTick(t => t + 1);
+      return;
+    }
     if (strokes.current.length === 0) return;
     redoStack.current.push(strokes.current.pop()!);
     spatialGrid.current = rebuildGrid(strokes.current);
@@ -853,7 +987,12 @@ export default function JudgeSheet({
   };
   const clear = () => {
     cancelDrawing();
+    if (strokes.current.length > 0 || horizontalLines.current.length > 0) {
+      preClearSnapshot.current = [...strokes.current];
+      preClearLinesSnapshot.current = [...horizontalLines.current];
+    }
     strokes.current = [];
+    horizontalLines.current = [];
     spatialGrid.current = createGrid();
     redoStack.current = [];
     redrawStaticRef.current();
@@ -864,6 +1003,39 @@ export default function JudgeSheet({
   const pickColor = (c: string) => { colorRef.current = c; eraserMode.current = false; setTick(t => t + 1); };
   const toggleEraser = () => { eraserMode.current = !eraserMode.current; setTick(t => t + 1); };
   const setLineWidth = (w: number) => { lineWidthRef.current = w; setTick(t => t + 1); };
+
+  // 横線追加
+  const addHorizontalLine = () => {
+    const { w, h } = sizeRef.current;
+    const ndW = hasND ? Math.floor(w * ND_WIDTH_RATIO) : 0;
+    const mainW = w - ndW;
+    const scoreRowTop = h - SCORE_ROW_H;
+    const drawTop = LABEL_H;
+    const drawBottom = scoreRowTop;
+    // 基準Y: 描画エリアの中央
+    let newY = drawTop + (drawBottom - drawTop) / 2;
+    // 既存線と重ならないようオフセット
+    const existing = horizontalLines.current;
+    for (let attempts = 0; attempts < 20; attempts++) {
+      const overlap = existing.some(l => Math.abs(l.y - newY) < HLINE_OFFSET_Y);
+      if (!overlap) break;
+      newY += HLINE_OFFSET_Y;
+      if (newY > drawBottom - 20) newY = drawTop + 20;
+    }
+    horizontalLines.current.push({ y: newY, right: mainW - 10 });
+    redrawStaticRef.current();
+    saveRef.current();
+    setTick(t => t + 1);
+  };
+
+  // 横線削除（最後に追加されたものを削除）
+  const removeLastHorizontalLine = () => {
+    if (horizontalLines.current.length === 0) return;
+    horizontalLines.current.pop();
+    redrawStaticRef.current();
+    saveRef.current();
+    setTick(t => t + 1);
+  };
 
   // 跳馬画像: 左右反転
   const toggleVtFlip = () => {
@@ -904,7 +1076,7 @@ export default function JudgeSheet({
   return (
     <div className="h-full flex flex-col overflow-hidden select-none">
       {/* ツールバー（大きめ・タッチ操作しやすいサイズ） */}
-      <div className="flex items-center gap-2 px-3 py-1.5 bg-gray-100 dark:bg-gray-800 shrink-0">
+      <div className="flex items-center gap-1.5 px-2 py-1.5 bg-gray-100 dark:bg-gray-800 shrink-0 whitespace-nowrap overflow-x-auto">
         {/* ペン色選択 */}
         {COLORS.map((c) => (
           <button key={c.value} onClick={() => pickColor(c.value)}
@@ -920,13 +1092,12 @@ export default function JudgeSheet({
 
         {/* 消しゴム */}
         <button onClick={toggleEraser}
-          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-bold min-h-[40px] transition-all ${
+          className={`flex items-center gap-1 px-2 py-1.5 rounded-lg text-xs font-bold min-h-[40px] transition-all ${
             eraserMode.current
               ? 'bg-danger text-white shadow-md ring-2 ring-danger/30'
               : 'bg-white dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200'
           }`}>
-          {/* 消しゴムアイコン SVG */}
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <path d="M20 20H7L3 16c-.8-.8-.8-2 0-2.8L14.6 1.6c.8-.8 2-.8 2.8 0L21.4 5.6c.8.8.8 2 0 2.8L12 18" />
             <path d="M6 12l5.4-5.4" />
           </svg>
@@ -936,47 +1107,70 @@ export default function JudgeSheet({
         <div className="w-px h-6 bg-gray-300" />
 
         {/* 線の太さ */}
-        <div className="flex items-center gap-1.5 min-h-[40px]">
-          <svg width="14" height="14" viewBox="0 0 20 20" className="text-gray-400 shrink-0">
+        <div className="flex items-center gap-1 min-h-[40px]">
+          <svg width="12" height="12" viewBox="0 0 20 20" className="text-gray-400 shrink-0">
             <circle cx="10" cy="10" r={Math.max(2, lineWidthRef.current * 2.5)} fill="currentColor" />
           </svg>
           <input type="range" min="0.5" max="6" step="0.5"
             value={lineWidthRef.current}
             onChange={(e) => setLineWidth(parseFloat(e.target.value))}
-            className="w-20 h-2 accent-accent cursor-pointer" />
-          <span className="text-[10px] text-gray-400 font-mono w-5 text-center">{lineWidthRef.current}</span>
+            className="w-16 h-2 accent-accent cursor-pointer" />
+          <span className="text-[10px] text-gray-400 font-mono w-4 text-center">{lineWidthRef.current}</span>
         </div>
 
         <div className="w-px h-6 bg-gray-300" />
 
         {/* Undo/Redo/Clear */}
         <button onClick={undo}
-          className="px-3 py-1.5 rounded-lg text-sm bg-white dark:bg-gray-700 text-gray-600 dark:text-gray-300
-                     hover:bg-gray-200 dark:hover:bg-gray-600 active:bg-gray-300 min-h-[40px] min-w-[44px]">
+          className="px-2 py-1.5 rounded-lg text-xs bg-white dark:bg-gray-700 text-gray-600 dark:text-gray-300
+                     hover:bg-gray-200 dark:hover:bg-gray-600 active:bg-gray-300 min-h-[40px] min-w-[40px]">
           ↩
         </button>
         <button onClick={redo}
-          className="px-3 py-1.5 rounded-lg text-sm bg-white dark:bg-gray-700 text-gray-600 dark:text-gray-300
-                     hover:bg-gray-200 dark:hover:bg-gray-600 active:bg-gray-300 min-h-[40px] min-w-[44px]">
+          className="px-2 py-1.5 rounded-lg text-xs bg-white dark:bg-gray-700 text-gray-600 dark:text-gray-300
+                     hover:bg-gray-200 dark:hover:bg-gray-600 active:bg-gray-300 min-h-[40px] min-w-[40px]">
           ↪
         </button>
         <button onClick={clear}
-          className="px-3 py-1.5 rounded-lg text-sm text-danger font-bold min-h-[40px]
+          className="px-2 py-1.5 rounded-lg text-xs text-danger font-bold min-h-[40px]
                      hover:bg-red-50 dark:hover:bg-red-900/20 active:bg-red-100">
           全消去
         </button>
+
+        {/* 横線（VT以外） */}
+        {apparatus !== 'VT' && (
+          <>
+            <div className="w-px h-6 bg-gray-300" />
+            <button onClick={addHorizontalLine}
+              className="flex items-center gap-1 px-2 py-1.5 rounded-lg text-xs font-bold min-h-[40px]
+                         bg-white dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                <path d="M3 12h18" />
+                <path d="M12 5v4M12 15v4" />
+              </svg>
+              横線
+            </button>
+            {horizontalLines.current.length > 0 && (
+              <button onClick={removeLastHorizontalLine}
+                className="px-2 py-1.5 rounded-lg text-xs text-gray-500 min-h-[40px]
+                           hover:bg-gray-200 dark:hover:bg-gray-600">
+                横線削除
+              </button>
+            )}
+          </>
+        )}
 
         {/* 跳馬画像操作（VTのみ） */}
         {apparatus === 'VT' && (
           <>
             <div className="w-px h-6 bg-gray-300" />
             <button onClick={toggleVtFlip}
-              className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm font-bold min-h-[40px] transition-all ${
+              className={`flex items-center gap-1 px-2 py-1.5 rounded-lg text-xs font-bold min-h-[40px] transition-all ${
                 vtFlip
                   ? 'bg-accent text-white ring-2 ring-accent/30'
                   : 'bg-white dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200'
               }`}>
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M8 3H5a2 2 0 0 0-2 2v14c0 1.1.9 2 2 2h3" />
                 <path d="M16 3h3a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-3" />
                 <path d="M12 20v2" />
@@ -987,9 +1181,9 @@ export default function JudgeSheet({
               反転
             </button>
             <button onClick={cycleVtScale}
-              className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm font-bold min-h-[40px]
+              className="flex items-center gap-1 px-2 py-1.5 rounded-lg text-xs font-bold min-h-[40px]
                          bg-white dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <circle cx="11" cy="11" r="8" />
                 <path d="M21 21l-4.35-4.35" />
                 <path d="M11 8v6" />
