@@ -731,11 +731,46 @@ export default function JudgeSheet({
     };
 
     const onDown = (e: PointerEvent) => {
-      if (e.pointerType === 'touch') return;
+      const isTouch = e.pointerType === 'touch';
+      const p = getPos(e);
+
+      // 横線ハンドル判定（タッチでも操作可能）
+      if (!eraserMode.current && horizontalLines.current.length > 0) {
+        for (let i = 0; i < horizontalLines.current.length; i++) {
+          const hl = horizontalLines.current[i];
+          // 左ハンドル（移動）
+          const dxL = p.x - HLINE_LEFT_MARGIN;
+          const dyL = p.y - hl.y;
+          if (Math.hypot(dxL, dyL) < HLINE_HANDLE_HIT) {
+            e.preventDefault();
+            if (drawing.current) finishStroke();
+            activePointerId.current = e.pointerId;
+            draggingLineIdx.current = i;
+            draggingHandle.current = 'left';
+            drawing.current = true;
+            return;
+          }
+          // 右ハンドル（長さ変更）
+          const dxR = p.x - hl.right;
+          const dyR = p.y - hl.y;
+          if (Math.hypot(dxR, dyR) < HLINE_HANDLE_HIT) {
+            e.preventDefault();
+            if (drawing.current) finishStroke();
+            activePointerId.current = e.pointerId;
+            draggingLineIdx.current = i;
+            draggingHandle.current = 'right';
+            drawing.current = true;
+            return;
+          }
+        }
+      }
+
+      // タッチは描画に使わない（パームリジェクション）
+      if (isTouch) return;
+
       e.preventDefault();
       if (drawing.current) finishStroke();
       activePointerId.current = e.pointerId;
-      const p = getPos(e);
 
       // 横線ハンドル判定（消しゴムモードでなく、横線が存在する場合）
       if (!eraserMode.current && horizontalLines.current.length > 0) {
