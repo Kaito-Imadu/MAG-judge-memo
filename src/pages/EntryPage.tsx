@@ -58,7 +58,7 @@ export default function EntryPage() {
     <div className="h-full bg-bg-light dark:bg-bg-dark flex flex-col overflow-y-auto">
       <header className="bg-primary text-white px-6 py-4 flex items-baseline justify-between">
         <h1 className="text-xl font-bold tracking-tight">MAG Judge Memo</h1>
-        <span className="text-xs text-white/50">v{version}</span>
+        <span className="text-xs text-white/50 text-right leading-tight">v{version}<br />{__BUILD_DATE__}</span>
       </header>
 
       <main className="flex-1 p-6 max-w-3xl mx-auto w-full">

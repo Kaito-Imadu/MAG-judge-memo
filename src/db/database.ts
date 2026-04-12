@@ -22,6 +22,7 @@ export interface MemoRecord {
   apparatus: Apparatus;
   pageNumber: number;
   strokes: StrokeData[];
+  lines?: number[];  // 横線のY座標（絶対値px）
   canvasW?: number;
   canvasH?: number;
   updatedAt: Date;
