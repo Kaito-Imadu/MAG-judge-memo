@@ -35,8 +35,8 @@ const ERASER_WIDTH = 28;
 const STRAIGHT_DELAY = 1500;
 const STRAIGHT_THRESHOLD = 4;
 const SCRUB_DIRS_NEEDED = 5;
-const SCRUB_MIN_DX = 8;          // 方向転換と認める最小X移動量
-const SCRUB_MAX_Y_RANGE = 40;    // Y方向の振れ幅上限（これ以上はスクラブでない）
+const SCRUB_MIN_DX = 4;          // 方向転換と認める最小X移動量
+const SCRUB_MAX_Y_RANGE = 100;   // Y方向の振れ幅上限（これ以上はスクラブでない）
 const SAVE_DEBOUNCE = 1500;
 // 横線ハンドル定数
 const HLINE_HANDLE_R = 5;        // ハンドル円の半径
