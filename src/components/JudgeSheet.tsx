@@ -35,8 +35,8 @@ const ERASER_WIDTH = 28;
 const STRAIGHT_DELAY = 1500;
 const STRAIGHT_THRESHOLD = 4;
 const SCRUB_DIRS_NEEDED = 5;
-const SCRUB_CUMULATIVE_DX = 12;  // 方向転換と認める累積X移動量
-const SCRUB_MAX_Y_RANGE = 100;   // Y方向の振れ幅上限（これ以上はスクラブでない）
+const SCRUB_MIN_SWING = 12;      // ピーク/トラフからの反転量(px)
+const SCRUB_MAX_RANGE = 120;     // 振れ幅上限（描画と区別）
 const SAVE_DEBOUNCE = 1500;
 // 横線ハンドル定数
 const HLINE_HANDLE_R = 5;        // ハンドル円の半径
@@ -109,6 +109,46 @@ function queryNear(grid: SpatialGrid, p: Point, radius: number): Set<number> {
     }
   }
   return result;
+}
+
+// ---------- スクラブ消去: ピーク/トラフ検出 ----------
+// 座標列の方向転換回数を数える（ノイズ耐性あり）
+function countDirChanges(values: number[], minSwing: number): number {
+  if (values.length < 3) return 0;
+  let changes = 0;
+  let extreme = values[0]; // 現在のピークまたはトラフ
+  let dir = 0;             // 1=増加中, -1=減少中, 0=未確定
+  for (let i = 1; i < values.length; i++) {
+    const v = values[i];
+    if (dir === 0) {
+      if (v - extreme >= minSwing) { dir = 1; changes = 1; extreme = v; }
+      else if (extreme - v >= minSwing) { dir = -1; changes = 1; extreme = v; }
+    } else if (dir === 1) {
+      if (v > extreme) extreme = v;
+      if (extreme - v >= minSwing) { dir = -1; changes++; extreme = v; }
+    } else {
+      if (v < extreme) extreme = v;
+      if (v - extreme >= minSwing) { dir = 1; changes++; extreme = v; }
+    }
+  }
+  return changes;
+}
+
+// ストロークがスクラブパターンかどうか判定
+function isScrubPattern(points: Point[]): boolean {
+  if (points.length < 8) return false;
+  const xs = points.map(p => p.x);
+  const ys = points.map(p => p.y);
+  const xChanges = countDirChanges(xs, SCRUB_MIN_SWING);
+  const yChanges = countDirChanges(ys, SCRUB_MIN_SWING);
+  // X方向またはY方向で十分な方向転換があればスクラブ
+  const dirs = Math.max(xChanges, yChanges);
+  if (dirs < SCRUB_DIRS_NEEDED) return false;
+  // 振れ幅が大きすぎる場合は通常の描画と判断
+  const xRange = Math.max(...xs) - Math.min(...xs);
+  const yRange = Math.max(...ys) - Math.min(...ys);
+  const minRange = Math.min(xRange, yRange);
+  return minRange < SCRUB_MAX_RANGE;
 }
 
 // ---------- ベジェ曲線描画 ----------
@@ -220,9 +260,7 @@ export default function JudgeSheet({
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const straight = useRef(false);
   const startPt = useRef<Point | null>(null);
-  const scrubDirs = useRef<number[]>([]);
-  const scrubAccumX = useRef(0);         // 現在の方向での累積X移動量
-  const scrubLastDir = useRef<number>(0); // 現在の移動方向 (+1/-1)
+  // scrubDirs等のリアルタイム追跡は廃止 → finishStroke内でまとめて分析
   const sizeRef = useRef({ w: 0, h: 0 });
   const prevRecordId = useRef<string>('');
   const prevApparatus = useRef<Apparatus>(apparatus);
@@ -685,32 +723,17 @@ export default function JudgeSheet({
       // Active Canvas クリア
       clearActiveRef.current();
 
-      // 最後の方向をフラッシュ
-      if (scrubAccumX.current >= SCRUB_CUMULATIVE_DX && scrubLastDir.current !== 0) {
-        const sd = scrubDirs.current;
-        if (sd.length === 0 || sd[sd.length - 1] !== scrubLastDir.current) {
-          sd.push(scrubLastDir.current);
-        }
-      }
-
-      // スクラブ消去判定: 方向転換が十分多く、Y振れ幅が小さい場合のみ
-      if (scrubDirs.current.length >= SCRUB_DIRS_NEEDED && finished.points.length > 8) {
-        let minY = Infinity, maxY = -Infinity;
-        for (const pt of finished.points) {
-          if (pt.y < minY) minY = pt.y;
-          if (pt.y > maxY) maxY = pt.y;
-        }
-        if (maxY - minY < SCRUB_MAX_Y_RANGE) {
-          const center = finished.points[Math.floor(finished.points.length / 2)];
-          const idx = findStrokeAtIndexed(strokes.current, spatialGrid.current, center, ERASER_WIDTH);
-          if (idx >= 0) {
-            strokes.current.splice(idx, 1);
-            spatialGrid.current = rebuildGrid(strokes.current);
-            redoStack.current = [];
-            redrawStaticRef.current();
-            saveRef.current();
-            return;
-          }
+      // スクラブ消去判定（完成ストロークをまとめて分析）
+      if (isScrubPattern(finished.points)) {
+        const center = finished.points[Math.floor(finished.points.length / 2)];
+        const idx = findStrokeAtIndexed(strokes.current, spatialGrid.current, center, ERASER_WIDTH);
+        if (idx >= 0) {
+          strokes.current.splice(idx, 1);
+          spatialGrid.current = rebuildGrid(strokes.current);
+          redoStack.current = [];
+          redrawStaticRef.current();
+          saveRef.current();
+          return;
         }
       }
 
@@ -818,9 +841,6 @@ export default function JudgeSheet({
       drawing.current = true;
       straight.current = false;
       straightDirty = false;
-      scrubDirs.current = [];
-      scrubAccumX.current = 0;
-      scrubLastDir.current = 0;
       curDrawnIndex.current = 0;
       startPt.current = p;
       cur.current = { points: [p], color: colorRef.current, width: lineWidthRef.current };
@@ -872,26 +892,6 @@ export default function JudgeSheet({
         const prev = pts[pts.length - 1];
         const dx = p.x - prev.x;
         const dy = p.y - prev.y;
-
-        // スクラブ方向検出: 累積X移動量で方向転換を判定
-        {
-          const dir = dx > 0 ? 1 : dx < 0 ? -1 : 0;
-          if (dir !== 0) {
-            if (dir === scrubLastDir.current) {
-              scrubAccumX.current += Math.abs(dx);
-            } else {
-              // 方向が変わった: 前の方向の累積が閾値を超えていたら方向転換を記録
-              if (scrubAccumX.current >= SCRUB_CUMULATIVE_DX) {
-                const sd = scrubDirs.current;
-                if (sd.length === 0 || sd[sd.length - 1] !== scrubLastDir.current) {
-                  sd.push(scrubLastDir.current);
-                }
-              }
-              scrubLastDir.current = dir;
-              scrubAccumX.current = Math.abs(dx);
-            }
-          }
-        }
 
         if (straight.current) {
           const s = startPt.current!;
