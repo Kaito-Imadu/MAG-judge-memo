@@ -39,9 +39,9 @@ const SCRUB_MIN_DX = 8;          // 方向転換と認める最小X移動量
 const SCRUB_MAX_Y_RANGE = 40;    // Y方向の振れ幅上限（これ以上はスクラブでない）
 const SAVE_DEBOUNCE = 1500;
 // 横線ハンドル定数
-const HLINE_HANDLE_R = 8;        // ハンドル円の半径
-const HLINE_HANDLE_HIT = 18;     // ハンドルタップ判定半径
-const HLINE_LEFT_MARGIN = 14;    // 左ハンドルのX座標
+const HLINE_HANDLE_R = 5;        // ハンドル円の半径
+const HLINE_HANDLE_HIT = 16;     // ハンドルタップ判定半径
+const HLINE_LEFT_MARGIN = 10;    // 左ハンドルのX座標
 const HLINE_OFFSET_Y = 40;       // 2本目以降のずらし幅
 
 interface HLine { y: number; right: number }
