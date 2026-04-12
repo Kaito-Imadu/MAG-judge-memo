@@ -34,7 +34,9 @@ const LINE_WIDTH = 2;
 const ERASER_WIDTH = 28;
 const STRAIGHT_DELAY = 1500;
 const STRAIGHT_THRESHOLD = 4;
-const SCRUB_DIRS_NEEDED = 3;
+const SCRUB_DIRS_NEEDED = 5;
+const SCRUB_MIN_DX = 8;          // 方向転換と認める最小X移動量
+const SCRUB_MAX_Y_RANGE = 40;    // Y方向の振れ幅上限（これ以上はスクラブでない）
 const SAVE_DEBOUNCE = 1500;
 // 横線ハンドル定数
 const HLINE_HANDLE_R = 8;        // ハンドル円の半径
@@ -681,17 +683,24 @@ export default function JudgeSheet({
       // Active Canvas クリア
       clearActiveRef.current();
 
-      // スクラブ消去判定
-      if (scrubDirs.current.length >= SCRUB_DIRS_NEEDED && finished.points.length > 5) {
-        const center = finished.points[Math.floor(finished.points.length / 2)];
-        const idx = findStrokeAtIndexed(strokes.current, spatialGrid.current, center, ERASER_WIDTH);
-        if (idx >= 0) {
-          strokes.current.splice(idx, 1);
-          spatialGrid.current = rebuildGrid(strokes.current);
-          redoStack.current = [];
-          redrawStaticRef.current();
-          saveRef.current();
-          return;
+      // スクラブ消去判定: 方向転換が十分多く、Y振れ幅が小さい場合のみ
+      if (scrubDirs.current.length >= SCRUB_DIRS_NEEDED && finished.points.length > 8) {
+        let minY = Infinity, maxY = -Infinity;
+        for (const pt of finished.points) {
+          if (pt.y < minY) minY = pt.y;
+          if (pt.y > maxY) maxY = pt.y;
+        }
+        if (maxY - minY < SCRUB_MAX_Y_RANGE) {
+          const center = finished.points[Math.floor(finished.points.length / 2)];
+          const idx = findStrokeAtIndexed(strokes.current, spatialGrid.current, center, ERASER_WIDTH);
+          if (idx >= 0) {
+            strokes.current.splice(idx, 1);
+            spatialGrid.current = rebuildGrid(strokes.current);
+            redoStack.current = [];
+            redrawStaticRef.current();
+            saveRef.current();
+            return;
+          }
         }
       }
 
@@ -817,8 +826,8 @@ export default function JudgeSheet({
         const dx = p.x - prev.x;
         const dy = p.y - prev.y;
 
-        // スクラブ方向検出（最後のイベントのみ）
-        if (ce === events[events.length - 1] && Math.abs(dx) > 1) {
+        // スクラブ方向検出: 十分なX移動があったときのみカウント
+        if (ce === events[events.length - 1] && Math.abs(dx) > SCRUB_MIN_DX) {
           const d = dx > 0 ? 1 : -1;
           const sd = scrubDirs.current;
           if (sd.length === 0 || sd[sd.length - 1] !== d) sd.push(d);
