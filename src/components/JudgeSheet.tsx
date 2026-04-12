@@ -36,7 +36,13 @@ const STRAIGHT_DELAY = 1500;
 const STRAIGHT_THRESHOLD = 4;
 const SCRUB_DIRS_NEEDED = 3;
 const SAVE_DEBOUNCE = 1500;
-const HLINE_HIT_THRESHOLD = 15; // 横線タップ判定の閾値(px)
+// 横線ハンドル定数
+const HLINE_HANDLE_R = 8;        // ハンドル円の半径
+const HLINE_HANDLE_HIT = 18;     // ハンドルタップ判定半径
+const HLINE_LEFT_MARGIN = 14;    // 左ハンドルのX座標
+const HLINE_OFFSET_Y = 40;       // 2本目以降のずらし幅
+
+interface HLine { y: number; right: number }
 
 // 跳馬画像設定の永続化キー
 const VT_IMG_FLIP_KEY = 'vt-image-flip';
@@ -197,9 +203,10 @@ export default function JudgeSheet({
   const spatialGrid = useRef<SpatialGrid>(createGrid());
   const redoStack = useRef<Stroke[]>([]);
   const preClearSnapshot = useRef<Stroke[] | null>(null);
-  const horizontalLines = useRef<number[]>([]);       // 横線Y座標
-  const preClearLinesSnapshot = useRef<number[] | null>(null);
-  const draggingLineIdx = useRef<number | null>(null); // ドラッグ中の横線インデックス
+  const horizontalLines = useRef<HLine[]>([]);
+  const preClearLinesSnapshot = useRef<HLine[] | null>(null);
+  const draggingLineIdx = useRef<number | null>(null);
+  const draggingHandle = useRef<'left' | 'right' | null>(null); // どちらのハンドルをドラッグ中か
   const cur = useRef<Stroke | null>(null);
   const curDrawnIndex = useRef(0); // Active Canvas にどこまで描画済みか
   const colorRef = useRef('#000000');
@@ -265,10 +272,11 @@ export default function JudgeSheet({
     saveApparatus: Apparatus,
     saveAthleteName: string,
     savePageNumber: number,
-    saveLines?: number[],
+    saveLines?: HLine[],
   ) => {
     if (saveTimer.current) { clearTimeout(saveTimer.current); saveTimer.current = null; }
     const { w, h } = sizeRef.current;
+    const linesToSave = saveLines ?? horizontalLines.current;
     db.memoRecords.put({
       id,
       sessionId,
@@ -276,7 +284,7 @@ export default function JudgeSheet({
       apparatus: saveApparatus,
       pageNumber: savePageNumber,
       strokes: data.map(s => ({ points: s.points, color: s.color, width: s.width })),
-      lines: (saveLines ?? horizontalLines.current).length > 0 ? (saveLines ?? horizontalLines.current) : undefined,
+      lines: linesToSave.length > 0 ? linesToSave : undefined,
       canvasW: w || undefined,
       canvasH: h || undefined,
       updatedAt: new Date(),
@@ -426,12 +434,26 @@ export default function JudgeSheet({
 
     // --- 横線（VT以外） ---
     if (apparatus !== 'VT') {
-      c.strokeStyle = '#000000';
-      c.lineWidth = 1.5;
-      for (const ly of horizontalLines.current) {
+      for (const hl of horizontalLines.current) {
+        // 線本体
+        c.strokeStyle = '#000000';
+        c.lineWidth = 1.5;
         c.beginPath();
-        c.moveTo(0, ly);
-        c.lineTo(mainW, ly);
+        c.moveTo(HLINE_LEFT_MARGIN, hl.y);
+        c.lineTo(hl.right, hl.y);
+        c.stroke();
+        // 左ハンドル（塗りつぶし丸）— 移動用
+        c.fillStyle = '#666';
+        c.beginPath();
+        c.arc(HLINE_LEFT_MARGIN, hl.y, HLINE_HANDLE_R, 0, Math.PI * 2);
+        c.fill();
+        // 右ハンドル（白抜き丸）— 長さ変更用
+        c.strokeStyle = '#666';
+        c.lineWidth = 2;
+        c.fillStyle = '#fff';
+        c.beginPath();
+        c.arc(hl.right, hl.y, HLINE_HANDLE_R, 0, Math.PI * 2);
+        c.fill();
         c.stroke();
       }
     }
@@ -509,7 +531,11 @@ export default function JudgeSheet({
       strokes.current = saved
         ? saved.strokes.map(s => ({ points: s.points, color: s.color, width: s.width ?? LINE_WIDTH }))
         : [];
-      horizontalLines.current = saved?.lines ?? [];
+      // 旧フォーマット(number[])からの移行対応
+      const rawLines = saved?.lines ?? [];
+      horizontalLines.current = rawLines.map((l: HLine | number) =>
+        typeof l === 'number' ? { y: l, right: sizeRef.current.w * 0.8 } : l
+      );
       spatialGrid.current = rebuildGrid(strokes.current);
       redoStack.current = [];
       preClearSnapshot.current = null;
@@ -702,11 +728,25 @@ export default function JudgeSheet({
       activePointerId.current = e.pointerId;
       const p = getPos(e);
 
-      // 横線ドラッグ判定（消しゴムモードでなく、横線が存在する場合）
+      // 横線ハンドル判定（消しゴムモードでなく、横線が存在する場合）
       if (!eraserMode.current && horizontalLines.current.length > 0) {
         for (let i = 0; i < horizontalLines.current.length; i++) {
-          if (Math.abs(p.y - horizontalLines.current[i]) < HLINE_HIT_THRESHOLD) {
+          const hl = horizontalLines.current[i];
+          // 左ハンドル（移動）
+          const dxL = p.x - HLINE_LEFT_MARGIN;
+          const dyL = p.y - hl.y;
+          if (Math.hypot(dxL, dyL) < HLINE_HANDLE_HIT) {
             draggingLineIdx.current = i;
+            draggingHandle.current = 'left';
+            drawing.current = true;
+            return;
+          }
+          // 右ハンドル（長さ変更）
+          const dxR = p.x - hl.right;
+          const dyR = p.y - hl.y;
+          if (Math.hypot(dxR, dyR) < HLINE_HANDLE_HIT) {
+            draggingLineIdx.current = i;
+            draggingHandle.current = 'right';
             drawing.current = true;
             return;
           }
@@ -735,14 +775,19 @@ export default function JudgeSheet({
       if (!drawing.current || e.pointerId !== activePointerId.current) return;
       e.preventDefault();
 
-      // 横線ドラッグ中
-      if (draggingLineIdx.current !== null) {
+      // 横線ハンドルドラッグ中
+      if (draggingLineIdx.current !== null && draggingHandle.current) {
         const p = getPos(e);
-        const { h } = sizeRef.current;
+        const hl = horizontalLines.current[draggingLineIdx.current];
+        const { w, h } = sizeRef.current;
         const scoreRowTop = h - SCORE_ROW_H;
-        // 描画エリア内にクランプ
-        const clampedY = Math.max(LABEL_H + 10, Math.min(scoreRowTop - 10, p.y));
-        horizontalLines.current[draggingLineIdx.current] = clampedY;
+        if (draggingHandle.current === 'left') {
+          // 左ハンドル: Y方向移動
+          hl.y = Math.max(LABEL_H + 10, Math.min(scoreRowTop - 10, p.y));
+        } else {
+          // 右ハンドル: X方向の長さ変更
+          hl.right = Math.max(HLINE_LEFT_MARGIN + 40, Math.min(w - 10, p.x));
+        }
         redrawStaticRef.current();
         return;
       }
@@ -810,9 +855,10 @@ export default function JudgeSheet({
     const onUp = (e: PointerEvent) => {
       if (e.pointerId !== activePointerId.current) return;
 
-      // 横線ドラッグ完了
+      // 横線ハンドルドラッグ完了
       if (draggingLineIdx.current !== null) {
         draggingLineIdx.current = null;
+        draggingHandle.current = null;
         drawing.current = false;
         activePointerId.current = null;
         saveRef.current();
@@ -837,6 +883,7 @@ export default function JudgeSheet({
           e.clientY < rect.top || e.clientY > rect.bottom) {
         if (draggingLineIdx.current !== null) {
           draggingLineIdx.current = null;
+          draggingHandle.current = null;
           drawing.current = false;
           activePointerId.current = null;
           saveRef.current();
@@ -950,11 +997,23 @@ export default function JudgeSheet({
 
   // 横線追加
   const addHorizontalLine = () => {
-    const { h } = sizeRef.current;
+    const { w, h } = sizeRef.current;
+    const ndW = hasND ? Math.floor(w * ND_WIDTH_RATIO) : 0;
+    const mainW = w - ndW;
     const scoreRowTop = h - SCORE_ROW_H;
-    // 描画エリアの中央に配置
-    const midY = LABEL_H + (scoreRowTop - LABEL_H) / 2;
-    horizontalLines.current.push(midY);
+    const drawTop = LABEL_H;
+    const drawBottom = scoreRowTop;
+    // 基準Y: 描画エリアの中央
+    let newY = drawTop + (drawBottom - drawTop) / 2;
+    // 既存線と重ならないようオフセット
+    const existing = horizontalLines.current;
+    for (let attempts = 0; attempts < 20; attempts++) {
+      const overlap = existing.some(l => Math.abs(l.y - newY) < HLINE_OFFSET_Y);
+      if (!overlap) break;
+      newY += HLINE_OFFSET_Y;
+      if (newY > drawBottom - 20) newY = drawTop + 20;
+    }
+    horizontalLines.current.push({ y: newY, right: mainW - 10 });
     redrawStaticRef.current();
     saveRef.current();
     setTick(t => t + 1);
