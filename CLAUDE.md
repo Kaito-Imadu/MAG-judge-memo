@@ -141,3 +141,4 @@ memoRecords: 'id, sessionId, apparatus, [sessionId+apparatus], [sessionId+pageNu
 - CSS: Tailwind ユーティリティクラスのみ（カスタムCSS最小限）
 - 日本語UIテキストはハードコード可（i18n不要）
 - コミット規約: `feat:` / `fix:` / `refactor:` / `style:` / `docs:` / `chore:`
+- **バージョン更新**: 変更をmergeするたびに `package.json` の `version` を更新すること。規模に応じてメジャー/マイナー/パッチを判断（新機能=マイナー、バグ修正=パッチ）
