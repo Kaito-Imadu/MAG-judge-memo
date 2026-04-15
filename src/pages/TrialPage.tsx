@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { db } from '../db/database';
 import type { Session, MemoRecord } from '../db/database';
@@ -13,8 +13,10 @@ export default function TrialPage() {
   const [selectedAthlete, setSelectedAthlete] = useState<string | null>(null);
   const [records, setRecords] = useState<MemoRecord[]>([]);
   const [newAthlete, setNewAthlete] = useState('');
-  const [showAddInput, setShowAddInput] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [showBulk, setShowBulk] = useState(false);
+  const [bulkText, setBulkText] = useState('');
+  const inputRef = useRef<HTMLInputElement>(null);
 
   const reload = async () => {
     if (!sessionId) return;
@@ -34,17 +36,42 @@ export default function TrialPage() {
   const addAthlete = async () => {
     if (!session || !newAthlete.trim()) return;
     const name = newAthlete.trim();
-    if (session.athletes.includes(name)) return;
+    if (session.athletes.includes(name)) {
+      setNewAthlete('');
+      inputRef.current?.focus();
+      return;
+    }
     const updated = { ...session, athletes: [...session.athletes, name] };
     await db.sessions.put(updated);
     setSession(updated);
     setNewAthlete('');
-    setShowAddInput(false);
     setSelectedAthlete(name);
+    // 追加後にフォーカスを戻して次の入力をすぐに始められるようにする
+    setTimeout(() => inputRef.current?.focus(), 0);
+  };
+
+  const addBulkAthletes = async () => {
+    if (!session || !bulkText.trim()) return;
+    const names = bulkText
+      .split(/[\n,、。]/)
+      .map(n => n.trim())
+      .filter(n => n.length > 0 && !session.athletes.includes(n));
+    if (names.length === 0) {
+      setShowBulk(false);
+      setBulkText('');
+      return;
+    }
+    const updated = { ...session, athletes: [...session.athletes, ...names] };
+    await db.sessions.put(updated);
+    setSession(updated);
+    setSelectedAthlete(names[names.length - 1]);
+    setShowBulk(false);
+    setBulkText('');
   };
 
   const removeAthlete = async (name: string) => {
     if (!session) return;
+    if (!window.confirm(`「${name}」を削除しますか？`)) return;
     const updated = { ...session, athletes: session.athletes.filter(a => a !== name) };
     await db.sessions.put(updated);
     setSession(updated);
@@ -89,47 +116,102 @@ export default function TrialPage() {
 
       <div className="flex flex-1 min-h-0">
         {/* 左: 選手一覧 */}
-        <div className="w-56 border-r border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 flex flex-col shrink-0">
-          <div className="p-3 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
-            <span className="font-bold text-sm text-gray-700 dark:text-gray-300">選手一覧</span>
-            <button onClick={() => setShowAddInput(true)}
-              className="text-accent font-bold text-xl leading-none min-w-[44px] min-h-[44px] flex items-center justify-center">+</button>
+        <div className="w-60 border-r border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 flex flex-col shrink-0">
+          <div className="p-3 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between gap-2">
+            <span className="font-bold text-sm text-gray-700 dark:text-gray-300">
+              選手一覧
+              {session.athletes.length > 0 && (
+                <span className="ml-1.5 text-xs font-normal text-gray-400">{session.athletes.length}名</span>
+              )}
+            </span>
+            <button
+              onClick={() => { setShowBulk(true); setTimeout(() => document.getElementById('bulk-input')?.focus(), 50); }}
+              className="text-xs text-accent font-medium px-2 py-1 rounded hover:bg-accent/10 min-h-[36px]"
+              title="複数選手を一括入力">
+              一括
+            </button>
           </div>
 
-          {showAddInput && (
-            <div className="p-2 border-b border-gray-200 dark:border-gray-700 flex gap-1">
-              <input value={newAthlete} onChange={e => setNewAthlete(e.target.value)}
-                onKeyDown={e => e.key === 'Enter' && addAthlete()}
-                placeholder="選手名" autoFocus
-                className="flex-1 px-2 py-1 text-sm rounded border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100" />
-              <button onClick={addAthlete} className="text-accent text-sm font-bold px-2">追加</button>
-              <button onClick={() => { setShowAddInput(false); setNewAthlete(''); }}
-                className="text-gray-400 text-sm px-1">×</button>
+          {/* 一括入力パネル */}
+          {showBulk && (
+            <div className="p-2 border-b border-gray-200 dark:border-gray-700 bg-accent/5">
+              <p className="text-xs text-gray-500 mb-1">改行・コンマで区切って入力</p>
+              <textarea
+                id="bulk-input"
+                value={bulkText}
+                onChange={e => setBulkText(e.target.value)}
+                placeholder={"田中太郎\n山田花子\n佐藤次郎"}
+                rows={4}
+                className="w-full px-2 py-1.5 text-sm rounded border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 resize-none"
+              />
+              <div className="flex gap-1 mt-1">
+                <button onClick={addBulkAthletes}
+                  className="flex-1 py-1.5 text-sm font-bold text-white bg-accent rounded hover:bg-accent/90">
+                  追加
+                </button>
+                <button onClick={() => { setShowBulk(false); setBulkText(''); }}
+                  className="px-3 py-1.5 text-sm text-gray-500 hover:text-gray-700 rounded hover:bg-gray-100">
+                  キャンセル
+                </button>
+              </div>
             </div>
           )}
 
+          {/* 選手リスト */}
           <div className="flex-1 overflow-y-auto">
             {session.athletes.map(name => (
               <div key={name}
-                className={`flex items-center px-3 py-2.5 cursor-pointer border-b border-gray-100 dark:border-gray-700 ${
+                className={`flex items-center px-3 py-0 cursor-pointer border-b border-gray-100 dark:border-gray-700 ${
                   selectedAthlete === name
                     ? 'bg-accent/10 border-l-4 border-l-accent'
                     : 'hover:bg-gray-50 dark:hover:bg-gray-700/50'
                 }`}>
                 <button onClick={() => setSelectedAthlete(name)}
-                  className="flex-1 text-left text-sm font-medium text-gray-800 dark:text-gray-200 min-h-[36px] flex items-center">
-                  {name}
+                  className="flex-1 text-left text-sm font-medium text-gray-800 dark:text-gray-200 min-h-[44px] flex items-center gap-2">
+                  <span>{name}</span>
+                  {/* 採点済み種目数バッジ */}
+                  {(() => {
+                    const doneCount = APPARATUS_LIST.filter(a => hasRecord(name, a.code)).length;
+                    return doneCount > 0 ? (
+                      <span className="text-xs text-success font-bold">{doneCount}/6</span>
+                    ) : null;
+                  })()}
                 </button>
                 <button onClick={() => removeAthlete(name)}
-                  className="text-gray-300 hover:text-danger text-xs px-2 min-h-[36px]">×</button>
+                  className="text-gray-300 hover:text-danger text-lg px-2 min-h-[44px] leading-none">
+                  ×
+                </button>
               </div>
             ))}
-            {session.athletes.length === 0 && (
+
+            {session.athletes.length === 0 && !showBulk && (
               <div className="p-4 text-center text-gray-400 text-sm">
-                「+」で選手を追加
+                下の欄から選手を追加
               </div>
             )}
           </div>
+
+          {/* 選手追加入力（常に表示） */}
+          {!showBulk && (
+            <div className="p-2 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/50">
+              <div className="flex gap-1">
+                <input
+                  ref={inputRef}
+                  value={newAthlete}
+                  onChange={e => setNewAthlete(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && addAthlete()}
+                  placeholder="選手名を入力 → Enter"
+                  className="flex-1 px-2 py-2 text-sm rounded border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 min-h-[44px]"
+                />
+                <button
+                  onClick={addAthlete}
+                  disabled={!newAthlete.trim()}
+                  className="px-3 py-2 rounded bg-accent text-white font-bold text-sm disabled:opacity-40 hover:bg-accent/90 min-h-[44px]">
+                  追加
+                </button>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* 右: 種目ダッシュボード */}

@@ -75,8 +75,8 @@ export function renderSheetCanvas(opts: RenderOptions): HTMLCanvasElement {
     c.font = 'bold 16px "Noto Sans JP", sans-serif';
     const label = `${athleteName}\u3000${apparatus} ${apparatusInfo?.name ?? ''}`;
     c.fillText(label, 10, LABEL_H / 2 + 6);
-    c.strokeStyle = '#ddd';
-    c.lineWidth = 0.5;
+    c.strokeStyle = '#aaa';
+    c.lineWidth = 2;
     c.beginPath();
     c.moveTo(0, LABEL_H);
     c.lineTo(w, LABEL_H);
@@ -94,8 +94,8 @@ export function renderSheetCanvas(opts: RenderOptions): HTMLCanvasElement {
     c.fillStyle = '#ccc';
     c.font = '12px "Noto Sans JP", sans-serif';
     c.fillText('選手名 / No.', boxX + 8, boxY + 14);
-    c.strokeStyle = '#ddd';
-    c.lineWidth = 0.5;
+    c.strokeStyle = '#aaa';
+    c.lineWidth = 2;
     c.beginPath();
     c.moveTo(0, LABEL_H);
     c.lineTo(w, LABEL_H);
@@ -161,7 +161,7 @@ export function renderSheetCanvas(opts: RenderOptions): HTMLCanvasElement {
   if (hasCV) {
     const cvTop = scoreRowTop - CV_LABEL_H;
     c.strokeStyle = '#999';
-    c.lineWidth = 1;
+    c.lineWidth = 2;
     c.beginPath();
     c.moveTo(0, cvTop);
     c.lineTo(w * 0.3, cvTop);
@@ -173,7 +173,7 @@ export function renderSheetCanvas(opts: RenderOptions): HTMLCanvasElement {
 
   // --- スコア行 ---
   c.strokeStyle = '#222';
-  c.lineWidth = 2;
+  c.lineWidth = 2.5;
   c.beginPath();
   c.moveTo(0, scoreRowTop);
   c.lineTo(w, scoreRowTop);
@@ -190,7 +190,7 @@ export function renderSheetCanvas(opts: RenderOptions): HTMLCanvasElement {
   const normalCols = colCount - 1;
   const unit = w / (normalCols + lastColRatio);
   let x = 0;
-  c.lineWidth = 1;
+  c.lineWidth = 2;
   c.strokeStyle = '#444';
   for (let i = 0; i < colCount; i++) {
     const colW = i === colCount - 1 ? unit * lastColRatio : unit;
@@ -205,6 +205,13 @@ export function renderSheetCanvas(opts: RenderOptions): HTMLCanvasElement {
     c.fillText(cols[i], x + 4, scoreRowTop + 12);
     x += colW;
   }
+  // スコア行の下枠線
+  c.strokeStyle = '#444';
+  c.lineWidth = 2;
+  c.beginPath();
+  c.moveTo(0, h - 1);
+  c.lineTo(w, h - 1);
+  c.stroke();
 
   c.restore();
 
