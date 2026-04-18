@@ -1,21 +1,28 @@
 import { db } from '../db/database';
 import type { MemoRecord } from '../db/database';
 import type { Apparatus } from '../types';
+import { APPARATUS_MAP } from '../constants/apparatus';
 import { renderSheetCanvas, loadVaultImage } from './renderSheet';
 
-// ---------- 6種目シート用定数（横向き・3列×2行） ----------
-const EXPORT_COLS = 3;
-const EXPORT_ROWS = 2;
+// ---------- 6種目シート用定数 ----------
 const CELL_GAP = 4;
-const HEADER_H = 60;
+const HEADER_H = 80;
 
 // エクスポートセルサイズ
 const CELL_W = 500;
 const CELL_H = Math.round(CELL_W * 700 / 1024); // iPad landscape のアスペクト比
-const EXPORT_W = CELL_W * EXPORT_COLS + CELL_GAP * (EXPORT_COLS - 1);
-const EXPORT_H = HEADER_H + CELL_H * EXPORT_ROWS + CELL_GAP * (EXPORT_ROWS - 1);
 
 const APPARATUS_ORDER: Apparatus[] = ['FX', 'PH', 'SR', 'VT', 'PB', 'HB'];
+
+// 採点済み種目数に応じたグリッドレイアウト
+const LAYOUTS: Record<number, { cols: number; rows: number }> = {
+  1: { cols: 1, rows: 1 },
+  2: { cols: 2, rows: 1 },
+  3: { cols: 3, rows: 1 },
+  4: { cols: 2, rows: 2 },
+  5: { cols: 3, rows: 2 },
+  6: { cols: 3, rows: 2 },
+};
 
 // レコードからキャンバスサイズを取得（保存されていなければフォールバック）
 function getCanvasSize(record: MemoRecord | undefined): { w: number; h: number } {
@@ -55,13 +62,61 @@ function getCommonCanvasSize(records: Map<Apparatus, MemoRecord>): { w: number; 
   return bestW > 0 ? { w: bestW, h: bestH } : { w: 1024, h: 700 };
 }
 
-// ---------- 6種目シートエクスポート ----------
-export async function exportAthleteSheet(
+// 採点済み種目コードを抽出（APPARATUS_ORDER の順序を保持）
+function getScoredApparatus(records: Map<Apparatus, MemoRecord>): Apparatus[] {
+  return APPARATUS_ORDER.filter(a => {
+    const rec = records.get(a);
+    return rec && rec.strokes.length > 0;
+  });
+}
+
+// ヘッダー内の採点種目バッジを描画
+function drawApparatusBadges(
+  c: CanvasRenderingContext2D,
+  scored: Apparatus[],
+  startX: number,
+  y: number,
+  totalCount: number,
+): void {
+  const badgeH = 20;
+  const badgePadX = 8;
+  const gap = 6;
+  let x = startX;
+  c.font = 'bold 12px "Noto Sans JP", sans-serif';
+  for (const code of scored) {
+    const w = c.measureText(code).width + badgePadX * 2;
+    c.fillStyle = '#ffffff22';
+    c.strokeStyle = '#ffffff99';
+    c.lineWidth = 1;
+    const r = 4;
+    c.beginPath();
+    c.moveTo(x + r, y);
+    c.lineTo(x + w - r, y);
+    c.quadraticCurveTo(x + w, y, x + w, y + r);
+    c.lineTo(x + w, y + badgeH - r);
+    c.quadraticCurveTo(x + w, y + badgeH, x + w - r, y + badgeH);
+    c.lineTo(x + r, y + badgeH);
+    c.quadraticCurveTo(x, y + badgeH, x, y + badgeH - r);
+    c.lineTo(x, y + r);
+    c.quadraticCurveTo(x, y, x + r, y);
+    c.closePath();
+    c.fill();
+    c.stroke();
+    c.fillStyle = '#ffffff';
+    c.fillText(code, x + badgePadX, y + badgeH - 6);
+    x += w + gap;
+  }
+  // 件数表示
+  c.fillStyle = '#ffffffcc';
+  c.font = 'bold 12px "Noto Sans JP", sans-serif';
+  c.fillText(`${scored.length}/${totalCount}`, x + 4, y + badgeH - 6);
+}
+
+// 1選手ぶんのレコードを取得
+async function loadAthleteRecords(
   sessionId: string,
   athleteName: string,
-  sessionName: string,
-  eJudgeCount: number,
-): Promise<Blob> {
+): Promise<Map<Apparatus, MemoRecord>> {
   const allRecords = await db.memoRecords
     .where('sessionId').equals(sessionId)
     .toArray();
@@ -71,25 +126,43 @@ export async function exportAthleteSheet(
       recordMap.set(r.apparatus, r);
     }
   }
+  return recordMap;
+}
+
+// ---------- 6種目シートエクスポート（採点済みのみ可変グリッド） ----------
+export async function exportAthleteSheet(
+  sessionId: string,
+  athleteName: string,
+  sessionName: string,
+  eJudgeCount: number,
+): Promise<{ blob: Blob; scored: Apparatus[] } | null> {
+  const recordMap = await loadAthleteRecords(sessionId, athleteName);
+  const scored = getScoredApparatus(recordMap);
+  if (scored.length === 0) return null;
+
+  const layout = LAYOUTS[scored.length];
+  const { cols, rows } = layout;
+  const exportW = CELL_W * cols + CELL_GAP * (cols - 1);
+  const exportH = HEADER_H + CELL_H * rows + CELL_GAP * (rows - 1);
 
   // 共通キャンバスサイズ（全種目同一デバイスで採点した前提）
   const src = getCommonCanvasSize(recordMap);
 
-  // 跳馬画像を事前読み込み
-  const vaultImg = await loadVaultImage();
+  // 跳馬画像を事前読み込み（VT が含まれる時のみ）
+  const vaultImg = scored.includes('VT') ? await loadVaultImage() : null;
 
   const canvas = document.createElement('canvas');
-  canvas.width = EXPORT_W;
-  canvas.height = EXPORT_H;
+  canvas.width = exportW;
+  canvas.height = exportH;
   const c = canvas.getContext('2d')!;
 
   // 背景
   c.fillStyle = '#ffffff';
-  c.fillRect(0, 0, EXPORT_W, EXPORT_H);
+  c.fillRect(0, 0, exportW, exportH);
 
   // ヘッダー
   c.fillStyle = '#1B4F72';
-  c.fillRect(0, 0, EXPORT_W, HEADER_H);
+  c.fillRect(0, 0, exportW, HEADER_H);
   c.fillStyle = '#ffffff';
   c.font = 'bold 22px "Noto Sans JP", sans-serif';
   c.fillText(athleteName, 16, 28);
@@ -98,13 +171,16 @@ export async function exportAthleteSheet(
   c.fillText(`${sessionName}  /  ${new Date().toLocaleDateString('ja-JP')}`, 16, 48);
   c.font = '10px "Noto Sans JP", sans-serif';
   c.fillStyle = '#ffffff88';
-  c.fillText('MAG Judge Memo', EXPORT_W - 110, 48);
+  c.fillText('MAG Judge Memo', exportW - 110, HEADER_H - 10);
+
+  // 採点種目バッジ
+  drawApparatusBadges(c, scored, 16, 55, APPARATUS_ORDER.length);
 
   // 各種目: 実際の採点画面と同じロジックでオフスクリーン描画 → 縮小配置
-  for (let i = 0; i < APPARATUS_ORDER.length; i++) {
-    const apparatus = APPARATUS_ORDER[i];
-    const col = i % EXPORT_COLS;
-    const row = Math.floor(i / EXPORT_COLS);
+  for (let i = 0; i < scored.length; i++) {
+    const apparatus = scored[i];
+    const col = i % cols;
+    const row = Math.floor(i / cols);
     const cellX = col * (CELL_W + CELL_GAP);
     const cellY = HEADER_H + row * (CELL_H + CELL_GAP);
 
@@ -131,9 +207,10 @@ export async function exportAthleteSheet(
     c.strokeRect(cellX, cellY, CELL_W, CELL_H);
   }
 
-  return new Promise((resolve) => {
-    canvas.toBlob((blob) => resolve(blob!), 'image/png');
+  const blob = await new Promise<Blob>((resolve) => {
+    canvas.toBlob((b) => resolve(b!), 'image/png');
   });
+  return { blob, scored };
 }
 
 // ---------- 単一種目シートエクスポート ----------
@@ -195,6 +272,18 @@ export async function exportSingleSheet(
   });
 }
 
+// ---------- ファイル名生成 ----------
+export function buildSheetFilename(
+  athleteName: string,
+  scored: Apparatus[],
+  sessionName: string,
+): string {
+  // APPARATUS_MAP から順序保証された短縮コードを使用
+  const codes = scored.map(a => APPARATUS_MAP[a].shortName).join('-');
+  const date = new Date().toISOString().slice(0, 10);
+  return `${athleteName}_${codes}_${sessionName}_${date}.png`;
+}
+
 // ---------- 共有 / ダウンロード ----------
 export async function shareOrDownload(blob: Blob, filename: string): Promise<void> {
   const file = new File([blob], filename, { type: 'image/png' });
@@ -214,4 +303,87 @@ export async function shareOrDownload(blob: Blob, filename: string): Promise<voi
   a.download = filename;
   a.click();
   URL.revokeObjectURL(url);
+}
+
+// ---------- 複数選手一括共有 ----------
+export interface BulkExportItem {
+  athleteName: string;
+  blob: Blob;
+  scored: Apparatus[];
+  filename: string;
+}
+
+export interface BulkExportResult {
+  items: BulkExportItem[];
+  skipped: string[]; // 採点済みゼロのためスキップした選手
+}
+
+/**
+ * 複数選手のシートを生成。採点済み0件の選手は skipped に格納。
+ * onProgress でインデックス（1-based）と選手名を通知。
+ */
+export async function generateBulkSheets(
+  sessionId: string,
+  athleteNames: string[],
+  sessionName: string,
+  eJudgeCount: number,
+  onProgress?: (done: number, total: number, name: string) => void,
+): Promise<BulkExportResult> {
+  const items: BulkExportItem[] = [];
+  const skipped: string[] = [];
+  for (let i = 0; i < athleteNames.length; i++) {
+    const name = athleteNames[i];
+    onProgress?.(i + 1, athleteNames.length, name);
+    const result = await exportAthleteSheet(sessionId, name, sessionName, eJudgeCount);
+    if (!result) {
+      skipped.push(name);
+      continue;
+    }
+    const filename = buildSheetFilename(name, result.scored, sessionName);
+    items.push({
+      athleteName: name,
+      blob: result.blob,
+      scored: result.scored,
+      filename,
+    });
+  }
+  return { items, skipped };
+}
+
+/**
+ * 複数ファイルを Web Share API で一括共有。
+ * 非対応環境では逐次ダウンロードにフォールバック。
+ */
+export async function shareOrDownloadMultiple(
+  items: BulkExportItem[],
+  sessionName: string,
+): Promise<void> {
+  if (items.length === 0) return;
+
+  const files = items.map(
+    (it) => new File([it.blob], it.filename, { type: 'image/png' }),
+  );
+
+  // 複数ファイル対応の Web Share API（iPadOS 15+）
+  if (navigator.share && navigator.canShare?.({ files })) {
+    try {
+      await navigator.share({ files, title: `${sessionName} 採点結果` });
+      return;
+    } catch {
+      // ユーザーキャンセル等
+      return;
+    }
+  }
+
+  // フォールバック: 逐次ダウンロード
+  for (const it of items) {
+    const url = URL.createObjectURL(it.blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = it.filename;
+    a.click();
+    URL.revokeObjectURL(url);
+    // ブラウザの連続ダウンロード制限回避のため短い間隔を入れる
+    await new Promise((r) => setTimeout(r, 200));
+  }
 }
