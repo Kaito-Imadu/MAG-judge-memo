@@ -34,9 +34,11 @@ const LINE_WIDTH = 2;
 const ERASER_WIDTH = 28;
 const STRAIGHT_DELAY = 1500;
 const STRAIGHT_THRESHOLD = 4;
-const SCRUB_DIRS_NEEDED = 5;
-const SCRUB_MIN_SWING = 12;      // ピーク/トラフからの反転量(px)
-const SCRUB_MAX_RANGE = 120;     // 振れ幅上限（描画と区別）
+const SCRUB_DIRS_NEEDED = 6;          // 方向転換の必要回数（厳格化）
+const SCRUB_MIN_SWING = 20;           // ピーク/トラフからの反転量(px) — 12→20 に引き上げ
+const SCRUB_PERP_MAX_RANGE = 50;      // 副軸（スクラブ方向と直交）の最大レンジ — 細長い線を除外
+const SCRUB_PARALLEL_MAX_RANGE = 220; // 主軸の最大レンジ — 長い直線を除外
+const SCRUB_MIN_POINTS = 12;          // スクラブと判定する最小点数
 const SAVE_DEBOUNCE = 1500;
 // 横線ハンドル定数
 const HLINE_HANDLE_R = 5;        // ハンドル円の半径
@@ -136,19 +138,27 @@ function countDirChanges(values: number[], minSwing: number): number {
 
 // ストロークがスクラブパターンかどうか判定
 function isScrubPattern(points: Point[]): boolean {
-  if (points.length < 8) return false;
+  if (points.length < SCRUB_MIN_POINTS) return false;
   const xs = points.map(p => p.x);
   const ys = points.map(p => p.y);
   const xChanges = countDirChanges(xs, SCRUB_MIN_SWING);
   const yChanges = countDirChanges(ys, SCRUB_MIN_SWING);
-  // X方向またはY方向で十分な方向転換があればスクラブ
-  const dirs = Math.max(xChanges, yChanges);
-  if (dirs < SCRUB_DIRS_NEEDED) return false;
-  // 振れ幅が大きすぎる場合は通常の描画と判断
+  // 主軸（方向転換が多い方）で十分な回数の反転が必要
+  if (Math.max(xChanges, yChanges) < SCRUB_DIRS_NEEDED) return false;
+
   const xRange = Math.max(...xs) - Math.min(...xs);
   const yRange = Math.max(...ys) - Math.min(...ys);
-  const minRange = Math.min(xRange, yRange);
-  return minRange < SCRUB_MAX_RANGE;
+
+  // スクラブは「主軸方向に往復し、副軸はほぼ固定」が特徴
+  // 縦線/横線（片軸のみレンジが大）を誤検出しないように副軸の狭さも条件にする
+  const isHorizontalScrub = xChanges >= yChanges;
+  const parallelRange = isHorizontalScrub ? xRange : yRange;
+  const perpRange = isHorizontalScrub ? yRange : xRange;
+
+  if (parallelRange > SCRUB_PARALLEL_MAX_RANGE) return false; // 長い直線を除外
+  if (perpRange > SCRUB_PERP_MAX_RANGE) return false;         // 広く動いた線を除外
+
+  return true;
 }
 
 // ---------- ベジェ曲線描画 ----------

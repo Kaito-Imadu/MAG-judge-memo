@@ -44,24 +44,6 @@ function getCanvasSize(record: MemoRecord | undefined): { w: number; h: number }
   return { w: 1024, h: 700 };
 }
 
-// 全レコードから共通のキャンバスサイズを決定（最大のもの）
-function getCommonCanvasSize(records: Map<Apparatus, MemoRecord>): { w: number; h: number } {
-  let bestW = 0, bestH = 0;
-  // canvasW/H が保存されているレコードを優先
-  for (const rec of records.values()) {
-    if (rec.canvasW && rec.canvasH) {
-      if (rec.canvasW > bestW) { bestW = rec.canvasW; bestH = rec.canvasH; }
-    }
-  }
-  if (bestW > 0) return { w: bestW, h: bestH };
-  // 保存されていない場合は各レコードから推定
-  for (const rec of records.values()) {
-    const size = getCanvasSize(rec);
-    if (size.w > bestW) { bestW = size.w; bestH = size.h; }
-  }
-  return bestW > 0 ? { w: bestW, h: bestH } : { w: 1024, h: 700 };
-}
-
 // 採点済み種目コードを抽出（APPARATUS_ORDER の順序を保持）
 function getScoredApparatus(records: Map<Apparatus, MemoRecord>): Apparatus[] {
   return APPARATUS_ORDER.filter(a => {
@@ -145,9 +127,6 @@ export async function exportAthleteSheet(
   const exportW = CELL_W * cols + CELL_GAP * (cols - 1);
   const exportH = HEADER_H + CELL_H * rows + CELL_GAP * (rows - 1);
 
-  // 共通キャンバスサイズ（全種目同一デバイスで採点した前提）
-  const src = getCommonCanvasSize(recordMap);
-
   // 跳馬画像を事前読み込み（VT が含まれる時のみ）
   const vaultImg = scored.includes('VT') ? await loadVaultImage() : null;
 
@@ -185,16 +164,19 @@ export async function exportAthleteSheet(
     const cellY = HEADER_H + row * (CELL_H + CELL_GAP);
 
     const record = recordMap.get(apparatus);
+    // 各種目それぞれのキャンバスサイズで描画（ストローク座標とテンプレートを一致させる）
+    const srcSize = getCanvasSize(record);
 
     // JudgeSheet と完全に同じロジックでフルサイズ描画
     const sheet = renderSheetCanvas({
-      w: src.w,
-      h: src.h,
+      w: srcSize.w,
+      h: srcSize.h,
       apparatus,
       eJudgeCount,
       mode: 'trial',
       athleteName,
       strokes: record?.strokes ?? [],
+      lines: record?.lines,
       vaultImg: apparatus === 'VT' ? vaultImg : null,
     });
 
@@ -262,6 +244,7 @@ export async function exportSingleSheet(
     mode: 'individual',
     athleteName,
     strokes: record?.strokes ?? [],
+    lines: record?.lines,
     vaultImg,
   });
 
