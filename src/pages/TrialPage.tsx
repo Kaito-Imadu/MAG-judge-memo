@@ -1,10 +1,16 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { db } from '../db/database';
 import type { Session, MemoRecord } from '../db/database';
 import { APPARATUS_LIST } from '../constants/apparatus';
 import type { Apparatus } from '../types';
-import { exportAthleteSheet, shareOrDownload } from '../utils/exportSheet';
+import {
+  exportAthleteSheet,
+  shareOrDownload,
+  buildSheetFilename,
+  generateBulkSheets,
+  shareOrDownloadMultiple,
+} from '../utils/exportSheet';
 
 export default function TrialPage() {
   const { sessionId } = useParams<{ sessionId: string }>();
@@ -16,6 +22,10 @@ export default function TrialPage() {
   const [exporting, setExporting] = useState(false);
   const [showBulk, setShowBulk] = useState(false);
   const [bulkText, setBulkText] = useState('');
+  // 一括共有用: チェック済み選手名の Set
+  const [checkedAthletes, setCheckedAthletes] = useState<Set<string>>(new Set());
+  const [bulkExporting, setBulkExporting] = useState(false);
+  const [bulkProgress, setBulkProgress] = useState<{ done: number; total: number; name: string } | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const reload = async () => {
@@ -76,6 +86,12 @@ export default function TrialPage() {
     await db.sessions.put(updated);
     setSession(updated);
     if (selectedAthlete === name) setSelectedAthlete(null);
+    setCheckedAthletes(prev => {
+      if (!prev.has(name)) return prev;
+      const next = new Set(prev);
+      next.delete(name);
+      return next;
+    });
     await db.memoRecords.where('sessionId').equals(sessionId!).filter(r => r.athleteName === name).delete();
     setRecords(prev => prev.filter(r => r.athleteName !== name));
   };
@@ -83,24 +99,102 @@ export default function TrialPage() {
   const hasRecord = (athlete: string, apparatus: Apparatus) =>
     records.some(r => r.athleteName === athlete && r.apparatus === apparatus && r.strokes.length > 0);
 
+  const scoredCountOf = (athlete: string) =>
+    APPARATUS_LIST.filter(a => hasRecord(athlete, a.code)).length;
+
   const openJudge = (apparatus: Apparatus) => {
     if (!selectedAthlete || !sessionId) return;
     navigate(`/trial/${sessionId}/judge/${encodeURIComponent(selectedAthlete)}/${apparatus}`);
   };
 
+  // 選択中選手の採点済み種目数
+  const selectedScoredCount = selectedAthlete ? scoredCountOf(selectedAthlete) : 0;
+
+  // チェック可能な選手（採点済み1つ以上）
+  const checkableAthletes = useMemo(
+    () => session ? session.athletes.filter(a => scoredCountOf(a) > 0) : [],
+    [session, records], // eslint-disable-line react-hooks/exhaustive-deps
+  );
+
+  // 有効なチェック数（削除済み等を除外）
+  const validCheckedCount = useMemo(() => {
+    if (!session) return 0;
+    let n = 0;
+    for (const name of checkedAthletes) {
+      if (session.athletes.includes(name) && scoredCountOf(name) > 0) n++;
+    }
+    return n;
+  }, [checkedAthletes, session, records]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const toggleCheck = (name: string) => {
+    setCheckedAthletes(prev => {
+      const next = new Set(prev);
+      if (next.has(name)) next.delete(name);
+      else next.add(name);
+      return next;
+    });
+  };
+
+  const toggleCheckAll = () => {
+    if (validCheckedCount === checkableAthletes.length && checkableAthletes.length > 0) {
+      setCheckedAthletes(new Set());
+    } else {
+      setCheckedAthletes(new Set(checkableAthletes));
+    }
+  };
+
   const handleExport = async () => {
     if (!selectedAthlete || !session || !sessionId) return;
+    if (selectedScoredCount === 0) {
+      window.alert('採点済みの種目がありません。');
+      return;
+    }
     setExporting(true);
     try {
-      const blob = await exportAthleteSheet(sessionId, selectedAthlete, session.name, session.eJudgeCount);
-      const filename = `${selectedAthlete}_${session.name}_${new Date().toISOString().slice(0, 10)}.png`;
-      await shareOrDownload(blob, filename);
+      const result = await exportAthleteSheet(sessionId, selectedAthlete, session.name, session.eJudgeCount);
+      if (!result) {
+        window.alert('採点済みの種目がありません。');
+        return;
+      }
+      const filename = buildSheetFilename(selectedAthlete, result.scored, session.name);
+      await shareOrDownload(result.blob, filename);
     } finally {
       setExporting(false);
     }
   };
 
+  const handleBulkExport = async () => {
+    if (!session || !sessionId) return;
+    // 有効な選手名のみ抽出（削除済み等を除外）
+    const targets = Array.from(checkedAthletes).filter(
+      n => session.athletes.includes(n) && scoredCountOf(n) > 0,
+    );
+    if (targets.length === 0) return;
+    setBulkExporting(true);
+    setBulkProgress({ done: 0, total: targets.length, name: '' });
+    try {
+      const result = await generateBulkSheets(
+        sessionId,
+        targets,
+        session.name,
+        session.eJudgeCount,
+        (done, total, name) => setBulkProgress({ done, total, name }),
+      );
+      if (result.items.length === 0) {
+        window.alert('採点済みの種目がある選手がいませんでした。');
+        return;
+      }
+      await shareOrDownloadMultiple(result.items, session.name);
+    } finally {
+      setBulkExporting(false);
+      setBulkProgress(null);
+    }
+  };
+
   if (!session) return null;
+
+  const allCheckableSelected =
+    checkableAthletes.length > 0 && validCheckedCount === checkableAthletes.length;
 
   return (
     <div className="h-full flex flex-col overflow-hidden bg-bg-light dark:bg-bg-dark">
@@ -116,7 +210,7 @@ export default function TrialPage() {
 
       <div className="flex flex-1 min-h-0">
         {/* 左: 選手一覧 */}
-        <div className="w-60 border-r border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 flex flex-col shrink-0">
+        <div className="w-64 border-r border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 flex flex-col shrink-0">
           <div className="p-3 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between gap-2">
             <span className="font-bold text-sm text-gray-700 dark:text-gray-300">
               選手一覧
@@ -157,32 +251,66 @@ export default function TrialPage() {
             </div>
           )}
 
+          {/* 一括共有ツールバー（採点済みがいる場合のみ） */}
+          {checkableAthletes.length > 0 && (
+            <div className="px-3 py-2 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/40 flex items-center gap-2">
+              <label className="flex items-center gap-1.5 text-xs text-gray-600 dark:text-gray-400 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={allCheckableSelected}
+                  onChange={toggleCheckAll}
+                  className="w-4 h-4 accent-accent cursor-pointer"
+                />
+                <span>全選択</span>
+              </label>
+              <span className="ml-auto text-xs text-gray-500">
+                {validCheckedCount}/{checkableAthletes.length}
+              </span>
+            </div>
+          )}
+
           {/* 選手リスト */}
           <div className="flex-1 overflow-y-auto">
-            {session.athletes.map(name => (
-              <div key={name}
-                className={`flex items-center px-3 py-0 cursor-pointer border-b border-gray-100 dark:border-gray-700 ${
-                  selectedAthlete === name
-                    ? 'bg-accent/10 border-l-4 border-l-accent'
-                    : 'hover:bg-gray-50 dark:hover:bg-gray-700/50'
-                }`}>
-                <button onClick={() => setSelectedAthlete(name)}
-                  className="flex-1 text-left text-sm font-medium text-gray-800 dark:text-gray-200 min-h-[44px] flex items-center gap-2">
-                  <span>{name}</span>
-                  {/* 採点済み種目数バッジ */}
-                  {(() => {
-                    const doneCount = APPARATUS_LIST.filter(a => hasRecord(name, a.code)).length;
-                    return doneCount > 0 ? (
+            {session.athletes.map(name => {
+              const doneCount = scoredCountOf(name);
+              const checkable = doneCount > 0;
+              const checked = checkedAthletes.has(name);
+              return (
+                <div key={name}
+                  className={`flex items-center px-2 py-0 cursor-pointer border-b border-gray-100 dark:border-gray-700 ${
+                    selectedAthlete === name
+                      ? 'bg-accent/10 border-l-4 border-l-accent'
+                      : 'hover:bg-gray-50 dark:hover:bg-gray-700/50'
+                  }`}>
+                  {/* 一括共有用チェックボックス */}
+                  <label
+                    className={`pl-1 pr-2 min-h-[44px] flex items-center ${checkable ? 'cursor-pointer' : 'cursor-not-allowed opacity-30'}`}
+                    onClick={e => e.stopPropagation()}
+                    title={checkable ? '一括共有に含める' : '採点済み種目がないため選択不可'}
+                  >
+                    <input
+                      type="checkbox"
+                      disabled={!checkable}
+                      checked={checkable && checked}
+                      onChange={() => checkable && toggleCheck(name)}
+                      className="w-4 h-4 accent-accent cursor-pointer disabled:cursor-not-allowed"
+                    />
+                  </label>
+                  <button onClick={() => setSelectedAthlete(name)}
+                    className="flex-1 text-left text-sm font-medium text-gray-800 dark:text-gray-200 min-h-[44px] flex items-center gap-2">
+                    <span>{name}</span>
+                    {/* 採点済み種目数バッジ */}
+                    {doneCount > 0 && (
                       <span className="text-xs text-success font-bold">{doneCount}/6</span>
-                    ) : null;
-                  })()}
-                </button>
-                <button onClick={() => removeAthlete(name)}
-                  className="text-gray-300 hover:text-danger text-lg px-2 min-h-[44px] leading-none">
-                  ×
-                </button>
-              </div>
-            ))}
+                    )}
+                  </button>
+                  <button onClick={() => removeAthlete(name)}
+                    className="text-gray-300 hover:text-danger text-lg px-2 min-h-[44px] leading-none">
+                    ×
+                  </button>
+                </div>
+              );
+            })}
 
             {session.athletes.length === 0 && !showBulk && (
               <div className="p-4 text-center text-gray-400 text-sm">
@@ -190,6 +318,27 @@ export default function TrialPage() {
               </div>
             )}
           </div>
+
+          {/* 一括共有ボタン（チェック1名以上のとき） */}
+          {validCheckedCount > 0 && (
+            <div className="p-2 border-t border-gray-200 dark:border-gray-700 bg-accent/5">
+              <button
+                onClick={handleBulkExport}
+                disabled={bulkExporting}
+                className="w-full py-2 min-h-[44px] rounded bg-accent text-white font-bold text-sm hover:bg-accent/90 disabled:opacity-50">
+                {bulkExporting
+                  ? (bulkProgress
+                    ? `${bulkProgress.done}/${bulkProgress.total}人 処理中...`
+                    : '作成中...')
+                  : `選択中を一括共有 (${validCheckedCount}名)`}
+              </button>
+              {bulkExporting && bulkProgress && (
+                <p className="text-xs text-gray-500 mt-1 truncate" title={bulkProgress.name}>
+                  {bulkProgress.name}
+                </p>
+              )}
+            </div>
+          )}
 
           {/* 選手追加入力（常に表示） */}
           {!showBulk && (
@@ -243,10 +392,15 @@ export default function TrialPage() {
               </div>
               {/* 共有ボタン */}
               <div className="mt-6 text-center">
-                <button onClick={handleExport} disabled={exporting}
+                <button onClick={handleExport}
+                  disabled={exporting || selectedScoredCount === 0}
                   className="px-6 py-2.5 min-h-[44px] rounded-lg bg-accent text-white font-bold
                              hover:bg-accent/90 disabled:opacity-50 transition-colors">
-                  {exporting ? '作成中...' : '採点結果を共有'}
+                  {exporting
+                    ? '作成中...'
+                    : selectedScoredCount === 0
+                      ? '採点結果を共有（未採点）'
+                      : `採点結果を共有 (${selectedScoredCount}/6)`}
                 </button>
               </div>
             </div>
