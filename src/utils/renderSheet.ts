@@ -14,6 +14,9 @@ const SCORE_ROW_H = 160;
 const CV_LABEL_H = 28;
 const ND_WIDTH_RATIO = 0.2;
 const LINE_WIDTH = 2;
+const HLINE_LEFT_MARGIN = 10;
+
+interface HLine { y: number; right: number }
 
 // 跳馬画像キャッシュ
 let vaultImgCache: HTMLImageElement | null = null;
@@ -39,6 +42,7 @@ interface RenderOptions {
   mode: 'trial' | 'competition' | 'individual';
   athleteName: string;
   strokes: StrokeData[];
+  lines?: HLine[];
   vaultImg?: HTMLImageElement | null;
 }
 
@@ -47,7 +51,7 @@ interface RenderOptions {
  * 返される Canvas は CSS ピクセルサイズ (w × h) で描画済み。
  */
 export function renderSheetCanvas(opts: RenderOptions): HTMLCanvasElement {
-  const { w, h, apparatus, eJudgeCount, mode, athleteName, strokes, vaultImg } = opts;
+  const { w, h, apparatus, eJudgeCount, mode, athleteName, strokes, lines, vaultImg } = opts;
   const canvas = document.createElement('canvas');
   canvas.width = w;
   canvas.height = h;
@@ -155,6 +159,18 @@ export function renderSheetCanvas(opts: RenderOptions): HTMLCanvasElement {
     c.fillStyle = '#666';
     c.font = 'bold 12px "Noto Sans JP", sans-serif';
     c.fillText('CTV', mainW + 8, ctvStartY - 2);
+  }
+
+  // --- 横線（VT以外、ハンドルなし） ---
+  if (apparatus !== 'VT' && lines && lines.length > 0) {
+    c.strokeStyle = '#000000';
+    c.lineWidth = 1.5;
+    for (const hl of lines) {
+      c.beginPath();
+      c.moveTo(HLINE_LEFT_MARGIN, hl.y);
+      c.lineTo(hl.right, hl.y);
+      c.stroke();
+    }
   }
 
   // --- CV ラベル ---

@@ -14,6 +14,9 @@ export default function EntryPage() {
   const [judgeMode, setJudgeMode] = useState<'D' | 'E' | 'D/E'>('E');
   const [eJudgeCount, setEJudgeCount] = useState(4);
   const [selectedApparatus, setSelectedApparatus] = useState<Apparatus>('FX');
+  // セッション名インライン編集
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editingName, setEditingName] = useState('');
 
   useEffect(() => {
     db.sessions.orderBy('date').reverse().toArray().then(setSessions);
@@ -54,6 +57,30 @@ export default function EntryPage() {
     setSessions(prev => prev.filter(s => s.id !== id));
   };
 
+  const startEdit = (s: Session) => {
+    setEditingId(s.id);
+    setEditingName(s.name);
+  };
+
+  const cancelEdit = () => {
+    setEditingId(null);
+    setEditingName('');
+  };
+
+  const commitEdit = async () => {
+    if (!editingId) return;
+    const trimmed = editingName.trim();
+    const current = sessions.find(s => s.id === editingId);
+    if (!current || !trimmed || trimmed === current.name) {
+      cancelEdit();
+      return;
+    }
+    const updated = { ...current, name: trimmed };
+    await db.sessions.put(updated);
+    setSessions(prev => prev.map(s => (s.id === editingId ? updated : s)));
+    cancelEdit();
+  };
+
   return (
     <div className="h-full bg-bg-light dark:bg-bg-dark flex flex-col overflow-y-auto">
       <header className="bg-primary text-white px-6 py-4 flex items-baseline justify-between">
@@ -92,18 +119,49 @@ export default function EntryPage() {
             <div className="space-y-2">
               {sessions.map(s => (
                 <div key={s.id} className="flex items-center bg-white dark:bg-gray-800 rounded-lg shadow px-4 py-3">
-                  <button onClick={() => resumeSession(s)} className="flex-1 text-left min-h-[44px]">
-                    <div className="font-semibold text-gray-800 dark:text-gray-100">{s.name}</div>
-                    <div className="text-xs text-gray-500">
-                      {s.mode === 'trial' ? '試技会' : s.mode === 'individual' ? '個別' : '大会'}
-                      {s.apparatus ? ` / ${s.apparatus}` : ''}
-                      {' / '}{s.judgeMode === 'D/E' ? 'D/E' : `${s.judgeMode}審判`}
-                      {(s.judgeMode === 'E' || s.judgeMode === 'D/E') ? ` (E${s.eJudgeCount}人)` : ''}
-                      {' / '}{new Date(s.date).toLocaleDateString('ja-JP')}
+                  {editingId === s.id ? (
+                    <div className="flex-1 flex items-center gap-2 min-h-[44px]">
+                      <input
+                        autoFocus
+                        value={editingName}
+                        onChange={e => setEditingName(e.target.value)}
+                        onKeyDown={e => {
+                          if (e.key === 'Enter') commitEdit();
+                          else if (e.key === 'Escape') cancelEdit();
+                        }}
+                        onBlur={commitEdit}
+                        className="flex-1 px-2 py-1.5 text-sm font-semibold rounded border border-accent
+                                   bg-white dark:bg-gray-700 dark:text-gray-100 min-h-[36px]"
+                      />
+                      <button onMouseDown={e => e.preventDefault()} onClick={commitEdit}
+                        className="px-3 py-1 rounded bg-accent text-white text-xs font-bold min-h-[36px]">
+                        保存
+                      </button>
+                      <button onMouseDown={e => e.preventDefault()} onClick={cancelEdit}
+                        className="px-2 py-1 rounded text-xs text-gray-500 min-h-[36px]">
+                        取消
+                      </button>
                     </div>
-                  </button>
-                  <button onClick={() => deleteSession(s.id)}
-                    className="text-gray-400 hover:text-danger text-sm px-3 min-h-[44px]">削除</button>
+                  ) : (
+                    <>
+                      <button onClick={() => resumeSession(s)} className="flex-1 text-left min-h-[44px]">
+                        <div className="font-semibold text-gray-800 dark:text-gray-100">{s.name}</div>
+                        <div className="text-xs text-gray-500">
+                          {s.mode === 'trial' ? '試技会' : s.mode === 'individual' ? '個別' : '大会'}
+                          {s.apparatus ? ` / ${s.apparatus}` : ''}
+                          {' / '}{s.judgeMode === 'D/E' ? 'D/E' : `${s.judgeMode}審判`}
+                          {(s.judgeMode === 'E' || s.judgeMode === 'D/E') ? ` (E${s.eJudgeCount}人)` : ''}
+                          {' / '}{new Date(s.date).toLocaleDateString('ja-JP')}
+                        </div>
+                      </button>
+                      <button onClick={() => startEdit(s)}
+                        className="text-gray-400 hover:text-accent text-sm px-3 min-h-[44px]" title="名前を変更">
+                        名前変更
+                      </button>
+                      <button onClick={() => deleteSession(s.id)}
+                        className="text-gray-400 hover:text-danger text-sm px-3 min-h-[44px]">削除</button>
+                    </>
+                  )}
                 </div>
               ))}
             </div>

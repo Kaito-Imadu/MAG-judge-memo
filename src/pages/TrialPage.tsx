@@ -26,6 +26,9 @@ export default function TrialPage() {
   const [checkedAthletes, setCheckedAthletes] = useState<Set<string>>(new Set());
   const [bulkExporting, setBulkExporting] = useState(false);
   const [bulkProgress, setBulkProgress] = useState<{ done: number; total: number; name: string } | null>(null);
+  // セッション名インライン編集
+  const [editingSessionName, setEditingSessionName] = useState(false);
+  const [sessionNameDraft, setSessionNameDraft] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
 
   const reload = async () => {
@@ -191,6 +194,21 @@ export default function TrialPage() {
     }
   };
 
+  const commitSessionName = async () => {
+    if (!session) return;
+    const trimmed = sessionNameDraft.trim();
+    if (!trimmed || trimmed === session.name) {
+      setEditingSessionName(false);
+      setSessionNameDraft('');
+      return;
+    }
+    const updated = { ...session, name: trimmed };
+    await db.sessions.put(updated);
+    setSession(updated);
+    setEditingSessionName(false);
+    setSessionNameDraft('');
+  };
+
   if (!session) return null;
 
   const allCheckableSelected =
@@ -201,7 +219,31 @@ export default function TrialPage() {
       <header className="bg-primary text-white px-4 py-2.5 flex items-center gap-3 shrink-0">
         <button onClick={() => navigate('/')}
           className="text-white/70 hover:text-white text-sm min-h-[44px] px-2">戻る</button>
-        <h1 className="font-bold">{session.name}</h1>
+        {editingSessionName ? (
+          <input
+            autoFocus
+            value={sessionNameDraft}
+            onChange={e => setSessionNameDraft(e.target.value)}
+            onKeyDown={e => {
+              if (e.key === 'Enter') commitSessionName();
+              else if (e.key === 'Escape') { setEditingSessionName(false); setSessionNameDraft(''); }
+            }}
+            onBlur={commitSessionName}
+            className="font-bold bg-white/10 rounded px-2 py-1 min-h-[36px] text-white placeholder-white/50
+                       border border-white/30 focus:border-white focus:outline-none min-w-[200px]"
+          />
+        ) : (
+          <button
+            onClick={() => { setSessionNameDraft(session.name); setEditingSessionName(true); }}
+            title="セッション名を変更"
+            className="font-bold hover:bg-white/10 rounded px-2 py-1 min-h-[36px] transition-colors flex items-center gap-1.5">
+            <span>{session.name}</span>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="opacity-60">
+              <path d="M12 20h9" />
+              <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z" />
+            </svg>
+          </button>
+        )}
         <span className="text-sm text-white/60 ml-auto">
           {session.judgeMode}審判
           {session.judgeMode === 'E' ? ` (${session.eJudgeCount}人)` : ''}
