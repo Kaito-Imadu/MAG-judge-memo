@@ -773,6 +773,20 @@ export default function JudgeSheet({
       }
     };
 
+    // 消しゴムカーソル: Active Canvas に円を描画して消去範囲を可視化
+    const drawEraserCursor = (p: Point) => {
+      const ac = getActiveCtxRef.current();
+      if (!ac || !activeCv) return;
+      ac.clearRect(0, 0, activeCv.width, activeCv.height);
+      ac.beginPath();
+      ac.arc(p.x, p.y, ERASER_WIDTH, 0, Math.PI * 2);
+      ac.fillStyle = '#ffffff80';
+      ac.fill();
+      ac.strokeStyle = '#666';
+      ac.lineWidth = 1.5;
+      ac.stroke();
+    };
+
     const onDown = (e: PointerEvent) => {
       const isTouch = e.pointerType === 'touch';
       const p = getPos(e);
@@ -845,6 +859,7 @@ export default function JudgeSheet({
         drawing.current = true;
         cur.current = { points: [p], color: '', width: 0 }; // ダミー（finishStroke 用）
         eraseAt(p);
+        drawEraserCursor(p);
         return;
       }
 
@@ -882,6 +897,7 @@ export default function JudgeSheet({
       if (eraserMode.current) {
         const p = getPos(e);
         eraseAt(p);
+        drawEraserCursor(p);
         return;
       }
 
@@ -972,15 +988,15 @@ export default function JudgeSheet({
       }
     };
 
-    // 2本指ダブルタップでundo
+    // 2本指ダブルタップで redo
     let lastTwoFingerTap = 0;
     const onTouchStart = (e: TouchEvent) => {
       e.preventDefault();
       if (e.touches.length === 2) {
         const now = Date.now();
         if (now - lastTwoFingerTap < 500) {
-          // ダブルタップ検出 → undo
-          undoRef.current();
+          // ダブルタップ検出 → redo
+          redoRef.current();
           lastTwoFingerTap = 0;
         } else {
           lastTwoFingerTap = now;
@@ -1055,6 +1071,8 @@ export default function JudgeSheet({
     saveRef.current();
     setTick(t => t + 1);
   };
+  const redoRef = useRef(redo);
+  redoRef.current = redo;
   const clear = () => {
     cancelDrawing();
     if (strokes.current.length > 0 || horizontalLines.current.length > 0) {
