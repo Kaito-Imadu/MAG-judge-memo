@@ -986,15 +986,15 @@ export default function JudgeSheet({
       }
     };
 
-    // 2本指ダブルタップで redo
+    // 2本指ダブルタップで undo
     let lastTwoFingerTap = 0;
     const onTouchStart = (e: TouchEvent) => {
       e.preventDefault();
       if (e.touches.length === 2) {
         const now = Date.now();
         if (now - lastTwoFingerTap < 500) {
-          // ダブルタップ検出 → redo
-          redoRef.current();
+          // ダブルタップ検出 → undo
+          undoRef.current();
           lastTwoFingerTap = 0;
         } else {
           lastTwoFingerTap = now;
