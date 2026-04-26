@@ -1,14 +1,22 @@
 import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { db } from '../db/database';
-import type { Session, MemoRecord, StrokeData } from '../db/database';
+import type { Session, MemoRecord } from '../db/database';
+import type { Apparatus } from '../types';
 import JudgeSheet from '../components/JudgeSheet';
+import { renderSheetCanvas, loadVaultImage } from '../utils/renderSheet';
 
 // サムネイル描画用定数
 const THUMB_W = 200;
 const THUMB_H = 140;
 
-function drawThumbnail(canvas: HTMLCanvasElement, strokes: StrokeData[]) {
+function drawThumbnail(
+  canvas: HTMLCanvasElement,
+  rec: MemoRecord | undefined,
+  apparatus: Apparatus,
+  eJudgeCount: number,
+  vaultImg: HTMLImageElement | null,
+) {
   const c = canvas.getContext('2d');
   if (!c) return;
   const dpr = window.devicePixelRatio || 1;
@@ -18,58 +26,54 @@ function drawThumbnail(canvas: HTMLCanvasElement, strokes: StrokeData[]) {
   c.clearRect(0, 0, THUMB_W, THUMB_H);
 
   // 背景
-  c.fillStyle = '#fafafa';
+  c.fillStyle = '#ffffff';
   c.fillRect(0, 0, THUMB_W, THUMB_H);
+
+  // フルサイズで採点シートを描画してフィット縮小
+  const srcW = rec?.canvasW ?? 1024;
+  const srcH = rec?.canvasH ?? 700;
+  const sheet = renderSheetCanvas({
+    w: srcW,
+    h: srcH,
+    apparatus,
+    eJudgeCount,
+    mode: 'competition',
+    athleteName: '',
+    strokes: rec?.strokes ?? [],
+    lines: rec?.lines,
+    vaultImg: apparatus === 'VT' ? vaultImg : null,
+  });
+
+  const scale = Math.min(THUMB_W / srcW, THUMB_H / srcH);
+  const drawW = srcW * scale;
+  const drawH = srcH * scale;
+  const offX = (THUMB_W - drawW) / 2;
+  const offY = (THUMB_H - drawH) / 2;
+  c.drawImage(sheet, offX, offY, drawW, drawH);
+
+  // 枠線
   c.strokeStyle = '#e0e0e0';
   c.lineWidth = 1;
   c.strokeRect(0, 0, THUMB_W, THUMB_H);
 
-  if (strokes.length === 0) {
-    c.fillStyle = '#ccc';
+  // 未記入の場合は半透明オーバーレイ + ラベル
+  if (!rec || rec.strokes.length === 0) {
+    c.fillStyle = '#ffffffcc';
+    c.fillRect(0, 0, THUMB_W, THUMB_H);
+    c.fillStyle = '#999';
     c.font = '12px "Noto Sans JP", sans-serif';
     c.textAlign = 'center';
     c.fillText('未記入', THUMB_W / 2, THUMB_H / 2 + 4);
-    return;
-  }
-
-  // ストロークの範囲を計算してスケーリング
-  let minX = Infinity, minY = Infinity, maxX = 0, maxY = 0;
-  for (const s of strokes) {
-    for (const p of s.points) {
-      if (p.x < minX) minX = p.x;
-      if (p.y < minY) minY = p.y;
-      if (p.x > maxX) maxX = p.x;
-      if (p.y > maxY) maxY = p.y;
-    }
-  }
-  const rangeX = maxX - minX || 1;
-  const rangeY = maxY - minY || 1;
-  const pad = 8;
-  const scaleX = (THUMB_W - pad * 2) / rangeX;
-  const scaleY = (THUMB_H - pad * 2) / rangeY;
-  const scale = Math.min(scaleX, scaleY, 0.6);
-  const offX = pad + ((THUMB_W - pad * 2) - rangeX * scale) / 2 - minX * scale;
-  const offY = pad + ((THUMB_H - pad * 2) - rangeY * scale) / 2 - minY * scale;
-
-  for (const s of strokes) {
-    if (s.points.length < 2) continue;
-    c.strokeStyle = s.color;
-    c.lineWidth = Math.max(0.5, (s.width ?? 2) * scale);
-    c.lineCap = 'round';
-    c.lineJoin = 'round';
-    c.beginPath();
-    c.moveTo(offX + s.points[0].x * scale, offY + s.points[0].y * scale);
-    for (let i = 1; i < s.points.length; i++) {
-      c.lineTo(offX + s.points[i].x * scale, offY + s.points[i].y * scale);
-    }
-    c.stroke();
   }
 }
 
 // サムネイルカード
-function ThumbCard({ page, rec, isActive, onClick }: {
+function ThumbCard({ page, rec, apparatus, eJudgeCount, vaultImg, isActive, onClick }: {
   page: number;
   rec: MemoRecord | undefined;
+  apparatus: Apparatus;
+  eJudgeCount: number;
+  vaultImg: HTMLImageElement | null;
   isActive: boolean;
   onClick: () => void;
 }) {
@@ -77,9 +81,9 @@ function ThumbCard({ page, rec, isActive, onClick }: {
 
   useEffect(() => {
     if (canvasRef.current) {
-      drawThumbnail(canvasRef.current, rec?.strokes ?? []);
+      drawThumbnail(canvasRef.current, rec, apparatus, eJudgeCount, vaultImg);
     }
-  }, [rec]);
+  }, [rec, apparatus, eJudgeCount, vaultImg]);
 
   return (
     <button onClick={onClick}
@@ -114,6 +118,7 @@ export default function CompetitionPage() {
   const [totalPages, setTotalPages] = useState(1);
   const [showPageList, setShowPageList] = useState(false);
   const [pageRecords, setPageRecords] = useState<MemoRecord[]>([]);
+  const [vaultImg, setVaultImg] = useState<HTMLImageElement | null>(null);
 
   useEffect(() => {
     if (!sessionId) return;
@@ -130,6 +135,11 @@ export default function CompetitionPage() {
       const total = Math.max(1, maxPage);
       setTotalPages(total);
       setCurrentPage(total);
+      // VT 種目なら跳馬画像をプリロード（サムネイル背景用）
+      if (s?.apparatus === 'VT') {
+        const img = await loadVaultImage();
+        if (!cancelled) setVaultImg(img);
+      }
     })();
     return () => { cancelled = true; };
   }, [sessionId]);
@@ -242,6 +252,9 @@ export default function CompetitionPage() {
                       key={page}
                       page={page}
                       rec={rec}
+                      apparatus={session.apparatus!}
+                      eJudgeCount={session.eJudgeCount}
+                      vaultImg={vaultImg}
                       isActive={page === currentPage}
                       onClick={() => jumpToPage(page)}
                     />
