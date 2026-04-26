@@ -780,10 +780,8 @@ export default function JudgeSheet({
       ac.clearRect(0, 0, activeCv.width, activeCv.height);
       ac.beginPath();
       ac.arc(p.x, p.y, ERASER_WIDTH, 0, Math.PI * 2);
-      ac.fillStyle = '#ffffff80';
-      ac.fill();
-      ac.strokeStyle = '#666';
-      ac.lineWidth = 1.5;
+      ac.strokeStyle = '#000000';
+      ac.lineWidth = 2;
       ac.stroke();
     };
 
