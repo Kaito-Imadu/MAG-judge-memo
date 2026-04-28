@@ -718,8 +718,17 @@ export default function JudgeSheet({
       });
     };
 
+    // FIX: iPad PWA でポインターが「迷子」になるのを防ぐため、保持中の pointer capture を確実に解放する
+    const releaseCapture = (id: number | null) => {
+      if (id == null) return;
+      try {
+        if (activeCv.hasPointerCapture(id)) activeCv.releasePointerCapture(id);
+      } catch { /* ignore */ }
+    };
+
     const finishStroke = () => {
       if (!drawing.current || !cur.current) return;
+      releaseCapture(activePointerId.current);
       drawing.current = false;
       activePointerId.current = null;
       clearHold();
@@ -800,6 +809,7 @@ export default function JudgeSheet({
             e.preventDefault();
             if (drawing.current) finishStroke();
             activePointerId.current = e.pointerId;
+            try { activeCv.setPointerCapture(e.pointerId); } catch { /* ignore */ }
             draggingLineIdx.current = i;
             draggingHandle.current = 'left';
             drawing.current = true;
@@ -812,6 +822,7 @@ export default function JudgeSheet({
             e.preventDefault();
             if (drawing.current) finishStroke();
             activePointerId.current = e.pointerId;
+            try { activeCv.setPointerCapture(e.pointerId); } catch { /* ignore */ }
             draggingLineIdx.current = i;
             draggingHandle.current = 'right';
             drawing.current = true;
@@ -826,31 +837,8 @@ export default function JudgeSheet({
       e.preventDefault();
       if (drawing.current) finishStroke();
       activePointerId.current = e.pointerId;
-
-      // 横線ハンドル判定（消しゴムモードでなく、横線が存在する場合）
-      if (!eraserMode.current && horizontalLines.current.length > 0) {
-        for (let i = 0; i < horizontalLines.current.length; i++) {
-          const hl = horizontalLines.current[i];
-          // 左ハンドル（移動）
-          const dxL = p.x - HLINE_LEFT_MARGIN;
-          const dyL = p.y - hl.y;
-          if (Math.hypot(dxL, dyL) < HLINE_HANDLE_HIT) {
-            draggingLineIdx.current = i;
-            draggingHandle.current = 'left';
-            drawing.current = true;
-            return;
-          }
-          // 右ハンドル（長さ変更）
-          const dxR = p.x - hl.right;
-          const dyR = p.y - hl.y;
-          if (Math.hypot(dxR, dyR) < HLINE_HANDLE_HIT) {
-            draggingLineIdx.current = i;
-            draggingHandle.current = 'right';
-            drawing.current = true;
-            return;
-          }
-        }
-      }
+      // FIX: iPad PWA で Apple Pencil のポインターを途中で見失わないよう capture
+      try { activeCv.setPointerCapture(e.pointerId); } catch { /* ignore */ }
 
       // 消しゴムモード
       if (eraserMode.current) {
@@ -950,6 +938,7 @@ export default function JudgeSheet({
 
       // 横線ハンドルドラッグ完了
       if (draggingLineIdx.current !== null) {
+        releaseCapture(activePointerId.current);
         draggingLineIdx.current = null;
         draggingHandle.current = null;
         drawing.current = false;
@@ -968,13 +957,16 @@ export default function JudgeSheet({
     };
 
     // FIX: pointerleave は iPad Safari で誤発火することがあるため、
-    // 実際に Canvas 外に出た場合のみ finishStroke する
+    // 実際に Canvas 外に出た場合のみ finishStroke する。
+    // また、setPointerCapture 中は leave しても引き続き events が届くのでスキップする。
     const onLeave = (e: PointerEvent) => {
       if (e.pointerId !== activePointerId.current) return;
+      try { if (activeCv.hasPointerCapture(e.pointerId)) return; } catch { /* ignore */ }
       const rect = activeCv.getBoundingClientRect();
       if (e.clientX < rect.left || e.clientX > rect.right ||
           e.clientY < rect.top || e.clientY > rect.bottom) {
         if (draggingLineIdx.current !== null) {
+          releaseCapture(activePointerId.current);
           draggingLineIdx.current = null;
           draggingHandle.current = null;
           drawing.current = false;
@@ -1003,6 +995,27 @@ export default function JudgeSheet({
     };
     const onTouchMove = (e: TouchEvent) => { e.preventDefault(); };
 
+    // FIX: iPad PWA がバックグラウンド復帰したとき、描画中ステートが残ったまま戻ると
+    // 以降の Apple Pencil 入力が無反応になる。可視性/フォーカスを失った時点で強制リセット。
+    const resetStuckState = () => {
+      releaseCapture(activePointerId.current);
+      clearHold();
+      if (rafId !== null) { cancelAnimationFrame(rafId); rafId = null; }
+      drawing.current = false;
+      activePointerId.current = null;
+      cur.current = null;
+      straight.current = false;
+      straightDirty = false;
+      startPt.current = null;
+      curDrawnIndex.current = 0;
+      draggingLineIdx.current = null;
+      draggingHandle.current = null;
+      clearActiveRef.current();
+    };
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') resetStuckState();
+    };
+
     activeCv.addEventListener('touchstart', onTouchStart, { passive: false });
     activeCv.addEventListener('touchmove', onTouchMove, { passive: false });
     activeCv.addEventListener('pointerdown', onDown, { passive: false });
@@ -1010,6 +1023,8 @@ export default function JudgeSheet({
     activeCv.addEventListener('pointerup', onUp);
     activeCv.addEventListener('pointerleave', onLeave);
     activeCv.addEventListener('pointercancel', onUp);
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    window.addEventListener('blur', resetStuckState);
 
     return () => {
       activeCv.removeEventListener('touchstart', onTouchStart);
@@ -1019,6 +1034,8 @@ export default function JudgeSheet({
       activeCv.removeEventListener('pointerup', onUp);
       activeCv.removeEventListener('pointerleave', onLeave);
       activeCv.removeEventListener('pointercancel', onUp);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+      window.removeEventListener('blur', resetStuckState);
       if (rafId !== null) cancelAnimationFrame(rafId);
     };
   }, []); // 依存配列空: ref 経由で最新関数を参照するため再登録不要
@@ -1026,6 +1043,11 @@ export default function JudgeSheet({
   // === UI Actions ===
   // 描画中の状態をリセットしてからUI操作を実行（iPad でボタンタップ時の競合防止）
   const cancelDrawing = () => {
+    const cv = activeCanvasRef.current;
+    const id = activePointerId.current;
+    if (cv && id != null) {
+      try { if (cv.hasPointerCapture(id)) cv.releasePointerCapture(id); } catch { /* ignore */ }
+    }
     drawing.current = false;
     activePointerId.current = null;
     cur.current = null;
