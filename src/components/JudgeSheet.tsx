@@ -232,6 +232,55 @@ function drawIncrementalSmooth(
   }
 }
 
+// ---------- 診断ログ（Apple Pencil 無反応事象の調査用） ----------
+interface PtrLogEntry {
+  t: number;             // performance.now() (ms)
+  ev: string;            // 'down' | 'move' | 'up' | 'pointercancel' | 'leave' | 'finish' | 'reset:visibility' | 'reset:blur' | 'force-reset' | 'auto-recover' | 'mismatch'
+  pt?: string;           // pointerType
+  pid?: number;
+  x?: number;
+  y?: number;
+  pr?: number;           // pressure
+  d?: boolean;           // drawing.current
+  a?: number | null;     // activePointerId.current
+  cap?: boolean;         // hasPointerCapture
+  note?: string;
+}
+const PTR_LOG_MAX = 800;
+const ptrLog: PtrLogEntry[] = [];
+function logPtr(entry: Omit<PtrLogEntry, 't'>) {
+  ptrLog.push({ t: Math.round(performance.now()), ...entry });
+  if (ptrLog.length > PTR_LOG_MAX) ptrLog.shift();
+}
+function formatPtrLog(): string {
+  const standalone = window.matchMedia('(display-mode: standalone)').matches;
+  const header = [
+    `=== Pointer Diagnostic Log ===`,
+    `UA: ${navigator.userAgent}`,
+    `Viewport: ${window.innerWidth}x${window.innerHeight} dpr=${window.devicePixelRatio}`,
+    `Standalone(PWA): ${standalone}`,
+    `Time: ${new Date().toISOString()}`,
+    `Entries: ${ptrLog.length}`,
+    `---`,
+  ].join('\n');
+  const t0 = ptrLog[0]?.t ?? 0;
+  const lines = ptrLog.map(e => {
+    const parts: string[] = [`[${((e.t - t0) / 1000).toFixed(2)}s]`, e.ev];
+    if (e.pt) parts.push(e.pt);
+    if (e.pid !== undefined) parts.push(`pid=${e.pid}`);
+    if (e.x !== undefined && e.y !== undefined) parts.push(`@${e.x.toFixed(0)},${e.y.toFixed(0)}`);
+    if (e.pr !== undefined) parts.push(`pr=${e.pr.toFixed(2)}`);
+    parts.push(`| d=${e.d}`, `a=${e.a}`);
+    if (e.cap !== undefined) parts.push(`cap=${e.cap}`);
+    if (e.note) parts.push(`(${e.note})`);
+    return parts.join(' ');
+  });
+  return header + '\n' + lines.join('\n');
+}
+
+// ポインター入力の最終時刻（自動復旧の判定用）
+const STALE_POINTER_MS = 3000;
+
 export default function JudgeSheet({
   apparatus,
   judgeMode,
@@ -278,6 +327,8 @@ export default function JudgeSheet({
   const prevPageNumber = useRef(pageNumber);
   const navigate = useNavigate();
   const [tick, setTick] = useState(0);
+  // 復旧ボタンから呼ぶための ref（useEffect 内で実体をセット）
+  const resetStuckStateRef = useRef<() => void>(() => {});
 
   const ndItems = getNDChecklist(apparatus);
   const hasND = ndItems.length > 0;
@@ -674,6 +725,12 @@ export default function JudgeSheet({
 
     let rafId: number | null = null;
     let straightDirty = false;
+    let lastPtrEventTime = 0;   // 最終 pointer event 時刻 (自動復旧の判定用)
+    let moveLogCounter = 0;     // move ログ間引き用
+
+    const safeHasCapture = (id: number): boolean => {
+      try { return activeCv.hasPointerCapture(id); } catch { return false; }
+    };
 
     const getPos = (e: PointerEvent): Point => {
       const r = activeCv.getBoundingClientRect();
@@ -728,6 +785,7 @@ export default function JudgeSheet({
 
     const finishStroke = () => {
       if (!drawing.current || !cur.current) return;
+      logPtr({ ev: 'finish', d: drawing.current, a: activePointerId.current, note: `pts=${cur.current.points.length}` });
       releaseCapture(activePointerId.current);
       drawing.current = false;
       activePointerId.current = null;
@@ -795,8 +853,18 @@ export default function JudgeSheet({
     };
 
     const onDown = (e: PointerEvent) => {
+      // FIX: 自動復旧 — drawing.current が残ったまま STALE_POINTER_MS 以上 pointer event が来ていなければ、
+      // ステートが詰まっていると判断して強制リセットしてから新しい down を処理する
+      const now = performance.now();
+      if (drawing.current && lastPtrEventTime > 0 && now - lastPtrEventTime > STALE_POINTER_MS) {
+        logPtr({ ev: 'auto-recover', d: drawing.current, a: activePointerId.current, note: `gap=${Math.round(now - lastPtrEventTime)}ms` });
+        resetStuckState();
+      }
+      lastPtrEventTime = now;
+
       const isTouch = e.pointerType === 'touch';
       const p = getPos(e);
+      logPtr({ ev: 'down', pt: e.pointerType, pid: e.pointerId, x: p.x, y: p.y, pr: e.pressure, d: drawing.current, a: activePointerId.current, cap: safeHasCapture(e.pointerId) });
 
       // 横線ハンドル判定（タッチでも操作可能）
       if (!eraserMode.current && horizontalLines.current.length > 0) {
@@ -859,7 +927,17 @@ export default function JudgeSheet({
     };
 
     const onMove = (e: PointerEvent) => {
+      lastPtrEventTime = performance.now();
+      // 異常検知: drawing 中なのに pointerId が違う move が来たら記録（高シグナル）
+      if (drawing.current && activePointerId.current !== null && e.pointerId !== activePointerId.current) {
+        logPtr({ ev: 'mismatch', pt: e.pointerType, pid: e.pointerId, d: drawing.current, a: activePointerId.current });
+      }
       if (!drawing.current || e.pointerId !== activePointerId.current) return;
+      // 間引きしてmove logを残す（直近の流れを把握）
+      moveLogCounter++;
+      if (moveLogCounter % 30 === 0) {
+        logPtr({ ev: 'move', pt: e.pointerType, pid: e.pointerId, d: drawing.current, a: activePointerId.current, cap: safeHasCapture(e.pointerId) });
+      }
       e.preventDefault();
 
       // 横線ハンドルドラッグ中
@@ -934,6 +1012,8 @@ export default function JudgeSheet({
     };
 
     const onUp = (e: PointerEvent) => {
+      lastPtrEventTime = performance.now();
+      logPtr({ ev: e.type, pt: e.pointerType, pid: e.pointerId, d: drawing.current, a: activePointerId.current, cap: safeHasCapture(e.pointerId) });
       if (e.pointerId !== activePointerId.current) return;
 
       // 横線ハンドルドラッグ完了
@@ -960,8 +1040,10 @@ export default function JudgeSheet({
     // 実際に Canvas 外に出た場合のみ finishStroke する。
     // また、setPointerCapture 中は leave しても引き続き events が届くのでスキップする。
     const onLeave = (e: PointerEvent) => {
+      lastPtrEventTime = performance.now();
       if (e.pointerId !== activePointerId.current) return;
-      try { if (activeCv.hasPointerCapture(e.pointerId)) return; } catch { /* ignore */ }
+      logPtr({ ev: 'leave', pt: e.pointerType, pid: e.pointerId, d: drawing.current, a: activePointerId.current, cap: safeHasCapture(e.pointerId) });
+      if (safeHasCapture(e.pointerId)) return;
       const rect = activeCv.getBoundingClientRect();
       if (e.clientX < rect.left || e.clientX > rect.right ||
           e.clientY < rect.top || e.clientY > rect.bottom) {
@@ -1012,8 +1094,19 @@ export default function JudgeSheet({
       draggingHandle.current = null;
       clearActiveRef.current();
     };
+    // 復旧ボタンから呼べるように ref に公開
+    resetStuckStateRef.current = resetStuckState;
     const onVisibilityChange = () => {
-      if (document.visibilityState === 'hidden') resetStuckState();
+      if (document.visibilityState === 'hidden') {
+        logPtr({ ev: 'visibility:hidden', d: drawing.current, a: activePointerId.current });
+        resetStuckState();
+      } else {
+        logPtr({ ev: 'visibility:visible' });
+      }
+    };
+    const onBlurEvent = () => {
+      logPtr({ ev: 'blur', d: drawing.current, a: activePointerId.current });
+      resetStuckState();
     };
 
     activeCv.addEventListener('touchstart', onTouchStart, { passive: false });
@@ -1024,7 +1117,7 @@ export default function JudgeSheet({
     activeCv.addEventListener('pointerleave', onLeave);
     activeCv.addEventListener('pointercancel', onUp);
     document.addEventListener('visibilitychange', onVisibilityChange);
-    window.addEventListener('blur', resetStuckState);
+    window.addEventListener('blur', onBlurEvent);
 
     return () => {
       activeCv.removeEventListener('touchstart', onTouchStart);
@@ -1035,7 +1128,7 @@ export default function JudgeSheet({
       activeCv.removeEventListener('pointerleave', onLeave);
       activeCv.removeEventListener('pointercancel', onUp);
       document.removeEventListener('visibilitychange', onVisibilityChange);
-      window.removeEventListener('blur', resetStuckState);
+      window.removeEventListener('blur', onBlurEvent);
       if (rafId !== null) cancelAnimationFrame(rafId);
     };
   }, []); // 依存配列空: ref 経由で最新関数を参照するため再登録不要
@@ -1111,6 +1204,25 @@ export default function JudgeSheet({
   const pickColor = (c: string) => { colorRef.current = c; eraserMode.current = false; setTick(t => t + 1); };
   const toggleEraser = () => { eraserMode.current = !eraserMode.current; setTick(t => t + 1); };
   const setLineWidth = (w: number) => { lineWidthRef.current = w; setTick(t => t + 1); };
+
+  // 復旧: 詰まったポインター/描画ステートを全部初期化（Apple Pencil 無反応時の救済策）
+  const forceReset = () => {
+    logPtr({ ev: 'force-reset', d: drawing.current, a: activePointerId.current, note: 'manual' });
+    resetStuckStateRef.current();
+    setTick(t => t + 1);
+  };
+
+  // 診断ログをクリップボードにコピー
+  const dumpDiagnostic = async () => {
+    const text = formatPtrLog();
+    try {
+      await navigator.clipboard.writeText(text);
+      alert(`診断ログをコピーしました（${ptrLog.length}件）`);
+    } catch {
+      // クリップボード API が使えない環境のフォールバック
+      window.prompt('診断ログをコピー（手動で全選択→コピー）', text);
+    }
+  };
 
   // 横線追加
   const addHorizontalLine = () => {
@@ -1243,6 +1355,36 @@ export default function JudgeSheet({
           className="px-2 py-1.5 rounded-lg text-xs text-danger font-bold min-h-[40px]
                      hover:bg-red-50 dark:hover:bg-red-900/20 active:bg-red-100">
           全消去
+        </button>
+
+        <div className="w-px h-6 bg-gray-300" />
+
+        {/* 復旧ボタン: ペンが反応しなくなった時の救済 */}
+        <button onClick={forceReset}
+          title="Apple Pencil が反応しない時に押すと描画ステートを初期化します"
+          className="flex items-center gap-1 px-2 py-1.5 rounded-lg text-xs font-bold min-h-[40px]
+                     bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300
+                     hover:bg-amber-200 dark:hover:bg-amber-900/50 active:bg-amber-300">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M3 12a9 9 0 0 1 14.85-6.71L21 8" />
+            <path d="M21 3v5h-5" />
+            <path d="M21 12a9 9 0 0 1-14.85 6.71L3 16" />
+            <path d="M3 21v-5h5" />
+          </svg>
+          復旧
+        </button>
+
+        {/* 診断ログコピー: 不具合の原因調査用 */}
+        <button onClick={dumpDiagnostic}
+          title="直近のポインターイベント診断ログをクリップボードにコピー"
+          className="px-2 py-1.5 rounded-lg text-xs min-h-[40px]
+                     bg-white dark:bg-gray-700 text-gray-500 dark:text-gray-400
+                     hover:bg-gray-200 dark:hover:bg-gray-600">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <rect x="9" y="2" width="6" height="4" rx="1" />
+            <path d="M9 4H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2h-3" />
+            <path d="M9 14l2 2 4-4" />
+          </svg>
         </button>
 
         {/* 横線（VT以外） */}
