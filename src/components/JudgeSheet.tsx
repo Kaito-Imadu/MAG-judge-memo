@@ -1115,8 +1115,6 @@ export default function JudgeSheet({
   // 横線追加
   const addHorizontalLine = () => {
     const { w, h } = sizeRef.current;
-    const ndW = hasND ? Math.floor(w * ND_WIDTH_RATIO) : 0;
-    const mainW = w - ndW;
     const scoreRowTop = h - SCORE_ROW_H;
     const drawTop = LABEL_H;
     const drawBottom = scoreRowTop;
@@ -1130,7 +1128,9 @@ export default function JudgeSheet({
       newY += HLINE_OFFSET_Y;
       if (newY > drawBottom - 20) newY = drawTop + 20;
     }
-    horizontalLines.current.push({ y: newY, right: mainW - 10 });
+    // 全種目で ゆか/つり輪 と同じデフォルト長（mainW = w * (1 - ND_WIDTH_RATIO)）に揃える
+    const defaultRight = Math.floor(w * (1 - ND_WIDTH_RATIO)) - 10;
+    horizontalLines.current.push({ y: newY, right: defaultRight });
     redrawStaticRef.current();
     saveRef.current();
     setTick(t => t + 1);
