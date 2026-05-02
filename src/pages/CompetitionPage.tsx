@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { flushSync } from 'react-dom';
 import { useParams, useNavigate } from 'react-router-dom';
 import { db } from '../db/database';
 import type { Session, MemoRecord } from '../db/database';
@@ -7,8 +8,14 @@ import JudgeSheet from '../components/JudgeSheet';
 import { renderSheetCanvas, loadVaultImage } from '../utils/renderSheet';
 
 // サムネイル描画用定数（内部解像度。表示は列幅にフィット）
-const THUMB_W = 400;
-const THUMB_H = 280;
+const THUMB_W = 280;
+const THUMB_H = 158;
+interface DeletedPageSnapshot {
+  page: number;
+  records: MemoRecord[];
+  shiftedRecords: MemoRecord[];
+  totalPages: number;
+}
 
 function drawThumbnail(
   canvas: HTMLCanvasElement,
@@ -68,7 +75,7 @@ function drawThumbnail(
 }
 
 // サムネイルカード
-function ThumbCard({ page, rec, apparatus, eJudgeCount, vaultImg, isActive, onClick }: {
+function ThumbCard({ page, rec, apparatus, eJudgeCount, vaultImg, isActive, onClick, onDelete }: {
   page: number;
   rec: MemoRecord | undefined;
   apparatus: Apparatus;
@@ -76,6 +83,7 @@ function ThumbCard({ page, rec, apparatus, eJudgeCount, vaultImg, isActive, onCl
   vaultImg: HTMLImageElement | null;
   isActive: boolean;
   onClick: () => void;
+  onDelete: () => void;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
@@ -86,27 +94,33 @@ function ThumbCard({ page, rec, apparatus, eJudgeCount, vaultImg, isActive, onCl
   }, [rec, apparatus, eJudgeCount, vaultImg]);
 
   return (
-    <button onClick={onClick}
-      className={`flex flex-col items-center gap-1 p-2 rounded-lg border-2 transition-all
-                  active:scale-95 ${
+    <div
+      className={`flex flex-col items-center gap-0.5 p-1 rounded-lg border-2 transition-all
+                  ${
         isActive
           ? 'border-accent bg-accent/5 shadow-md'
           : 'border-gray-200 dark:border-gray-700 hover:border-accent/50 hover:shadow'
       }`}>
-      <canvas ref={canvasRef}
-        style={{ width: '100%', aspectRatio: `${THUMB_W} / ${THUMB_H}`, maxWidth: THUMB_W }}
-        className="rounded" />
-      <div className="flex items-center gap-2 w-full px-1">
-        <span className={`text-sm font-bold ${isActive ? 'text-accent' : 'text-gray-500'}`}>
+      <button onClick={onClick} className="w-full active:scale-95">
+        <canvas ref={canvasRef}
+          style={{ width: '100%', aspectRatio: `${THUMB_W} / ${THUMB_H}`, maxWidth: THUMB_W }}
+          className="rounded" />
+      </button>
+      <div className="flex items-center gap-1 w-full px-1">
+        <button onClick={onClick} className={`text-xs font-bold ${isActive ? 'text-accent' : 'text-gray-500'}`}>
           #{page}
-        </span>
+        </button>
         {rec && rec.strokes.length > 0 ? (
-          <span className="text-success text-[10px] font-bold ml-auto">記入済</span>
+          <span className="text-success text-[10px] font-bold ml-auto">済</span>
         ) : (
           <span className="text-gray-400 text-[10px] ml-auto">未記入</span>
         )}
+        <button onClick={onDelete}
+          className="text-danger text-[10px] font-bold px-2 py-1 rounded hover:bg-red-50 dark:hover:bg-red-900/20">
+          削除
+        </button>
       </div>
-    </button>
+    </div>
   );
 }
 
@@ -119,6 +133,7 @@ export default function CompetitionPage() {
   const [showPageList, setShowPageList] = useState(false);
   const [pageRecords, setPageRecords] = useState<MemoRecord[]>([]);
   const [vaultImg, setVaultImg] = useState<HTMLImageElement | null>(null);
+  const [deletedPage, setDeletedPage] = useState<DeletedPageSnapshot | null>(null);
 
   useEffect(() => {
     if (!sessionId) return;
@@ -157,6 +172,75 @@ export default function CompetitionPage() {
   const jumpToPage = (page: number) => {
     setCurrentPage(page);
     setShowPageList(false);
+  };
+
+  const deletePage = async (page: number) => {
+    if (!sessionId) return;
+    if (totalPages <= 1) return;
+    const ok = window.confirm(`#${page} を削除しますか？このページのメモも削除されます。`);
+    if (!ok) return;
+
+    const targetRecords = await db.memoRecords
+      .where('id').equals(`comp:${sessionId}:${page}`)
+      .toArray();
+    const shiftedRecords = await db.memoRecords
+      .where('sessionId').equals(sessionId)
+      .filter(r => r.pageNumber > page)
+      .toArray();
+    setDeletedPage({
+      page,
+      records: targetRecords,
+      shiftedRecords,
+      totalPages,
+    });
+
+    if (page <= currentPage) {
+      const interimPage = page < totalPages ? page + 1 : page - 1;
+      flushSync(() => setCurrentPage(interimPage));
+    }
+
+    await db.transaction('rw', db.memoRecords, async () => {
+      await db.memoRecords.where('id').equals(`comp:${sessionId}:${page}`).delete();
+      for (const rec of shiftedRecords) {
+        const newPage = rec.pageNumber - 1;
+        await db.memoRecords.delete(rec.id);
+        await db.memoRecords.put({
+          ...rec,
+          id: `comp:${sessionId}:${newPage}`,
+          pageNumber: newPage,
+          updatedAt: new Date(),
+        });
+      }
+    });
+
+    const nextTotal = Math.max(1, totalPages - 1);
+    const recs = await db.memoRecords.where('sessionId').equals(sessionId).toArray();
+    recs.sort((a, b) => a.pageNumber - b.pageNumber);
+    setPageRecords(recs);
+    setTotalPages(nextTotal);
+    setCurrentPage(prev => Math.min(currentPage >= page ? Math.max(1, currentPage - 1) : prev, nextTotal));
+  };
+
+  const undoDeletePage = async () => {
+    if (!sessionId || !deletedPage) return;
+    await db.transaction('rw', db.memoRecords, async () => {
+      const shiftedDesc = [...deletedPage.shiftedRecords].sort((a, b) => b.pageNumber - a.pageNumber);
+      for (const original of shiftedDesc) {
+        const currentPageNo = original.pageNumber - 1;
+        const currentId = `comp:${sessionId}:${currentPageNo}`;
+        await db.memoRecords.delete(currentId);
+        await db.memoRecords.put(original);
+      }
+      for (const rec of deletedPage.records) {
+        await db.memoRecords.put(rec);
+      }
+    });
+    const recs = await db.memoRecords.where('sessionId').equals(sessionId).toArray();
+    recs.sort((a, b) => a.pageNumber - b.pageNumber);
+    setPageRecords(recs);
+    setTotalPages(deletedPage.totalPages);
+    setCurrentPage(deletedPage.page);
+    setDeletedPage(null);
   };
 
   if (!session || !session.apparatus || !sessionId) return null;
@@ -232,9 +316,16 @@ export default function CompetitionPage() {
               </h3>
               <div className="flex items-center gap-2">
                 <button onClick={addPage}
-                  className="px-4 py-1.5 min-h-[36px] rounded-lg bg-accent text-white font-bold text-sm">
+                  className="px-3 py-1.5 min-h-[36px] rounded-lg bg-accent text-white font-bold text-sm">
                   + 次の選手を追加
                 </button>
+                {deletedPage && (
+                  <button onClick={undoDeletePage}
+                    className="px-4 py-1.5 min-h-[36px] rounded-lg bg-amber-100 text-amber-700 font-bold text-sm
+                               dark:bg-amber-900/30 dark:text-amber-300">
+                    削除を取り消し
+                  </button>
+                )}
                 <button onClick={() => setShowPageList(false)}
                   className="text-gray-400 hover:text-gray-600 text-xl min-w-[44px] min-h-[44px] flex items-center justify-center">
                   ×
@@ -242,8 +333,9 @@ export default function CompetitionPage() {
               </div>
             </div>
 
-            <div className="flex-1 overflow-y-auto p-4">
-              <div className="grid grid-cols-2 gap-3">
+            <div className="flex-1 overflow-y-auto p-3">
+              <div className="grid gap-2"
+                style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${THUMB_W + 12}px, 1fr))` }}>
                 {Array.from({ length: totalPages }, (_, i) => i + 1).map(page => {
                   const rec = pageRecords.find(r => r.pageNumber === page);
                   return (
@@ -256,6 +348,7 @@ export default function CompetitionPage() {
                       vaultImg={vaultImg}
                       isActive={page === currentPage}
                       onClick={() => jumpToPage(page)}
+                      onDelete={() => deletePage(page)}
                     />
                   );
                 })}

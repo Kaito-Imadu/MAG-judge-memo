@@ -34,6 +34,9 @@ const LINE_WIDTH = 2;
 const ERASER_WIDTH = 28;
 const STRAIGHT_DELAY = 1500;
 const STRAIGHT_THRESHOLD = 4;
+const PEN_DOUBLE_TAP_MS = 350;
+const PEN_TAP_MAX_MS = 250;
+const PEN_TAP_MAX_MOVE = 10;
 const SCRUB_DIRS_NEEDED = 6;          // 方向転換の必要回数（厳格化）
 const SCRUB_MIN_SWING = 20;           // ピーク/トラフからの反転量(px) — 12→20 に引き上げ
 const SCRUB_PERP_MAX_RANGE = 50;      // 副軸（スクラブ方向と直交）の最大レンジ — 細長い線を除外
@@ -254,32 +257,6 @@ function logPtr(entry: Omit<PtrLogEntry, 't'>) {
   ptrLog.push({ t: Math.round(performance.now()), ...entry });
   if (ptrLog.length > PTR_LOG_MAX) ptrLog.shift();
 }
-function formatPtrLog(): string {
-  const standalone = window.matchMedia('(display-mode: standalone)').matches;
-  const header = [
-    `=== Pointer Diagnostic Log ===`,
-    `UA: ${navigator.userAgent}`,
-    `Viewport: ${window.innerWidth}x${window.innerHeight} dpr=${window.devicePixelRatio}`,
-    `Standalone(PWA): ${standalone}`,
-    `Time: ${new Date().toISOString()}`,
-    `Entries: ${ptrLog.length}`,
-    `---`,
-  ].join('\n');
-  const t0 = ptrLog[0]?.t ?? 0;
-  const lines = ptrLog.map(e => {
-    const parts: string[] = [`[${((e.t - t0) / 1000).toFixed(2)}s]`, e.ev];
-    if (e.pt) parts.push(e.pt);
-    if (e.pid !== undefined) parts.push(`pid=${e.pid}`);
-    if (e.x !== undefined && e.y !== undefined) parts.push(`@${e.x.toFixed(0)},${e.y.toFixed(0)}`);
-    if (e.pr !== undefined) parts.push(`pr=${e.pr.toFixed(2)}`);
-    parts.push(`| d=${e.d}`, `a=${e.a}`);
-    if (e.cap !== undefined) parts.push(`cap=${e.cap}`);
-    if (e.note) parts.push(`(${e.note})`);
-    return parts.join(' ');
-  });
-  return header + '\n' + lines.join('\n');
-}
-
 // ポインター入力の最終時刻（自動復旧の判定用）
 const STALE_POINTER_MS = 3000;
 
@@ -737,6 +714,8 @@ export default function JudgeSheet({
     let straightDirty = false;
     let lastPtrEventTime = 0;   // 最終 pointer event 時刻 (自動復旧の判定用)
     let moveLogCounter = 0;     // move ログ間引き用
+    let penDownTime = 0;
+    let lastPenTapTime = 0;
 
     const safeHasCapture = (id: number): boolean => {
       try { return activeCv.hasPointerCapture(id); } catch { return false; }
@@ -914,6 +893,8 @@ export default function JudgeSheet({
       activePointerId.current = e.pointerId;
       // FIX: iPad PWA で Apple Pencil のポインターを途中で見失わないよう capture
       try { activeCv.setPointerCapture(e.pointerId); } catch { /* ignore */ }
+      if (e.pointerType === 'pen') penDownTime = now;
+      startPt.current = p;
 
       // 消しゴムモード
       if (eraserMode.current) {
@@ -928,7 +909,6 @@ export default function JudgeSheet({
       straight.current = false;
       straightDirty = false;
       curDrawnIndex.current = 0;
-      startPt.current = p;
       cur.current = { points: [p], color: colorRef.current, width: lineWidthRef.current };
       startHold(p);
     };
@@ -1035,7 +1015,23 @@ export default function JudgeSheet({
       }
 
       const wasEraser = eraserMode.current;
+      const endedTap = e.pointerType === 'pen' &&
+        cur.current &&
+        startPt.current &&
+        performance.now() - penDownTime <= PEN_TAP_MAX_MS &&
+        Math.hypot(getPos(e).x - startPt.current.x, getPos(e).y - startPt.current.y) <= PEN_TAP_MAX_MOVE &&
+        cur.current.points.length <= 2;
       finishStroke();
+      if (endedTap) {
+        const now = performance.now();
+        if (now - lastPenTapTime <= PEN_DOUBLE_TAP_MS) {
+          eraserMode.current = !wasEraser;
+          lastPenTapTime = 0;
+          setTick(t => t + 1);
+          return;
+        }
+        lastPenTapTime = now;
+      }
       // 消しゴム使用後は自動でペンに戻る
       if (wasEraser) {
         eraserMode.current = false;
@@ -1239,25 +1235,6 @@ export default function JudgeSheet({
     });
   };
 
-  // 復旧: 詰まったポインター/描画ステートを全部初期化（Apple Pencil 無反応時の救済策）
-  const forceReset = () => {
-    logPtr({ ev: 'force-reset', d: drawing.current, a: activePointerId.current, note: 'manual' });
-    resetStuckStateRef.current();
-    setTick(t => t + 1);
-  };
-
-  // 診断ログをクリップボードにコピー
-  const dumpDiagnostic = async () => {
-    const text = formatPtrLog();
-    try {
-      await navigator.clipboard.writeText(text);
-      alert(`診断ログをコピーしました（${ptrLog.length}件）`);
-    } catch {
-      // クリップボード API が使えない環境のフォールバック
-      window.prompt('診断ログをコピー（手動で全選択→コピー）', text);
-    }
-  };
-
   // 横線追加
   const addHorizontalLine = () => {
     const { w, h } = sizeRef.current;
@@ -1335,7 +1312,7 @@ export default function JudgeSheet({
           (Apple Pencil 切断で drawing 状態が残ったまま toolbar が無反応化する事象への対策) */}
       <div className={`flex items-center gap-2 px-2 py-2 bg-gray-100 dark:bg-gray-800 shrink-0 whitespace-nowrap overflow-x-auto relative z-10 ${
              toolbarPosition === 'top'
-               ? 'pt-[max(env(safe-area-inset-top),18px)]'
+               ? ''
                : 'pb-[max(env(safe-area-inset-bottom),8px)] border-t border-gray-200 dark:border-gray-700'
            }`}
            style={{ touchAction: 'manipulation', isolation: 'isolate', order: toolbarPosition === 'top' ? 0 : 2 }}
@@ -1416,34 +1393,6 @@ export default function JudgeSheet({
         </button>
 
         <div className="w-px h-6 bg-gray-300" />
-
-        {/* 復旧ボタン: ペンが反応しなくなった時の救済 */}
-        <button onClick={forceReset}
-          title="Apple Pencil が反応しない時に押すと描画ステートを初期化します"
-          className="flex items-center gap-1 px-2 py-1.5 rounded-lg text-xs font-bold min-h-[44px]
-                     bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300
-                     hover:bg-amber-200 dark:hover:bg-amber-900/50 active:bg-amber-300">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M3 12a9 9 0 0 1 14.85-6.71L21 8" />
-            <path d="M21 3v5h-5" />
-            <path d="M21 12a9 9 0 0 1-14.85 6.71L3 16" />
-            <path d="M3 21v-5h5" />
-          </svg>
-          復旧
-        </button>
-
-        {/* 診断ログコピー: 不具合の原因調査用 */}
-        <button onClick={dumpDiagnostic}
-          title="直近のポインターイベント診断ログをクリップボードにコピー"
-          className="px-2 py-1.5 rounded-lg text-xs min-h-[44px]
-                     bg-white dark:bg-gray-700 text-gray-500 dark:text-gray-400
-                     hover:bg-gray-200 dark:hover:bg-gray-600">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <rect x="9" y="2" width="6" height="4" rx="1" />
-            <path d="M9 4H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2h-3" />
-            <path d="M9 14l2 2 4-4" />
-          </svg>
-        </button>
 
         {/* 横線（VT以外） */}
         {apparatus !== 'VT' && (
