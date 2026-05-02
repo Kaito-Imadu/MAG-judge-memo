@@ -332,9 +332,7 @@ export default function JudgeSheet({
   const [toolbarPosition, setToolbarPosition] = useState<ToolbarPosition>(() => {
     const saved = localStorage.getItem(TOOLBAR_POSITION_KEY);
     if (saved === 'top' || saved === 'bottom') return saved;
-    const ua = navigator.userAgent;
-    const isIPad = /iPad/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);
-    return isIPad ? 'bottom' : 'top';
+    return 'top';
   });
   // 復旧ボタンから呼ぶための ref（useEffect 内で実体をセット）
   const resetStuckStateRef = useRef<() => void>(() => {});
