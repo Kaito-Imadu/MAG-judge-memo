@@ -235,7 +235,7 @@ function drawIncrementalSmooth(
 // ---------- 診断ログ（Apple Pencil 無反応事象の調査用） ----------
 interface PtrLogEntry {
   t: number;             // performance.now() (ms)
-  ev: string;            // 'down' | 'move' | 'up' | 'pointercancel' | 'leave' | 'finish' | 'reset:visibility' | 'reset:blur' | 'force-reset' | 'auto-recover' | 'mismatch'
+  ev: string;            // 'down' | 'move' | 'up' | 'pointercancel' | 'leave' | 'finish' | 'reset:visibility' | 'reset:blur' | 'force-reset' | 'auto-recover' | 'auto-recover-bg' | 'lostcapture' | 'mismatch'
   pt?: string;           // pointerType
   pid?: number;
   x?: number;
@@ -645,6 +645,9 @@ export default function JudgeSheet({
       preClearLinesSnapshot.current = null;
       redrawStatic();
       clearActive();
+      // FIX: 横線削除ボタンの表示条件は horizontalLines.current.length に依存するが、
+      // ref 変更だけでは再レンダーされない。読込時に setTick で表示を更新。
+      setTick(t => t + 1);
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [recordId]);
@@ -866,36 +869,33 @@ export default function JudgeSheet({
       const p = getPos(e);
       logPtr({ ev: 'down', pt: e.pointerType, pid: e.pointerId, x: p.x, y: p.y, pr: e.pressure, d: drawing.current, a: activePointerId.current, cap: safeHasCapture(e.pointerId) });
 
-      // 横線ハンドル判定（タッチでも操作可能）
-      if (!eraserMode.current && horizontalLines.current.length > 0) {
+      // 横線ハンドル判定（タッチでも操作可能、消しゴムモード時はタップで削除）
+      if (horizontalLines.current.length > 0) {
         for (let i = 0; i < horizontalLines.current.length; i++) {
           const hl = horizontalLines.current[i];
-          // 左ハンドル（移動）
-          const dxL = p.x - HLINE_LEFT_MARGIN;
-          const dyL = p.y - hl.y;
-          if (Math.hypot(dxL, dyL) < HLINE_HANDLE_HIT) {
-            e.preventDefault();
-            if (drawing.current) finishStroke();
-            activePointerId.current = e.pointerId;
-            try { activeCv.setPointerCapture(e.pointerId); } catch { /* ignore */ }
-            draggingLineIdx.current = i;
-            draggingHandle.current = 'left';
-            drawing.current = true;
+          const onLeft = Math.hypot(p.x - HLINE_LEFT_MARGIN, p.y - hl.y) < HLINE_HANDLE_HIT;
+          const onRight = Math.hypot(p.x - hl.right, p.y - hl.y) < HLINE_HANDLE_HIT;
+          if (!onLeft && !onRight) continue;
+
+          e.preventDefault();
+          if (drawing.current) finishStroke();
+
+          // 消しゴムモード: ハンドルタップでこの線を削除
+          if (eraserMode.current) {
+            horizontalLines.current.splice(i, 1);
+            redrawStaticRef.current();
+            saveRef.current();
+            setTick(t => t + 1);
             return;
           }
-          // 右ハンドル（長さ変更）
-          const dxR = p.x - hl.right;
-          const dyR = p.y - hl.y;
-          if (Math.hypot(dxR, dyR) < HLINE_HANDLE_HIT) {
-            e.preventDefault();
-            if (drawing.current) finishStroke();
-            activePointerId.current = e.pointerId;
-            try { activeCv.setPointerCapture(e.pointerId); } catch { /* ignore */ }
-            draggingLineIdx.current = i;
-            draggingHandle.current = 'right';
-            drawing.current = true;
-            return;
-          }
+
+          // 通常モード: ハンドルドラッグ開始
+          activePointerId.current = e.pointerId;
+          try { activeCv.setPointerCapture(e.pointerId); } catch { /* ignore */ }
+          draggingLineIdx.current = i;
+          draggingHandle.current = onLeft ? 'left' : 'right';
+          drawing.current = true;
+          return;
         }
       }
 
@@ -1109,6 +1109,23 @@ export default function JudgeSheet({
       resetStuckState();
     };
 
+    // FIX: pointer capture を OS 側から強制解放されたら（iPad のジェスチャ等）即リセット
+    const onLostCapture = (e: PointerEvent) => {
+      logPtr({ ev: 'lostcapture', pid: e.pointerId, d: drawing.current, a: activePointerId.current });
+      if (e.pointerId === activePointerId.current) {
+        resetStuckState();
+      }
+    };
+
+    // FIX: 定期ヘルスチェック — drawing.current が立ったまま STALE_POINTER_MS 経過したらバックグラウンドで自動復旧
+    // (これまでは次の pointerdown 時にしか復旧できず、最初の1タップが空振りしていた)
+    const healthCheckId = window.setInterval(() => {
+      if (drawing.current && lastPtrEventTime > 0 && performance.now() - lastPtrEventTime > STALE_POINTER_MS) {
+        logPtr({ ev: 'auto-recover-bg', d: drawing.current, a: activePointerId.current, note: `gap=${Math.round(performance.now() - lastPtrEventTime)}ms` });
+        resetStuckState();
+      }
+    }, 1000);
+
     activeCv.addEventListener('touchstart', onTouchStart, { passive: false });
     activeCv.addEventListener('touchmove', onTouchMove, { passive: false });
     activeCv.addEventListener('pointerdown', onDown, { passive: false });
@@ -1116,6 +1133,7 @@ export default function JudgeSheet({
     activeCv.addEventListener('pointerup', onUp);
     activeCv.addEventListener('pointerleave', onLeave);
     activeCv.addEventListener('pointercancel', onUp);
+    activeCv.addEventListener('lostpointercapture', onLostCapture);
     document.addEventListener('visibilitychange', onVisibilityChange);
     window.addEventListener('blur', onBlurEvent);
 
@@ -1127,8 +1145,10 @@ export default function JudgeSheet({
       activeCv.removeEventListener('pointerup', onUp);
       activeCv.removeEventListener('pointerleave', onLeave);
       activeCv.removeEventListener('pointercancel', onUp);
+      activeCv.removeEventListener('lostpointercapture', onLostCapture);
       document.removeEventListener('visibilitychange', onVisibilityChange);
       window.removeEventListener('blur', onBlurEvent);
+      window.clearInterval(healthCheckId);
       if (rafId !== null) cancelAnimationFrame(rafId);
     };
   }, []); // 依存配列空: ref 経由で最新関数を参照するため再登録不要
@@ -1402,6 +1422,7 @@ export default function JudgeSheet({
             </button>
             {horizontalLines.current.length > 0 && (
               <button onClick={removeLastHorizontalLine}
+                title="最後に追加した横線を削除（消しゴムモードでは線端のハンドルをタップして個別削除）"
                 className="px-2 py-1.5 rounded-lg text-xs text-gray-500 min-h-[40px]
                            hover:bg-gray-200 dark:hover:bg-gray-600">
                 横線削除

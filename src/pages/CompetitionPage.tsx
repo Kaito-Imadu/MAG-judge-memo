@@ -6,9 +6,9 @@ import type { Apparatus } from '../types';
 import JudgeSheet from '../components/JudgeSheet';
 import { renderSheetCanvas, loadVaultImage } from '../utils/renderSheet';
 
-// サムネイル描画用定数
-const THUMB_W = 200;
-const THUMB_H = 140;
+// サムネイル描画用定数（内部解像度。表示は列幅にフィット）
+const THUMB_W = 400;
+const THUMB_H = 280;
 
 function drawThumbnail(
   canvas: HTMLCanvasElement,
@@ -94,7 +94,7 @@ function ThumbCard({ page, rec, apparatus, eJudgeCount, vaultImg, isActive, onCl
           : 'border-gray-200 dark:border-gray-700 hover:border-accent/50 hover:shadow'
       }`}>
       <canvas ref={canvasRef}
-        style={{ width: THUMB_W, height: THUMB_H }}
+        style={{ width: '100%', aspectRatio: `${THUMB_W} / ${THUMB_H}`, maxWidth: THUMB_W }}
         className="rounded" />
       <div className="flex items-center gap-2 w-full px-1">
         <span className={`text-sm font-bold ${isActive ? 'text-accent' : 'text-gray-500'}`}>
