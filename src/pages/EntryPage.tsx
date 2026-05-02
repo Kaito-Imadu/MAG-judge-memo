@@ -116,7 +116,7 @@ export default function EntryPage() {
         {sessions.length > 0 && (
           <div>
             <h2 className="text-lg font-bold text-gray-700 dark:text-gray-300 mb-3">過去のセッション</h2>
-            <div className="space-y-2">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
               {sessions.map(s => (
                 <div key={s.id} className="flex items-center bg-white dark:bg-gray-800 rounded-lg shadow px-4 py-3">
                   {editingId === s.id ? (
