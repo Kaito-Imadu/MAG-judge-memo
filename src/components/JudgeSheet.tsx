@@ -1227,6 +1227,15 @@ export default function JudgeSheet({
   const pickColor = (c: string) => { colorRef.current = c; eraserMode.current = false; setTick(t => t + 1); };
   const toggleEraser = () => { eraserMode.current = !eraserMode.current; setTick(t => t + 1); };
   const setLineWidth = (w: number) => { lineWidthRef.current = w; setTick(t => t + 1); };
+
+  // 復旧ボタン: Apple Pencil 切断時等で描画ステートが詰まった場合の手動リセット
+  const [recovering, setRecovering] = useState(false);
+  const recoverNow = () => {
+    resetStuckStateRef.current();
+    redrawStaticRef.current();
+    setRecovering(true);
+    window.setTimeout(() => setRecovering(false), 700);
+  };
   const toggleToolbarPosition = () => {
     setToolbarPosition(prev => {
       const next: ToolbarPosition = prev === 'top' ? 'bottom' : 'top';
@@ -1380,6 +1389,23 @@ export default function JudgeSheet({
           className="px-2 py-1.5 rounded-lg text-xs text-danger font-bold min-h-[44px]
                      hover:bg-red-50 dark:hover:bg-red-900/20 active:bg-red-100">
           全消去
+        </button>
+
+        <div className="w-px h-6 bg-gray-300" />
+
+        {/* 復旧: Apple Pencil 切断やステート詰まりの手動リセット */}
+        <button onClick={recoverNow}
+          title="Apple Pencil が反応しなくなった時にタップ。書いた内容は消えません。"
+          className={`flex items-center gap-1 px-2 py-1.5 rounded-lg text-xs font-bold min-h-[44px] transition-all ${
+            recovering
+              ? 'bg-success text-white ring-2 ring-success/30'
+              : 'bg-white dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
+          }`}>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M21 12a9 9 0 1 1-3-6.7L21 8" />
+            <path d="M21 3v5h-5" />
+          </svg>
+          {recovering ? '復旧OK' : '復旧'}
         </button>
 
         <div className="w-px h-6 bg-gray-300" />
