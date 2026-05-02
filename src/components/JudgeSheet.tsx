@@ -235,7 +235,7 @@ function drawIncrementalSmooth(
 // ---------- 診断ログ（Apple Pencil 無反応事象の調査用） ----------
 interface PtrLogEntry {
   t: number;             // performance.now() (ms)
-  ev: string;            // 'down' | 'move' | 'up' | 'pointercancel' | 'leave' | 'finish' | 'reset:visibility' | 'reset:blur' | 'force-reset' | 'auto-recover' | 'auto-recover-bg' | 'lostcapture' | 'mismatch'
+  ev: string;            // 'down' | 'move' | 'up' | 'pointercancel' | 'leave' | 'finish' | 'reset:visibility' | 'reset:blur' | 'force-reset' | 'auto-recover' | 'auto-recover-bg' | 'lostcapture' | 'toolbar-tap-recover' | 'mismatch'
   pt?: string;           // pointerType
   pid?: number;
   x?: number;
@@ -1315,12 +1315,22 @@ export default function JudgeSheet({
 
   return (
     <div className="h-full flex flex-col overflow-hidden select-none">
-      {/* ツールバー（大きめ・タッチ操作しやすいサイズ） */}
-      <div className="flex items-center gap-1.5 px-2 py-1.5 bg-gray-100 dark:bg-gray-800 shrink-0 whitespace-nowrap overflow-x-auto">
+      {/* ツールバー（タッチ44px以上・タップ高速化） */}
+      {/* touchAction: manipulation で 300ms 遅延を抑止し、isolation で Canvas 側ポインターキャプチャから分離 */}
+      {/* onPointerDown 保険: Canvas に詰まったポインターキャプチャをツールバータップ時に強制解放
+          (Apple Pencil 切断で drawing 状態が残ったまま toolbar が無反応化する事象への対策) */}
+      <div className="flex items-center gap-2 px-2 py-2 bg-gray-100 dark:bg-gray-800 shrink-0 whitespace-nowrap overflow-x-auto relative z-10"
+           style={{ touchAction: 'manipulation', isolation: 'isolate' }}
+           onPointerDownCapture={() => {
+             if (drawing.current || activePointerId.current !== null) {
+               logPtr({ ev: 'toolbar-tap-recover', d: drawing.current, a: activePointerId.current });
+               resetStuckStateRef.current();
+             }
+           }}>
         {/* ペン色選択 */}
         {COLORS.map((c) => (
           <button key={c.value} onClick={() => pickColor(c.value)}
-            className={`w-8 h-8 rounded-full border-2 transition-transform ${
+            className={`w-11 h-11 rounded-full border-2 transition-transform shrink-0 ${
               !eraserMode.current && colorRef.current === c.value
                 ? 'border-accent scale-110 ring-2 ring-accent/30'
                 : 'border-gray-300 dark:border-gray-600'
@@ -1332,7 +1342,7 @@ export default function JudgeSheet({
 
         {/* 消しゴム */}
         <button onClick={toggleEraser}
-          className={`flex items-center gap-1 px-2 py-1.5 rounded-lg text-xs font-bold min-h-[40px] transition-all ${
+          className={`flex items-center gap-1 px-2 py-1.5 rounded-lg text-xs font-bold min-h-[44px] transition-all ${
             eraserMode.current
               ? 'bg-danger text-white shadow-md ring-2 ring-danger/30'
               : 'bg-white dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200'
@@ -1347,7 +1357,7 @@ export default function JudgeSheet({
         <div className="w-px h-6 bg-gray-300" />
 
         {/* 線の太さ */}
-        <div className="flex items-center gap-1 min-h-[40px]">
+        <div className="flex items-center gap-1 min-h-[44px]">
           <svg width="12" height="12" viewBox="0 0 20 20" className="text-gray-400 shrink-0">
             <circle cx="10" cy="10" r={Math.max(2, lineWidthRef.current * 2.5)} fill="currentColor" />
           </svg>
@@ -1363,16 +1373,16 @@ export default function JudgeSheet({
         {/* Undo/Redo/Clear */}
         <button onClick={undo}
           className="px-2 py-1.5 rounded-lg text-xs bg-white dark:bg-gray-700 text-gray-600 dark:text-gray-300
-                     hover:bg-gray-200 dark:hover:bg-gray-600 active:bg-gray-300 min-h-[40px] min-w-[40px]">
+                     hover:bg-gray-200 dark:hover:bg-gray-600 active:bg-gray-300 min-h-[44px] min-w-[44px]">
           ↩
         </button>
         <button onClick={redo}
           className="px-2 py-1.5 rounded-lg text-xs bg-white dark:bg-gray-700 text-gray-600 dark:text-gray-300
-                     hover:bg-gray-200 dark:hover:bg-gray-600 active:bg-gray-300 min-h-[40px] min-w-[40px]">
+                     hover:bg-gray-200 dark:hover:bg-gray-600 active:bg-gray-300 min-h-[44px] min-w-[44px]">
           ↪
         </button>
         <button onClick={clear}
-          className="px-2 py-1.5 rounded-lg text-xs text-danger font-bold min-h-[40px]
+          className="px-2 py-1.5 rounded-lg text-xs text-danger font-bold min-h-[44px]
                      hover:bg-red-50 dark:hover:bg-red-900/20 active:bg-red-100">
           全消去
         </button>
@@ -1382,7 +1392,7 @@ export default function JudgeSheet({
         {/* 復旧ボタン: ペンが反応しなくなった時の救済 */}
         <button onClick={forceReset}
           title="Apple Pencil が反応しない時に押すと描画ステートを初期化します"
-          className="flex items-center gap-1 px-2 py-1.5 rounded-lg text-xs font-bold min-h-[40px]
+          className="flex items-center gap-1 px-2 py-1.5 rounded-lg text-xs font-bold min-h-[44px]
                      bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300
                      hover:bg-amber-200 dark:hover:bg-amber-900/50 active:bg-amber-300">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -1397,7 +1407,7 @@ export default function JudgeSheet({
         {/* 診断ログコピー: 不具合の原因調査用 */}
         <button onClick={dumpDiagnostic}
           title="直近のポインターイベント診断ログをクリップボードにコピー"
-          className="px-2 py-1.5 rounded-lg text-xs min-h-[40px]
+          className="px-2 py-1.5 rounded-lg text-xs min-h-[44px]
                      bg-white dark:bg-gray-700 text-gray-500 dark:text-gray-400
                      hover:bg-gray-200 dark:hover:bg-gray-600">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -1412,7 +1422,7 @@ export default function JudgeSheet({
           <>
             <div className="w-px h-6 bg-gray-300" />
             <button onClick={addHorizontalLine}
-              className="flex items-center gap-1 px-2 py-1.5 rounded-lg text-xs font-bold min-h-[40px]
+              className="flex items-center gap-1 px-2 py-1.5 rounded-lg text-xs font-bold min-h-[44px]
                          bg-white dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
                 <path d="M3 12h18" />
@@ -1423,7 +1433,7 @@ export default function JudgeSheet({
             {horizontalLines.current.length > 0 && (
               <button onClick={removeLastHorizontalLine}
                 title="最後に追加した横線を削除（消しゴムモードでは線端のハンドルをタップして個別削除）"
-                className="px-2 py-1.5 rounded-lg text-xs text-gray-500 min-h-[40px]
+                className="px-2 py-1.5 rounded-lg text-xs text-gray-500 min-h-[44px]
                            hover:bg-gray-200 dark:hover:bg-gray-600">
                 横線削除
               </button>
@@ -1436,7 +1446,7 @@ export default function JudgeSheet({
           <>
             <div className="w-px h-6 bg-gray-300" />
             <button onClick={toggleVtFlip}
-              className={`flex items-center gap-1 px-2 py-1.5 rounded-lg text-xs font-bold min-h-[40px] transition-all ${
+              className={`flex items-center gap-1 px-2 py-1.5 rounded-lg text-xs font-bold min-h-[44px] transition-all ${
                 vtFlip
                   ? 'bg-accent text-white ring-2 ring-accent/30'
                   : 'bg-white dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200'
@@ -1452,7 +1462,7 @@ export default function JudgeSheet({
               反転
             </button>
             <button onClick={cycleVtScale}
-              className="flex items-center gap-1 px-2 py-1.5 rounded-lg text-xs font-bold min-h-[40px]
+              className="flex items-center gap-1 px-2 py-1.5 rounded-lg text-xs font-bold min-h-[44px]
                          bg-white dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <circle cx="11" cy="11" r="8" />
