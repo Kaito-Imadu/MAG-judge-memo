@@ -243,8 +243,7 @@ export default function CompetitionPage() {
             </div>
 
             <div className="flex-1 overflow-y-auto p-4">
-              <div className="grid gap-3"
-                style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${THUMB_W + 16}px, 1fr))` }}>
+              <div className="grid grid-cols-2 gap-3">
                 {Array.from({ length: totalPages }, (_, i) => i + 1).map(page => {
                   const rec = pageRecords.find(r => r.pageNumber === page);
                   return (
