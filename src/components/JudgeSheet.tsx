@@ -47,14 +47,11 @@ const HLINE_LEFT_MARGIN = 10;    // 左ハンドルのX座標
 const HLINE_OFFSET_Y = 40;       // 2本目以降のずらし幅
 
 interface HLine { y: number; right: number }
-type ToolbarPosition = 'top' | 'bottom';
 
 // 跳馬画像設定の永続化キー
 const VT_IMG_FLIP_KEY = 'vt-image-flip';
 const VT_IMG_SCALE_KEY = 'vt-image-scale';
 const VT_SCALE_OPTIONS = [0.5, 0.75, 1.0, 1.25, 1.5];
-const TOOLBAR_POSITION_KEY = 'judge-toolbar-position';
-
 // レイアウト定数
 const LABEL_H = 52;          // モード別ラベル領域の高さ
 const SCORE_ROW_H = 160;
@@ -303,11 +300,6 @@ export default function JudgeSheet({
   const prevPageNumber = useRef(pageNumber);
   const navigate = useNavigate();
   const [tick, setTick] = useState(0);
-  const [toolbarPosition, setToolbarPosition] = useState<ToolbarPosition>(() => {
-    const saved = localStorage.getItem(TOOLBAR_POSITION_KEY);
-    if (saved === 'top' || saved === 'bottom') return saved;
-    return 'top';
-  });
   // 復旧ボタンから呼ぶための ref（useEffect 内で実体をセット）
   const resetStuckStateRef = useRef<() => void>(() => {});
 
@@ -1233,14 +1225,6 @@ export default function JudgeSheet({
     setRecovering(true);
     window.setTimeout(() => setRecovering(false), 700);
   };
-  const toggleToolbarPosition = () => {
-    setToolbarPosition(prev => {
-      const next: ToolbarPosition = prev === 'top' ? 'bottom' : 'top';
-      localStorage.setItem(TOOLBAR_POSITION_KEY, next);
-      return next;
-    });
-  };
-
   // 横線追加
   const addHorizontalLine = () => {
     const { w, h } = sizeRef.current;
@@ -1316,12 +1300,8 @@ export default function JudgeSheet({
       {/* touchAction: manipulation で 300ms 遅延を抑止し、isolation で Canvas 側ポインターキャプチャから分離 */}
       {/* onPointerDown 保険: Canvas に詰まったポインターキャプチャをツールバータップ時に強制解放
           (Apple Pencil 切断で drawing 状態が残ったまま toolbar が無反応化する事象への対策) */}
-      <div className={`flex items-center gap-2 px-2 py-2 bg-gray-100 dark:bg-gray-800 shrink-0 whitespace-nowrap overflow-x-auto relative z-10 ${
-             toolbarPosition === 'top'
-               ? ''
-               : 'pb-[max(env(safe-area-inset-bottom),8px)] border-t border-gray-200 dark:border-gray-700'
-           }`}
-           style={{ touchAction: 'manipulation', isolation: 'isolate', order: toolbarPosition === 'top' ? 0 : 2 }}
+      <div className="flex items-center gap-2 px-2 py-2 bg-gray-100 dark:bg-gray-800 shrink-0 whitespace-nowrap overflow-x-auto relative z-10"
+           style={{ touchAction: 'manipulation', isolation: 'isolate' }}
            onPointerDownCapture={() => {
              if (drawing.current || activePointerId.current !== null) {
                logPtr({ ev: 'toolbar-tap-recover', d: drawing.current, a: activePointerId.current });
@@ -1331,7 +1311,7 @@ export default function JudgeSheet({
         {/* ペン色選択 */}
         {COLORS.map((c) => (
           <button key={c.value} onClick={() => pickColor(c.value)}
-            className={`w-11 h-11 rounded-full border-2 transition-transform shrink-0 ${
+            className={`w-8 h-8 rounded-full border-2 transition-transform shrink-0 ${
               !eraserMode.current && colorRef.current === c.value
                 ? 'border-accent scale-110 ring-2 ring-accent/30'
                 : 'border-gray-300 dark:border-gray-600'
@@ -1403,16 +1383,6 @@ export default function JudgeSheet({
             <path d="M21 3v5h-5" />
           </svg>
           {recovering ? '復旧OK' : '復旧'}
-        </button>
-
-        <div className="w-px h-6 bg-gray-300" />
-
-        {/* ツールバー位置: iPadOS の上端システムジェスチャを避ける */}
-        <button onClick={toggleToolbarPosition}
-          title="ツールバーを上部または下部へ移動します"
-          className="flex items-center gap-1 px-2 py-1.5 rounded-lg text-xs font-bold min-h-[44px]
-                     bg-white dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600">
-          {toolbarPosition === 'top' ? '下部へ' : '上部へ'}
         </button>
 
         <div className="w-px h-6 bg-gray-300" />
@@ -1494,7 +1464,7 @@ export default function JudgeSheet({
       </div>
 
       {/* 2層Canvas: Static(下) + Active(上) を絶対配置で重ねる */}
-      <div ref={wrapRef} className="flex-1 min-h-0 relative" style={{ touchAction: 'none', order: 1 }}>
+      <div ref={wrapRef} className="flex-1 min-h-0 relative" style={{ touchAction: 'none' }}>
         <canvas ref={staticCanvasRef}
           className="absolute inset-0 w-full h-full bg-white dark:bg-gray-950"
           style={{ touchAction: 'none', userSelect: 'none', pointerEvents: 'none' }} />
