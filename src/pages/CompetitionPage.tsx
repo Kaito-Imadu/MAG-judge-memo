@@ -260,16 +260,16 @@ export default function CompetitionPage() {
     <>
       <div className="w-px h-4 bg-gray-300" />
       <button onClick={goPrev} disabled={currentPage <= 1}
-        className="px-1.5 py-0.5 rounded text-xs bg-white dark:bg-gray-700 text-gray-500 disabled:opacity-30 min-h-[28px]">
+        className="px-3 py-1 rounded-lg text-base font-bold bg-white dark:bg-gray-700 text-gray-600 dark:text-gray-300 disabled:opacity-30 min-h-[44px] min-w-[44px] hover:bg-gray-200 dark:hover:bg-gray-600 active:bg-gray-300">
         ◀
       </button>
       <button onClick={openPageList}
-        className="text-xs text-gray-600 dark:text-gray-300 font-mono min-w-[40px] text-center
+        className="text-xs text-gray-600 dark:text-gray-300 font-mono min-w-[44px] text-center
                    hover:bg-gray-200 dark:hover:bg-gray-600 rounded px-1 py-0.5 min-h-[28px]">
         {currentPage} / {totalPages}
       </button>
       <button onClick={goNext} disabled={currentPage >= totalPages}
-        className="px-1.5 py-0.5 rounded text-xs bg-white dark:bg-gray-700 text-gray-500 disabled:opacity-30 min-h-[28px]">
+        className="px-3 py-1 rounded-lg text-base font-bold bg-white dark:bg-gray-700 text-gray-600 dark:text-gray-300 disabled:opacity-30 min-h-[44px] min-w-[44px] hover:bg-gray-200 dark:hover:bg-gray-600 active:bg-gray-300">
         ▶
       </button>
       <button onClick={openPageList}
