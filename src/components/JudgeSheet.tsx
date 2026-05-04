@@ -240,7 +240,7 @@ function drawIncrementalSmooth(
 // ---------- 診断ログ（Apple Pencil 無反応事象の調査用） ----------
 interface PtrLogEntry {
   t: number;             // performance.now() (ms)
-  ev: string;            // 'down' | 'move' | 'up' | 'pointercancel' | 'leave' | 'finish' | 'reset:visibility' | 'reset:blur' | 'force-reset' | 'auto-recover' | 'auto-recover-bg' | 'lostcapture' | 'toolbar-tap-recover' | 'mismatch'
+  ev: string;            // 'down' | 'move' | 'up' | 'pointercancel' | 'leave' | 'finish' | 'reset:visibility' | 'reset:blur' | 'force-reset' | 'auto-recover' | 'auto-recover-bg' | 'lostcapture' | 'toolbar-tap-recover' | 'doc-tap-recover' | 'mismatch'
   pt?: string;           // pointerType
   pid?: number;
   x?: number;
@@ -258,7 +258,7 @@ function logPtr(entry: Omit<PtrLogEntry, 't'>) {
   if (ptrLog.length > PTR_LOG_MAX) ptrLog.shift();
 }
 // ポインター入力の最終時刻（自動復旧の判定用）
-const STALE_POINTER_MS = 3000;
+const STALE_POINTER_MS = 1500;
 
 export default function JudgeSheet({
   apparatus,
@@ -1129,6 +1129,20 @@ export default function JudgeSheet({
       }
     }, 1000);
 
+    // FIX: Pencil 切断で Canvas が pointer capture を握ったまま無応答になり、
+    // 復旧ボタンや指タップすら届かなくなるケースに対応。
+    // document の capture phase で touchstart/pointerdown を傍受し、
+    // ステートが詰まっていれば真っ先にリセットしてから本来のハンドラに渡す。
+    const onAnyInputStart = () => {
+      if (drawing.current || activePointerId.current !== null) {
+        const gap = lastPtrEventTime > 0 ? performance.now() - lastPtrEventTime : Infinity;
+        if (gap > STALE_POINTER_MS) {
+          logPtr({ ev: 'doc-tap-recover', d: drawing.current, a: activePointerId.current, note: `gap=${Math.round(gap)}ms` });
+          resetStuckState();
+        }
+      }
+    };
+
     activeCv.addEventListener('touchstart', onTouchStart, { passive: false });
     activeCv.addEventListener('touchmove', onTouchMove, { passive: false });
     activeCv.addEventListener('pointerdown', onDown, { passive: false });
@@ -1139,6 +1153,9 @@ export default function JudgeSheet({
     activeCv.addEventListener('lostpointercapture', onLostCapture);
     document.addEventListener('visibilitychange', onVisibilityChange);
     window.addEventListener('blur', onBlurEvent);
+    // document レベルでも傍受（Canvas の pointer capture スコープ外で発火）
+    document.addEventListener('touchstart', onAnyInputStart, { capture: true, passive: true });
+    document.addEventListener('pointerdown', onAnyInputStart, { capture: true, passive: true });
 
     return () => {
       activeCv.removeEventListener('touchstart', onTouchStart);
@@ -1151,6 +1168,8 @@ export default function JudgeSheet({
       activeCv.removeEventListener('lostpointercapture', onLostCapture);
       document.removeEventListener('visibilitychange', onVisibilityChange);
       window.removeEventListener('blur', onBlurEvent);
+      document.removeEventListener('touchstart', onAnyInputStart, { capture: true } as EventListenerOptions);
+      document.removeEventListener('pointerdown', onAnyInputStart, { capture: true } as EventListenerOptions);
       window.clearInterval(healthCheckId);
       if (rafId !== null) cancelAnimationFrame(rafId);
     };
