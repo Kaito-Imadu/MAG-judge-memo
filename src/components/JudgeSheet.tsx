@@ -34,9 +34,6 @@ const LINE_WIDTH = 2;
 const ERASER_WIDTH = 28;
 const STRAIGHT_DELAY = 1500;
 const STRAIGHT_THRESHOLD = 4;
-const PEN_DOUBLE_TAP_MS = 350;
-const PEN_TAP_MAX_MS = 250;
-const PEN_TAP_MAX_MOVE = 10;
 const SCRUB_DIRS_NEEDED = 6;          // 方向転換の必要回数（厳格化）
 const SCRUB_MIN_SWING = 20;           // ピーク/トラフからの反転量(px) — 12→20 に引き上げ
 const SCRUB_PERP_MAX_RANGE = 50;      // 副軸（スクラブ方向と直交）の最大レンジ — 細長い線を除外
@@ -714,8 +711,6 @@ export default function JudgeSheet({
     let straightDirty = false;
     let lastPtrEventTime = 0;   // 最終 pointer event 時刻 (自動復旧の判定用)
     let moveLogCounter = 0;     // move ログ間引き用
-    let penDownTime = 0;
-    let lastPenTapTime = 0;
 
     const safeHasCapture = (id: number): boolean => {
       try { return activeCv.hasPointerCapture(id); } catch { return false; }
@@ -893,8 +888,6 @@ export default function JudgeSheet({
       activePointerId.current = e.pointerId;
       // FIX: iPad PWA で Apple Pencil のポインターを途中で見失わないよう capture
       try { activeCv.setPointerCapture(e.pointerId); } catch { /* ignore */ }
-      if (e.pointerType === 'pen') penDownTime = now;
-      startPt.current = p;
 
       // 消しゴムモード
       if (eraserMode.current) {
@@ -909,6 +902,7 @@ export default function JudgeSheet({
       straight.current = false;
       straightDirty = false;
       curDrawnIndex.current = 0;
+      startPt.current = p;
       cur.current = { points: [p], color: colorRef.current, width: lineWidthRef.current };
       startHold(p);
     };
@@ -1015,23 +1009,7 @@ export default function JudgeSheet({
       }
 
       const wasEraser = eraserMode.current;
-      const endedTap = e.pointerType === 'pen' &&
-        cur.current &&
-        startPt.current &&
-        performance.now() - penDownTime <= PEN_TAP_MAX_MS &&
-        Math.hypot(getPos(e).x - startPt.current.x, getPos(e).y - startPt.current.y) <= PEN_TAP_MAX_MOVE &&
-        cur.current.points.length <= 2;
       finishStroke();
-      if (endedTap) {
-        const now = performance.now();
-        if (now - lastPenTapTime <= PEN_DOUBLE_TAP_MS) {
-          eraserMode.current = !wasEraser;
-          lastPenTapTime = 0;
-          setTick(t => t + 1);
-          return;
-        }
-        lastPenTapTime = now;
-      }
       // 消しゴム使用後は自動でペンに戻る
       if (wasEraser) {
         eraserMode.current = false;
