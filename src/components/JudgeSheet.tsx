@@ -923,6 +923,12 @@ export default function JudgeSheet({
         logPtr({ ev: 'mismatch', pt: e.pointerType, pid: e.pointerId, d: drawing.current, a: activePointerId.current });
       }
       if (!drawing.current || e.pointerId !== activePointerId.current) return;
+      // Apple Pencil が接触を終えたのに pointerup が届かず、hover の move だけ来るケースを完了扱いにする。
+      if (e.pointerType === 'pen' && e.buttons === 0 && draggingLineIdx.current === null) {
+        logPtr({ ev: 'pen-hover-finish', pt: e.pointerType, pid: e.pointerId, d: drawing.current, a: activePointerId.current });
+        finishStroke();
+        return;
+      }
       // 間引きしてmove logを残す（直近の流れを把握）
       moveLogCounter++;
       if (moveLogCounter % 30 === 0) {
@@ -1068,21 +1074,32 @@ export default function JudgeSheet({
     const onTouchMove = (e: TouchEvent) => { e.preventDefault(); };
 
     // FIX: iPad PWA がバックグラウンド復帰したとき、描画中ステートが残ったまま戻ると
-    // 以降の Apple Pencil 入力が無反応になる。可視性/フォーカスを失った時点で強制リセット。
+    // 以降の Apple Pencil 入力が無反応になる。復旧前に未確定ストロークを可能な限り保存する。
     const resetStuckState = () => {
-      releaseCapture(activePointerId.current);
+      if (draggingLineIdx.current !== null) {
+        releaseCapture(activePointerId.current);
+        draggingLineIdx.current = null;
+        draggingHandle.current = null;
+        drawing.current = false;
+        activePointerId.current = null;
+        saveRef.current();
+      } else if (drawing.current && cur.current && cur.current.points.length >= 2) {
+        finishStroke();
+      } else {
+        releaseCapture(activePointerId.current);
+        drawing.current = false;
+        activePointerId.current = null;
+        cur.current = null;
+        clearActiveRef.current();
+      }
       clearHold();
       if (rafId !== null) { cancelAnimationFrame(rafId); rafId = null; }
-      drawing.current = false;
-      activePointerId.current = null;
-      cur.current = null;
       straight.current = false;
       straightDirty = false;
       startPt.current = null;
       curDrawnIndex.current = 0;
       draggingLineIdx.current = null;
       draggingHandle.current = null;
-      clearActiveRef.current();
     };
     // 復旧ボタンから呼べるように ref に公開
     resetStuckStateRef.current = resetStuckState;
@@ -1096,6 +1113,10 @@ export default function JudgeSheet({
     };
     const onBlurEvent = () => {
       logPtr({ ev: 'blur', d: drawing.current, a: activePointerId.current });
+      resetStuckState();
+    };
+    const onPageHide = () => {
+      logPtr({ ev: 'pagehide', d: drawing.current, a: activePointerId.current });
       resetStuckState();
     };
 
@@ -1136,10 +1157,12 @@ export default function JudgeSheet({
     activeCv.addEventListener('pointermove', onMove, { passive: false });
     activeCv.addEventListener('pointerup', onUp);
     activeCv.addEventListener('pointerleave', onLeave);
+    activeCv.addEventListener('pointerout', onLeave);
     activeCv.addEventListener('pointercancel', onUp);
     activeCv.addEventListener('lostpointercapture', onLostCapture);
     document.addEventListener('visibilitychange', onVisibilityChange);
     window.addEventListener('blur', onBlurEvent);
+    window.addEventListener('pagehide', onPageHide);
     // document レベルでも傍受（Canvas の pointer capture スコープ外で発火）
     document.addEventListener('touchstart', onAnyInputStart, { capture: true, passive: true });
     document.addEventListener('pointerdown', onAnyInputStart, { capture: true, passive: true });
@@ -1151,10 +1174,12 @@ export default function JudgeSheet({
       activeCv.removeEventListener('pointermove', onMove);
       activeCv.removeEventListener('pointerup', onUp);
       activeCv.removeEventListener('pointerleave', onLeave);
+      activeCv.removeEventListener('pointerout', onLeave);
       activeCv.removeEventListener('pointercancel', onUp);
       activeCv.removeEventListener('lostpointercapture', onLostCapture);
       document.removeEventListener('visibilitychange', onVisibilityChange);
       window.removeEventListener('blur', onBlurEvent);
+      window.removeEventListener('pagehide', onPageHide);
       document.removeEventListener('touchstart', onAnyInputStart, { capture: true } as EventListenerOptions);
       document.removeEventListener('pointerdown', onAnyInputStart, { capture: true } as EventListenerOptions);
       window.clearInterval(healthCheckId);
