@@ -4,12 +4,14 @@ import { db } from '../db/database';
 import type { Session } from '../db/database';
 import type { Apparatus } from '../types';
 import { APPARATUS_LIST } from '../constants/apparatus';
+import SettingsModal from '../components/SettingsModal';
 import { version } from '../../package.json';
 
 export default function EntryPage() {
   const navigate = useNavigate();
   const [sessions, setSessions] = useState<Session[]>([]);
   const [showModal, setShowModal] = useState<'trial' | 'competition' | 'individual' | null>(null);
+  const [showSettings, setShowSettings] = useState(false);
   const [sessionName, setSessionName] = useState('');
   const [judgeMode, setJudgeMode] = useState<'D' | 'E' | 'D/E'>('E');
   const [eJudgeCount, setEJudgeCount] = useState(4);
@@ -85,7 +87,15 @@ export default function EntryPage() {
     <div className="h-full bg-bg-light dark:bg-bg-dark flex flex-col overflow-y-auto">
       <header className="bg-primary text-white px-6 py-4 flex items-baseline justify-between">
         <h1 className="text-xl font-bold tracking-tight">MAG Judge Memo</h1>
-        <span className="text-xs text-white/50 text-right leading-tight">v{version}<br />{__BUILD_DATE__}</span>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => setShowSettings(true)}
+            className="px-3 py-2 rounded-lg text-sm font-bold bg-white/10 hover:bg-white/20 min-h-[40px]"
+          >
+            設定
+          </button>
+          <span className="text-xs text-white/50 text-right leading-tight">v{version}<br />{__BUILD_DATE__}</span>
+        </div>
       </header>
 
       <main className="flex-1 p-6 max-w-3xl mx-auto w-full">
@@ -243,6 +253,8 @@ export default function EntryPage() {
           </div>
         </div>
       )}
+
+      {showSettings && <SettingsModal onClose={() => setShowSettings(false)} />}
     </div>
   );
 }

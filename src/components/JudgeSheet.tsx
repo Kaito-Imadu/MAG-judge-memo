@@ -6,6 +6,7 @@ import { APPARATUS_LIST } from '../constants/apparatus';
 import { getNDChecklist, FX_CTV_CHECKLIST } from '../constants/deductions';
 import { db } from '../db/database';
 import type { StrokeData } from '../db/database';
+import { loadJudgeSettings, updateJudgeSettings } from '../utils/settings';
 
 interface Point { x: number; y: number }
 interface Stroke { points: Point[]; color: string; width: number }
@@ -30,7 +31,6 @@ const COLORS = [
   { value: '#E74C3C' },
   { value: '#2E86C1' },
 ];
-const LINE_WIDTH = 2;
 const ERASER_WIDTH = 28;
 const STRAIGHT_DELAY = 1500;
 const STRAIGHT_THRESHOLD = 4;
@@ -284,7 +284,8 @@ export default function JudgeSheet({
   const cur = useRef<Stroke | null>(null);
   const curDrawnIndex = useRef(0); // Active Canvas にどこまで描画済みか
   const colorRef = useRef('#000000');
-  const lineWidthRef = useRef(LINE_WIDTH);
+  const settingsRef = useRef(loadJudgeSettings());
+  const lineWidthRef = useRef(settingsRef.current.penWidth);
   const eraserMode = useRef(false);
   const drawing = useRef(false);
   const activePointerId = useRef<number | null>(null);
@@ -298,6 +299,7 @@ export default function JudgeSheet({
   const prevApparatus = useRef<Apparatus>(apparatus);
   const prevAthleteName = useRef(athleteName);
   const prevPageNumber = useRef(pageNumber);
+  const pendingDefaultHorizontalLine = useRef(false);
   const navigate = useNavigate();
   const [tick, setTick] = useState(0);
   // 復旧ボタンから呼ぶための ref（useEffect 内で実体をセット）
@@ -605,13 +607,21 @@ export default function JudgeSheet({
 
     db.memoRecords.get(recordId).then((saved) => {
       strokes.current = saved
-        ? saved.strokes.map(s => ({ points: s.points, color: s.color, width: s.width ?? LINE_WIDTH }))
+        ? saved.strokes.map(s => ({ points: s.points, color: s.color, width: s.width ?? settingsRef.current.penWidth }))
         : [];
       // 旧フォーマット(number[])からの移行対応
       const rawLines = saved?.lines ?? [];
       horizontalLines.current = rawLines.map((l: HLine | number) =>
         typeof l === 'number' ? { y: l, right: sizeRef.current.w * 0.8 } : l
       );
+      pendingDefaultHorizontalLine.current = !saved
+        && apparatus !== 'VT'
+        && settingsRef.current.autoHorizontalLine;
+      if (pendingDefaultHorizontalLine.current && sizeRef.current.w > 0 && sizeRef.current.h > 0) {
+        horizontalLines.current = [createDefaultHorizontalLine()];
+        pendingDefaultHorizontalLine.current = false;
+        saveRef.current();
+      }
       spatialGrid.current = rebuildGrid(strokes.current);
       redoStack.current = [];
       preClearSnapshot.current = null;
@@ -648,6 +658,13 @@ export default function JudgeSheet({
       if (ac) ac.scale(dpr, dpr);
 
       redrawStatic();
+      if (pendingDefaultHorizontalLine.current) {
+        horizontalLines.current = [createDefaultHorizontalLine()];
+        pendingDefaultHorizontalLine.current = false;
+        redrawStatic();
+        saveRef.current();
+        setTick(t => t + 1);
+      }
     };
     resize();
     const ro = new ResizeObserver(resize);
@@ -1215,7 +1232,12 @@ export default function JudgeSheet({
   };
   const pickColor = (c: string) => { colorRef.current = c; eraserMode.current = false; setTick(t => t + 1); };
   const toggleEraser = () => { eraserMode.current = !eraserMode.current; setTick(t => t + 1); };
-  const setLineWidth = (w: number) => { lineWidthRef.current = w; setTick(t => t + 1); };
+  const setLineWidth = (w: number) => {
+    const next = updateJudgeSettings({ penWidth: w });
+    settingsRef.current = next;
+    lineWidthRef.current = next.penWidth;
+    setTick(t => t + 1);
+  };
 
   // 復旧ボタン: Apple Pencil 切断時等で描画ステートが詰まった場合の手動リセット
   const [recovering, setRecovering] = useState(false);
@@ -1225,8 +1247,7 @@ export default function JudgeSheet({
     setRecovering(true);
     window.setTimeout(() => setRecovering(false), 700);
   };
-  // 横線追加
-  const addHorizontalLine = () => {
+  const createDefaultHorizontalLine = (): HLine => {
     const { w, h } = sizeRef.current;
     const scoreRowTop = h - SCORE_ROW_H;
     const drawTop = LABEL_H;
@@ -1241,9 +1262,16 @@ export default function JudgeSheet({
       newY += HLINE_OFFSET_Y;
       if (newY > drawBottom - 20) newY = drawTop + 20;
     }
-    // 全種目で ゆか/つり輪 と同じデフォルト長（mainW = w * (1 - ND_WIDTH_RATIO)）に揃える
-    const defaultRight = Math.floor(w * (1 - ND_WIDTH_RATIO)) - 10;
-    horizontalLines.current.push({ y: newY, right: defaultRight });
+    const defaultRight = Math.max(
+      HLINE_LEFT_MARGIN + 40,
+      Math.floor(w * settingsRef.current.horizontalLineLengthRatio) - 10,
+    );
+    return { y: newY, right: defaultRight };
+  };
+
+  // 横線追加
+  const addHorizontalLine = () => {
+    horizontalLines.current.push(createDefaultHorizontalLine());
     redrawStaticRef.current();
     saveRef.current();
     setTick(t => t + 1);
