@@ -43,38 +43,62 @@ src/
 ├── index.css             # Tailwind エントリー + テーマ変数
 ├── pages/
 │   ├── EntryPage.tsx     # モード選択・セッション作成・過去セッション一覧
-│   ├── TrialPage.tsx     # 試技会モード（選手一覧 + 種目ダッシュボード + SNS共有）
+│   ├── TrialPage.tsx     # 試技会モード（選手一覧 + 順位バッジ + 種目ダッシュボード + SNS共有）
 │   ├── TrialJudgePage.tsx # 試技会 採点画面ラッパー
-│   └── CompetitionPage.tsx # 大会モード（ページナビ + 選手一覧パネル）
+│   ├── CompetitionPage.tsx # 大会モード（ページナビ + デジタル選手名 + 選手一覧パネル）
+│   └── IndividualPage.tsx # 個別モード（種目タブ + ページナビ）
 ├── components/
-│   └── JudgeSheet.tsx    # メイン採点コンポーネント（全画面Canvas + ツールバー + テンプレート描画）
+│   ├── JudgeSheet.tsx    # メイン採点コンポーネント（2層Canvas + ツールバー + ScoreInputBar）
+│   ├── ScoreInputBar.tsx # Canvas下部の薄型2段デジタルスコア入力バー
+│   ├── ScoreNumpad.tsx   # セルタップ時の専用テンキーポップアップ
+│   ├── RankingModal.tsx  # 試技会(AA/種目別)・大会のランキングモーダル
+│   └── SettingsModal.tsx # 全体設定モーダル
+├── hooks/
+│   └── useSessionScores.ts # Dexie useLiveQuery でセッション内全スコア取得＋順位付け
 ├── db/
 │   └── database.ts       # Dexie DB定義 (sessions, memoRecords)
 ├── types/
-│   └── index.ts          # 全型定義
-├── hooks/                # カスタムフック
+│   └── index.ts          # 全型定義 (DigitalScores 含む)
 ├── constants/
 │   ├── apparatus.ts      # 6種目定義 + ND種別マッピング
 │   └── deductions.ts     # E審判減点値 + ND定義
 └── utils/
+    ├── scoreCalc.ts      # E決定 / 決定点 の計算ロジック
+    ├── settings.ts       # 全体設定 (penWidth, autoHorizontalLine, fxDefaultHorizontalLines 等)
+    ├── renderSheet.ts    # テンプレート描画の共通ロジック（画面とエクスポートで共有）
     └── exportSheet.ts    # PNG画像エクスポート（6種目合成）+ Web Share API 共有
 ```
 
-## DB スキーマ (Dexie v3)
+## DB スキーマ (Dexie v4)
 ```typescript
 sessions: 'id, date, mode'
-// Session: { id, name, date, mode('trial'|'competition'), judgeMode('D'|'E'), eJudgeCount, apparatus?, athletes[] }
+// Session: { id, name, date, mode('trial'|'competition'|'individual'),
+//            judgeMode('D'|'E'|'D/E'), eJudgeCount(1..5), apparatus?, athletes[] }
 
 memoRecords: 'id, sessionId, apparatus, [sessionId+apparatus], [sessionId+pageNumber]'
-// MemoRecord: { id, sessionId, athleteName, apparatus, pageNumber, strokes: StrokeData[], updatedAt }
+// MemoRecord: {
+//   id, sessionId, athleteName, apparatus, pageNumber,
+//   strokes: StrokeData[], lines?,
+//   canvasW?, canvasH?,
+//   digitalScores?: DigitalScores,    // v4 新規
+//   digitalAthleteName?: string,      // v4 新規（大会モード用）
+//   updatedAt,
+// }
+
+// DigitalScores: {
+//   d?, e: (number|undefined)[], nd?,
+//   bonus: boolean,                    // +0.1 加点フラグ
+//   eFinalManual?, finalManual?,       // 自動計算の手動上書き
+// }
 ```
 
 ## ルーティング
 ```
 /                           → EntryPage（モード選択・セッション管理）
-/trial/:sessionId           → TrialPage（選手×種目ダッシュボード）
+/trial/:sessionId           → TrialPage（選手×種目ダッシュボード + 順位バッジ）
 /trial/:sessionId/judge/:athlete/:apparatus → TrialJudgePage（採点画面）
-/competition/:sessionId     → CompetitionPage（ページ制採点）
+/competition/:sessionId     → CompetitionPage（ページ制採点 + デジタル選手名）
+/individual/:sessionId      → IndividualPage（個別モード・ページ制）
 ```
 
 ## 対応種目（全6種目）
@@ -88,10 +112,14 @@ memoRecords: 'id, sessionId, apparatus, [sessionId+apparatus], [sessionId+pageNu
 | 鉄棒（Horizontal Bar） | HB | なし |
 
 ## 採点構造
-決定点（Final Score）= Dスコア + Eスコア − ND合計
+決定点（Final Score）= Dスコア + E決定 − ND + 加点(+0.1)
 - Dスコア = 難度値(DV) + 組み合わせ加点(CV) + エレメントグループ(EG)
 - Eスコア = 10.000 − 減点合計
+- E決定（`src/utils/scoreCalc.ts`）= E審判人数に応じた集計
+  - 1〜3人: 全員平均
+  - 4〜5人: 高低カット平均（最高1・最低1除外）
 - ND = 種目固有のニュートラルディダクション
+- 加点 = +0.1 のON/OFFトグル（あれば決定点に加算）
 
 ## E審判の減点値
 | 区分 | 減点値 |
@@ -103,10 +131,11 @@ memoRecords: 'id, sessionId, apparatus, [sessionId+apparatus], [sessionId+pageNu
 
 ## UI/UX 原則
 1. iPad Landscape（横向き）メインレイアウト
-2. 全画面 Canvas にテンプレート（得点欄・ND項目）を背景描画、その上に手書き
+2. Canvas はメモ用、スコアはCanvas下部の `ScoreInputBar`（薄型2段）でデジタル入力
 3. タッチターゲット 44px 以上（競技中の素早い操作）
 4. ダークモード対応（`dark:` プレフィックス、class ベース切替）
 5. Apple Pencil のパームリジェクション対応（`pointerType` で pen/touch を分離）
+6. 数値入力は `ScoreNumpad`（専用テンキー）でセルタップ → ポップアップ。OK で次セルへフォーカス遷移
 
 ## カラーテーマ（`src/index.css` @theme）
 - Primary: `#1B4F72`（ダークブルー）
