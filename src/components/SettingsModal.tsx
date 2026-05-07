@@ -87,6 +87,31 @@ export default function SettingsModal({ onClose }: Props) {
               className="w-full accent-accent"
             />
           </label>
+
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <div>
+                <div className="text-sm font-bold text-gray-700 dark:text-gray-200">ゆかの初期横線</div>
+                <div className="text-xs text-gray-500 mt-1">「最初から入れる」がONの時、ゆかでは何本入れるか。</div>
+              </div>
+            </div>
+            <div className="flex gap-2">
+              {[1, 2].map(n => (
+                <button
+                  key={n}
+                  onClick={() => update({ fxDefaultHorizontalLines: n })}
+                  disabled={!settings.autoHorizontalLine}
+                  className={`flex-1 py-2.5 min-h-[44px] rounded-lg text-sm font-bold transition-colors ${
+                    settings.fxDefaultHorizontalLines === n
+                      ? 'bg-accent text-white'
+                      : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
+                  } disabled:opacity-40 disabled:cursor-not-allowed`}
+                >
+                  {n}本
+                </button>
+              ))}
+            </div>
+          </div>
         </div>
 
         <button

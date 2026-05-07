@@ -11,6 +11,9 @@ import {
   generateBulkSheets,
   shareOrDownloadMultiple,
 } from '../utils/exportSheet';
+import { useSessionScores, rankBy } from '../hooks/useSessionScores';
+import RankingModal from '../components/RankingModal';
+import { formatScore } from '../utils/scoreCalc';
 
 export default function TrialPage() {
   const { sessionId } = useParams<{ sessionId: string }>();
@@ -30,6 +33,8 @@ export default function TrialPage() {
   const [editingSessionName, setEditingSessionName] = useState(false);
   const [sessionNameDraft, setSessionNameDraft] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
+  const [showRanking, setShowRanking] = useState(false);
+  const sessionScores = useSessionScores(sessionId);
 
   const reload = async () => {
     if (!sessionId) return;
@@ -104,6 +109,28 @@ export default function TrialPage() {
 
   const scoredCountOf = (athlete: string) =>
     APPARATUS_LIST.filter(a => hasRecord(athlete, a.code)).length;
+
+  // 全選手のAA合計＋順位を計算（デジタルスコアの決定点合計）
+  const aaRanking = useMemo(() => {
+    if (!session || !sessionScores) return new Map<string, { rank: number | undefined; total: number | undefined }>();
+    const rows = session.athletes.map(name => {
+      const m = sessionScores.byAthlete.get(name);
+      let total = 0;
+      let any = false;
+      APPARATUS_LIST.forEach(a => {
+        const e = m?.get(a.code);
+        if (e && typeof e.final === 'number') {
+          total += e.final;
+          any = true;
+        }
+      });
+      return { name, total: any ? Math.round(total * 1000) / 1000 : undefined };
+    });
+    const ranked = rankBy(rows, r => r.total);
+    const map = new Map<string, { rank: number | undefined; total: number | undefined }>();
+    for (const r of ranked) map.set(r.item.name, { rank: r.rank, total: r.score });
+    return map;
+  }, [session, sessionScores]);
 
   const openJudge = (apparatus: Apparatus) => {
     if (!selectedAthlete || !sessionId) return;
@@ -244,7 +271,12 @@ export default function TrialPage() {
             </svg>
           </button>
         )}
-        <span className="text-sm text-white/60 ml-auto">
+        <button onClick={() => setShowRanking(true)}
+          className="ml-auto flex items-center gap-1 px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 min-h-[36px] text-sm font-bold">
+          <span>🏆</span>
+          <span>ランキング</span>
+        </button>
+        <span className="text-sm text-white/60">
           {session.judgeMode}審判
           {session.judgeMode === 'E' ? ` (${session.eJudgeCount}人)` : ''}
         </span>
@@ -339,12 +371,23 @@ export default function TrialPage() {
                     />
                   </label>
                   <button onClick={() => setSelectedAthlete(name)}
-                    className="flex-1 text-left text-sm font-medium text-gray-800 dark:text-gray-200 min-h-[44px] flex items-center gap-2">
+                    className="flex-1 text-left text-sm font-medium text-gray-800 dark:text-gray-200 min-h-[44px] flex items-center gap-2 flex-wrap">
                     <span>{name}</span>
                     {/* 採点済み種目数バッジ */}
                     {doneCount > 0 && (
                       <span className="text-xs text-success font-bold">{doneCount}/6</span>
                     )}
+                    {/* 順位＋AA合計 */}
+                    {(() => {
+                      const r = aaRanking.get(name);
+                      if (!r || typeof r.total !== 'number') return null;
+                      return (
+                        <span className="text-[10px] font-bold text-accent flex items-center gap-1">
+                          <span>{r.rank}位</span>
+                          <span className="font-mono">{formatScore(r.total, 3)}</span>
+                        </span>
+                      );
+                    })()}
                   </button>
                   <button onClick={() => removeAthlete(name)}
                     className="text-gray-300 hover:text-danger text-lg px-2 min-h-[44px] leading-none">
@@ -453,6 +496,15 @@ export default function TrialPage() {
           )}
         </div>
       </div>
+
+      {showRanking && sessionId && (
+        <RankingModal
+          sessionId={sessionId}
+          mode="trial"
+          athletes={session.athletes}
+          onClose={() => setShowRanking(false)}
+        />
+      )}
     </div>
   );
 }

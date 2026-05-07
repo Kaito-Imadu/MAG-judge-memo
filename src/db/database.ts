@@ -1,5 +1,5 @@
 import Dexie, { type EntityTable } from 'dexie';
-import type { Apparatus } from '../types';
+import type { Apparatus, DigitalScores } from '../types';
 
 export interface StrokePoint { x: number; y: number }
 export interface StrokeData { points: StrokePoint[]; color: string; width?: number }
@@ -25,6 +25,8 @@ export interface MemoRecord {
   lines?: Array<{ y: number; right: number }>;  // 横線（Y座標 + 右端X座標）
   canvasW?: number;
   canvasH?: number;
+  digitalScores?: DigitalScores;       // デジタルスコア入力（v4 新規）
+  digitalAthleteName?: string;         // 大会モード用デジタル選手名（v4 新規）
   updatedAt: Date;
 }
 
@@ -53,6 +55,15 @@ db.version(2).stores({
 });
 
 db.version(3).stores({
+  gymnasts: 'id, name, team, createdAt',
+  records: 'id, gymnastId, apparatus, judgeMode, date, competition, [gymnastId+apparatus]',
+  sheets: 'key, updatedAt',
+  sessions: 'id, date, mode',
+  memoRecords: 'id, sessionId, apparatus, [sessionId+apparatus], [sessionId+pageNumber]',
+});
+
+// v4: digitalScores / digitalAthleteName を MemoRecord に追加（インデックス変更なし）
+db.version(4).stores({
   gymnasts: 'id, name, team, createdAt',
   records: 'id, gymnastId, apparatus, judgeMode, date, competition, [gymnastId+apparatus]',
   sheets: 'key, updatedAt',

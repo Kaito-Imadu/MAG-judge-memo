@@ -1,0 +1,220 @@
+import { useState, useMemo } from 'react';
+import type { Apparatus } from '../types';
+import { APPARATUS_LIST } from '../constants/apparatus';
+import { useSessionScores, rankBy } from '../hooks/useSessionScores';
+import type { ScoredEntry } from '../hooks/useSessionScores';
+import { formatScore } from '../utils/scoreCalc';
+
+interface Props {
+  sessionId: string;
+  mode: 'trial' | 'competition';
+  apparatus?: Apparatus;        // 大会モード時の固定種目
+  athletes?: string[];           // 試技会モードの選手リスト（順位対象を確定するため）
+  onClose: () => void;
+}
+
+type SortKey = 'final' | 'd' | 'eFinal';
+
+const SORT_LABELS: Record<SortKey, string> = {
+  final: '決定点',
+  d: 'D',
+  eFinal: 'E決定',
+};
+
+export default function RankingModal({ sessionId, mode, apparatus, athletes = [], onClose }: Props) {
+  const data = useSessionScores(sessionId);
+  const [sortKey, setSortKey] = useState<SortKey>('final');
+  // 試技会モード: タブ（種目別 or AA）
+  const [trialTab, setTrialTab] = useState<'apparatus' | 'aa'>('aa');
+  // 試技会モード: 種目別タブで見る種目
+  const [appTab, setAppTab] = useState<Apparatus>('FX');
+
+  const renderRows = useMemo(() => {
+    if (!data) return null;
+    if (mode === 'competition' && apparatus) {
+      // 1ページ1行、digitalScores 持ちのみ。score列でソート。
+      const entries = data.scored.filter(e => e.record.apparatus === apparatus);
+      const ranked = rankBy(entries, e => entryScore(e, sortKey));
+      return ranked.map(r => {
+        const e = r.item;
+        const name = (e.record.digitalAthleteName || '').trim() || `P${e.record.pageNumber}`;
+        return (
+          <tr key={e.record.id} className="border-b border-gray-100 dark:border-gray-700">
+            <td className="px-3 py-2 text-sm font-bold text-gray-700 dark:text-gray-300 w-12">
+              {r.rank ?? '-'}
+            </td>
+            <td className="px-3 py-2 text-sm text-gray-800 dark:text-gray-200">{name}</td>
+            <td className="px-3 py-2 text-sm font-mono text-right">{formatScore(e.d, 1)}</td>
+            <td className="px-3 py-2 text-sm font-mono text-right">{formatScore(e.eFinal, 3)}</td>
+            <td className="px-3 py-2 text-sm font-mono text-right">{formatScore(e.nd, 1)}</td>
+            <td className="px-3 py-2 text-sm font-mono text-right">{e.bonus ? '+0.1' : ''}</td>
+            <td className={`px-3 py-2 text-sm font-mono text-right font-bold ${typeof r.score === 'number' ? 'text-primary dark:text-accent' : 'text-gray-300'}`}>
+              {formatScore(r.score, 3) || '-'}
+            </td>
+          </tr>
+        );
+      });
+    }
+    // trial mode
+    if (trialTab === 'apparatus') {
+      // 1選手1行（その種目のみ）。athletesに無い名前は出さない。
+      const rows = athletes.map(name => {
+        const m = data.byAthlete.get(name);
+        const e = m?.get(appTab);
+        return { name, e };
+      });
+      const ranked = rankBy(rows, r => r.e ? entryScore(r.e, sortKey) : undefined);
+      return ranked.map(r => (
+        <tr key={r.item.name} className="border-b border-gray-100 dark:border-gray-700">
+          <td className="px-3 py-2 text-sm font-bold text-gray-700 dark:text-gray-300 w-12">
+            {r.rank ?? '-'}
+          </td>
+          <td className="px-3 py-2 text-sm text-gray-800 dark:text-gray-200">{r.item.name}</td>
+          <td className="px-3 py-2 text-sm font-mono text-right">{r.item.e ? formatScore(r.item.e.d, 1) : ''}</td>
+          <td className="px-3 py-2 text-sm font-mono text-right">{r.item.e ? formatScore(r.item.e.eFinal, 3) : ''}</td>
+          <td className="px-3 py-2 text-sm font-mono text-right">{r.item.e ? formatScore(r.item.e.nd, 1) : ''}</td>
+          <td className="px-3 py-2 text-sm font-mono text-right">{r.item.e?.bonus ? '+0.1' : ''}</td>
+          <td className={`px-3 py-2 text-sm font-mono text-right font-bold ${typeof r.score === 'number' ? 'text-primary dark:text-accent' : 'text-gray-300'}`}>
+            {formatScore(r.score, 3) || '-'}
+          </td>
+        </tr>
+      ));
+    }
+    // trial AA
+    const aaRows = athletes.map(name => {
+      const m = data.byAthlete.get(name);
+      let total = 0;
+      let any = false;
+      const perApp: Record<Apparatus, number | undefined> = {
+        FX: undefined, PH: undefined, SR: undefined, VT: undefined, PB: undefined, HB: undefined,
+      };
+      APPARATUS_LIST.forEach(a => {
+        const e = m?.get(a.code);
+        if (e && typeof e.final === 'number') {
+          perApp[a.code] = e.final;
+          total += e.final;
+          any = true;
+        }
+      });
+      return { name, total: any ? Math.round(total * 1000) / 1000 : undefined, perApp };
+    });
+    const ranked = rankBy(aaRows, r => r.total);
+    return ranked.map(r => (
+      <tr key={r.item.name} className="border-b border-gray-100 dark:border-gray-700">
+        <td className="px-3 py-2 text-sm font-bold text-gray-700 dark:text-gray-300 w-12">
+          {r.rank ?? '-'}
+        </td>
+        <td className="px-3 py-2 text-sm text-gray-800 dark:text-gray-200 sticky left-12 bg-white dark:bg-gray-800">{r.item.name}</td>
+        {APPARATUS_LIST.map(a => (
+          <td key={a.code} className="px-2 py-2 text-xs font-mono text-right text-gray-600 dark:text-gray-400">
+            {formatScore(r.item.perApp[a.code], 3) || '-'}
+          </td>
+        ))}
+        <td className={`px-3 py-2 text-sm font-mono text-right font-bold ${typeof r.score === 'number' ? 'text-primary dark:text-accent' : 'text-gray-300'}`}>
+          {formatScore(r.score, 3) || '-'}
+        </td>
+      </tr>
+    ));
+  }, [data, mode, apparatus, athletes, trialTab, appTab, sortKey]);
+
+  return (
+    <div className="fixed inset-0 z-[90] bg-black/40 flex items-center justify-center p-4" onClick={onClose}>
+      <div onClick={e => e.stopPropagation()}
+        className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-4xl max-h-[85vh] flex flex-col overflow-hidden">
+        <div className="px-5 py-3 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between shrink-0">
+          <h3 className="font-bold text-gray-700 dark:text-gray-300 flex items-center gap-2">
+            <span>🏆 ランキング</span>
+            {mode === 'competition' && apparatus && (
+              <span className="text-sm text-gray-500 font-normal">— {apparatus}</span>
+            )}
+          </h3>
+          <button onClick={onClose}
+            className="text-gray-400 hover:text-gray-600 text-xl min-w-[44px] min-h-[44px] flex items-center justify-center">
+            ×
+          </button>
+        </div>
+
+        {/* タブ・ソート切替 */}
+        <div className="px-4 py-2 border-b border-gray-200 dark:border-gray-700 flex flex-wrap items-center gap-2 shrink-0">
+          {mode === 'trial' && (
+            <>
+              <div className="flex rounded-lg overflow-hidden border border-gray-300 dark:border-gray-600">
+                <button onClick={() => setTrialTab('aa')}
+                  className={`px-3 py-1.5 text-sm font-bold ${trialTab === 'aa' ? 'bg-accent text-white' : 'bg-white dark:bg-gray-700 text-gray-600'}`}>
+                  AA
+                </button>
+                <button onClick={() => setTrialTab('apparatus')}
+                  className={`px-3 py-1.5 text-sm font-bold ${trialTab === 'apparatus' ? 'bg-accent text-white' : 'bg-white dark:bg-gray-700 text-gray-600'}`}>
+                  種目別
+                </button>
+              </div>
+              {trialTab === 'apparatus' && (
+                <div className="flex gap-1 flex-wrap">
+                  {APPARATUS_LIST.map(a => (
+                    <button key={a.code} onClick={() => setAppTab(a.code)}
+                      className={`px-2 py-1 rounded text-xs font-bold ${appTab === a.code ? 'bg-primary text-white' : 'bg-gray-100 dark:bg-gray-700 text-gray-600'}`}>
+                      {a.code}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
+          {/* ソート列（AAタブ以外） */}
+          {!(mode === 'trial' && trialTab === 'aa') && (
+            <div className="flex items-center gap-1 ml-auto">
+              <span className="text-xs text-gray-500">ソート:</span>
+              {(['final', 'd', 'eFinal'] as SortKey[]).map(k => (
+                <button key={k} onClick={() => setSortKey(k)}
+                  className={`px-2 py-1 rounded text-xs font-bold ${sortKey === k ? 'bg-accent text-white' : 'bg-gray-100 dark:bg-gray-700 text-gray-600'}`}>
+                  {SORT_LABELS[k]}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="flex-1 overflow-auto">
+          <table className="w-full">
+            <thead className="bg-gray-50 dark:bg-gray-900 sticky top-0">
+              {mode === 'trial' && trialTab === 'aa' ? (
+                <tr>
+                  <th className="px-3 py-2 text-xs font-bold text-gray-500 text-left">順位</th>
+                  <th className="px-3 py-2 text-xs font-bold text-gray-500 text-left sticky left-12 bg-gray-50 dark:bg-gray-900">選手</th>
+                  {APPARATUS_LIST.map(a => (
+                    <th key={a.code} className="px-2 py-2 text-xs font-bold text-gray-500 text-right">{a.code}</th>
+                  ))}
+                  <th className="px-3 py-2 text-xs font-bold text-gray-500 text-right">AA合計</th>
+                </tr>
+              ) : (
+                <tr>
+                  <th className="px-3 py-2 text-xs font-bold text-gray-500 text-left">順位</th>
+                  <th className="px-3 py-2 text-xs font-bold text-gray-500 text-left">{mode === 'competition' ? 'ページ/選手' : '選手'}</th>
+                  <th className="px-3 py-2 text-xs font-bold text-gray-500 text-right">D</th>
+                  <th className="px-3 py-2 text-xs font-bold text-gray-500 text-right">E決定</th>
+                  <th className="px-3 py-2 text-xs font-bold text-gray-500 text-right">ND</th>
+                  <th className="px-3 py-2 text-xs font-bold text-gray-500 text-right">加点</th>
+                  <th className="px-3 py-2 text-xs font-bold text-gray-500 text-right">決定点</th>
+                </tr>
+              )}
+            </thead>
+            <tbody>
+              {renderRows}
+            </tbody>
+          </table>
+          {data && data.scored.length === 0 && (
+            <div className="p-8 text-center text-gray-400 text-sm">
+              まだスコアが入力されていません
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function entryScore(e: ScoredEntry, k: SortKey): number | undefined {
+  if (k === 'final') return e.final;
+  if (k === 'd') return e.d;
+  return e.eFinal;
+}

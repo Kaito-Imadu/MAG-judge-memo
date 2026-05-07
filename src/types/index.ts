@@ -1,6 +1,16 @@
 // 種目
 export type Apparatus = 'FX' | 'PH' | 'SR' | 'VT' | 'PB' | 'HB';
 
+// デジタルスコア（D, E1..EN, ND, 加点, E決定/決定点の手動上書き）
+export interface DigitalScores {
+  d?: number;                    // Dスコア（手入力）
+  e: (number | undefined)[];     // E1..EN（length=eJudgeCount、最大5）
+  nd?: number;                   // ND（手入力）
+  bonus: boolean;                // +0.1 加点フラグ
+  eFinalManual?: number;         // E決定の手動上書き（未指定なら e から自動計算）
+  finalManual?: number;          // 決定点の手動上書き（未指定なら自動計算）
+}
+
 // 審判モード
 export type JudgeMode = 'D_JUDGE' | 'E_JUDGE';
 

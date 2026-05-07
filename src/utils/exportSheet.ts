@@ -178,6 +178,8 @@ export async function exportAthleteSheet(
       strokes: record?.strokes ?? [],
       lines: record?.lines,
       vaultImg: apparatus === 'VT' ? vaultImg : null,
+      digitalScores: record?.digitalScores,
+      digitalAthleteName: record?.digitalAthleteName,
     });
 
     // 縮小してセルに配置
@@ -246,6 +248,8 @@ export async function exportSingleSheet(
     strokes: record?.strokes ?? [],
     lines: record?.lines,
     vaultImg,
+    digitalScores: record?.digitalScores,
+    digitalAthleteName: record?.digitalAthleteName,
   });
 
   c.drawImage(sheet, 0, HEADER, SINGLE_W, SINGLE_H - HEADER);

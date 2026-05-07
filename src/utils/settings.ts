@@ -2,6 +2,8 @@ export interface JudgeSettings {
   penWidth: number;
   autoHorizontalLine: boolean;
   horizontalLineLengthRatio: number;
+  // ゆかは2本派もいるため、種目別のデフォルト本数を持つ
+  fxDefaultHorizontalLines: number;
 }
 
 const SETTINGS_KEY = 'judge-settings';
@@ -10,6 +12,7 @@ export const DEFAULT_JUDGE_SETTINGS: JudgeSettings = {
   penWidth: 2,
   autoHorizontalLine: false,
   horizontalLineLengthRatio: 0.8,
+  fxDefaultHorizontalLines: 1,
 };
 
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
@@ -22,6 +25,11 @@ export function normalizeJudgeSettings(value: Partial<JudgeSettings> | null | un
       Number(value?.horizontalLineLengthRatio ?? DEFAULT_JUDGE_SETTINGS.horizontalLineLengthRatio),
       0.5,
       1,
+    ),
+    fxDefaultHorizontalLines: clamp(
+      Math.round(Number(value?.fxDefaultHorizontalLines ?? DEFAULT_JUDGE_SETTINGS.fxDefaultHorizontalLines)),
+      1,
+      2,
     ),
   };
 }

@@ -1,12 +1,14 @@
 import { useRef, useState, useCallback, useEffect } from 'react';
 import type { ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
-import type { Apparatus } from '../types';
+import type { Apparatus, DigitalScores } from '../types';
 import { APPARATUS_LIST } from '../constants/apparatus';
-import { getNDChecklist, FX_CTV_CHECKLIST } from '../constants/deductions';
+import { getNDChecklist } from '../constants/deductions';
 import { db } from '../db/database';
 import type { StrokeData } from '../db/database';
 import { loadJudgeSettings, updateJudgeSettings } from '../utils/settings';
+import ScoreInputBar from './ScoreInputBar';
+import { emptyScores, hasAnyScore } from '../utils/scoreCalc';
 
 interface Point { x: number; y: number }
 interface Stroke { points: Point[]; color: string; width: number }
@@ -24,6 +26,8 @@ interface Props {
   toolbarExtra?: ReactNode;
   onBack?: () => void;
   onApparatusChange?: (apparatus: Apparatus) => void;
+  // 大会モード用デジタル選手名（親が管理。JudgeSheet は保存にのみ使う）
+  digitalAthleteName?: string;
 }
 
 const COLORS = [
@@ -54,7 +58,7 @@ const VT_IMG_SCALE_KEY = 'vt-image-scale';
 const VT_SCALE_OPTIONS = [0.5, 0.75, 1.0, 1.25, 1.5];
 // レイアウト定数
 const LABEL_H = 52;          // モード別ラベル領域の高さ
-const SCORE_ROW_H = 160;
+const SCORE_ROW_H = 0;       // 旧: Canvas内スコア行の高さ。デジタル化により0（互換のため定数は残す）
 const CV_LABEL_H = 28;
 const ND_WIDTH_RATIO = 0.2;
 const NAME_BOX_W = 360;      // 大会モード: 選手名記入欄の幅
@@ -267,6 +271,7 @@ export default function JudgeSheet({
   toolbarExtra,
   onBack,
   onApparatusChange,
+  digitalAthleteName,
 }: Props) {
   // === Refs ===
   const staticCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -279,6 +284,10 @@ export default function JudgeSheet({
   const preClearSnapshot = useRef<Stroke[] | null>(null);
   const horizontalLines = useRef<HLine[]>([]);
   const preClearLinesSnapshot = useRef<HLine[] | null>(null);
+  // デジタルスコアは React state で管理（手動入力ペース → 高頻度ではない）
+  const [digitalScores, setDigitalScores] = useState<DigitalScores>(() => emptyScores(eJudgeCount));
+  const digitalScoresRef = useRef<DigitalScores>(digitalScores);
+  useEffect(() => { digitalScoresRef.current = digitalScores; }, [digitalScores]);
   const draggingLineIdx = useRef<number | null>(null);
   const draggingHandle = useRef<'left' | 'right' | null>(null); // どちらのハンドルをドラッグ中か
   const cur = useRef<Stroke | null>(null);
@@ -299,6 +308,20 @@ export default function JudgeSheet({
   const prevApparatus = useRef<Apparatus>(apparatus);
   const prevAthleteName = useRef(athleteName);
   const prevPageNumber = useRef(pageNumber);
+  // digitalAthleteName は同一recordId内（同じページ）でユーザが任意に書き換える可能性があるので、
+  // 「最新値」を常にrefで持っておき、flushSave時にそれを使う。
+  const digitalAthleteNameRef = useRef(digitalAthleteName);
+  // 初回（マウント時）はスキップして、以降の prop 変更でのみ自動保存をトリガー。
+  const digitalAthleteNameInitialized = useRef(false);
+  useEffect(() => {
+    digitalAthleteNameRef.current = digitalAthleteName;
+    if (!digitalAthleteNameInitialized.current) {
+      digitalAthleteNameInitialized.current = true;
+      return;
+    }
+    // 1500ms デバウンスで保存。
+    saveRef.current();
+  }, [digitalAthleteName]);
   const pendingDefaultHorizontalLine = useRef(false);
   const navigate = useNavigate();
   const [tick, setTick] = useState(0);
@@ -351,10 +374,13 @@ export default function JudgeSheet({
     saveAthleteName: string,
     savePageNumber: number,
     saveLines?: HLine[],
+    saveScores?: DigitalScores,
+    saveDigitalAthleteName?: string,
   ) => {
     if (saveTimer.current) { clearTimeout(saveTimer.current); saveTimer.current = null; }
     const { w, h } = sizeRef.current;
     const linesToSave = saveLines ?? horizontalLines.current;
+    const scoresToSave = saveScores ?? digitalScoresRef.current;
     db.memoRecords.put({
       id,
       sessionId,
@@ -365,6 +391,8 @@ export default function JudgeSheet({
       lines: linesToSave.length > 0 ? linesToSave : undefined,
       canvasW: w || undefined,
       canvasH: h || undefined,
+      digitalScores: hasAnyScore(scoresToSave) ? scoresToSave : undefined,
+      digitalAthleteName: saveDigitalAthleteName,
       updatedAt: new Date(),
     });
   }, [sessionId]);
@@ -380,7 +408,12 @@ export default function JudgeSheet({
       const an = athleteName;
       const pn = pageNumber;
       saveTimer.current = setTimeout(() => {
-        flushSave(id, strokes.current, a, an, pn);
+        flushSave(
+          id, strokes.current, a, an, pn,
+          undefined,
+          digitalScoresRef.current,
+          digitalAthleteNameRef.current,
+        );
       }, SAVE_DEBOUNCE);
     };
   }, [recordId, apparatus, athleteName, pageNumber, flushSave]);
@@ -392,10 +425,9 @@ export default function JudgeSheet({
     const { w, h } = sizeRef.current;
     if (w === 0) return;
 
-    const scoreH = SCORE_ROW_H;
     const ndW = hasND ? Math.floor(w * ND_WIDTH_RATIO) : 0;
     const mainW = w - ndW;
-    const scoreRowTop = h - scoreH;
+    const scoreRowTop = h;  // スコア行は別DOMに移行済みのためCanvas全域が描画エリア
 
     c.save();
 
@@ -464,7 +496,6 @@ export default function JudgeSheet({
     }
 
     // --- ND 項目（右下） ---
-    let ndTopY = scoreRowTop;
     if (hasND) {
       c.fillStyle = '#555';
       c.font = '12px "Noto Sans JP", sans-serif';
@@ -477,23 +508,6 @@ export default function JudgeSheet({
       c.fillStyle = '#666';
       c.font = 'bold 13px "Noto Sans JP", sans-serif';
       c.fillText('ND', mainW + 8, ndStartY - 14);
-      ndTopY = ndStartY - 14;
-    }
-
-    // --- CTV 項目（ゆか・ND の上） ---
-    if (apparatus === 'FX') {
-      const ctvRowH = 18;
-      const ctvTotalH = FX_CTV_CHECKLIST.length * ctvRowH;
-      const ctvStartY = ndTopY - 10 - ctvTotalH;
-      c.fillStyle = '#555';
-      c.font = '10px "Noto Sans JP", sans-serif';
-      FX_CTV_CHECKLIST.forEach((item, i) => {
-        const y = ctvStartY + i * ctvRowH + 10;
-        c.fillText(`□ ${item.id}. ${item.label}`, mainW + 10, y);
-      });
-      c.fillStyle = '#666';
-      c.font = 'bold 12px "Noto Sans JP", sans-serif';
-      c.fillText('CTV', mainW + 8, ctvStartY - 2);
     }
 
     // --- CV ラベル ---
@@ -536,43 +550,8 @@ export default function JudgeSheet({
       }
     }
 
-    // --- スコア行 ---
-    c.strokeStyle = '#222';
-    c.lineWidth = 2;
-    c.beginPath();
-    c.moveTo(0, scoreRowTop);
-    c.lineTo(w, scoreRowTop);
-    c.stroke();
-
-    const cols: string[] = ['D'];
-    for (let i = 0; i < eJudgeCount; i++) {
-      cols.push(i === 0 ? 'E1' : `E${i + 1}`);
-    }
-    cols.push('ND', '決定点');
-
-    const colCount = cols.length;
-    const lastColRatio = 1.4;
-    const normalCols = colCount - 1;
-    const unit = w / (normalCols + lastColRatio);
-    let x = 0;
-    c.lineWidth = 1;
-    c.strokeStyle = '#444';
-    for (let i = 0; i < colCount; i++) {
-      const colW = i === colCount - 1 ? unit * lastColRatio : unit;
-      if (i > 0) {
-        c.beginPath();
-        c.moveTo(x, scoreRowTop);
-        c.lineTo(x, h);
-        c.stroke();
-      }
-      c.fillStyle = '#999';
-      c.font = '10px "Noto Sans JP", sans-serif';
-      c.fillText(cols[i], x + 4, scoreRowTop + 12);
-      x += colW;
-    }
-
     c.restore();
-  }, [getStaticCtx, hasND, hasCV, ndItems, eJudgeCount, mode, athleteName, apparatus, apparatusInfo, vtFlip, vtScale]);
+  }, [getStaticCtx, hasND, hasCV, ndItems, mode, athleteName, apparatus, apparatusInfo, vtFlip, vtScale]);
 
   // === Static Canvas 全再描画 ===
   const redrawStatic = useCallback(() => {
@@ -598,6 +577,9 @@ export default function JudgeSheet({
       flushSave(
         prevRecordId.current, strokes.current,
         prevApparatus.current, prevAthleteName.current, prevPageNumber.current,
+        undefined,
+        digitalScoresRef.current,
+        digitalAthleteNameRef.current,
       );
     }
     prevRecordId.current = recordId;
@@ -609,6 +591,15 @@ export default function JudgeSheet({
       strokes.current = saved
         ? saved.strokes.map(s => ({ points: s.points, color: s.color, width: s.width ?? settingsRef.current.penWidth }))
         : [];
+      // デジタルスコアの読み込み（人数差を吸収）
+      const loadedScores = saved?.digitalScores;
+      if (loadedScores) {
+        const e = loadedScores.e.slice(0, eJudgeCount);
+        while (e.length < eJudgeCount) e.push(undefined);
+        setDigitalScores({ ...loadedScores, e });
+      } else {
+        setDigitalScores(emptyScores(eJudgeCount));
+      }
       // 旧フォーマット(number[])からの移行対応
       const rawLines = saved?.lines ?? [];
       horizontalLines.current = rawLines.map((l: HLine | number) =>
@@ -618,7 +609,7 @@ export default function JudgeSheet({
         && apparatus !== 'VT'
         && settingsRef.current.autoHorizontalLine;
       if (pendingDefaultHorizontalLine.current && sizeRef.current.w > 0 && sizeRef.current.h > 0) {
-        horizontalLines.current = [createDefaultHorizontalLine()];
+        horizontalLines.current = createDefaultHorizontalLines();
         pendingDefaultHorizontalLine.current = false;
         saveRef.current();
       }
@@ -659,7 +650,7 @@ export default function JudgeSheet({
 
       redrawStatic();
       if (pendingDefaultHorizontalLine.current) {
-        horizontalLines.current = [createDefaultHorizontalLine()];
+        horizontalLines.current = createDefaultHorizontalLines();
         pendingDefaultHorizontalLine.current = false;
         redrawStatic();
         saveRef.current();
@@ -690,7 +681,10 @@ export default function JudgeSheet({
     return () => {
       if (saveTimer.current) clearTimeout(saveTimer.current);
       const id = prevRecordId.current;
-      if (id && (strokes.current.length > 0 || horizontalLines.current.length > 0)) {
+      const scores = digitalScoresRef.current;
+      const dn = digitalAthleteNameRef.current;
+      const hasDigitalName = !!dn;
+      if (id && (strokes.current.length > 0 || horizontalLines.current.length > 0 || hasAnyScore(scores) || hasDigitalName)) {
         const { w, h } = sizeRef.current;
         const data: StrokeData[] = strokes.current.map(s => ({ points: s.points, color: s.color, width: s.width }));
         db.memoRecords.put({
@@ -703,6 +697,8 @@ export default function JudgeSheet({
           lines: horizontalLines.current.length > 0 ? horizontalLines.current : undefined,
           canvasW: w || undefined,
           canvasH: h || undefined,
+          digitalScores: hasAnyScore(scores) ? scores : undefined,
+          digitalAthleteName: dn,
           updatedAt: new Date(),
         });
       }
@@ -1294,6 +1290,17 @@ export default function JudgeSheet({
     return { y: newY, right: defaultRight };
   };
 
+  // 種目に応じた既定本数で初期横線を生成。FXは設定に従い1or2本、それ以外は1本。
+  const createDefaultHorizontalLines = (): HLine[] => {
+    const count = apparatus === 'FX' ? settingsRef.current.fxDefaultHorizontalLines : 1;
+    const lines: HLine[] = [];
+    const saved = horizontalLines.current;
+    horizontalLines.current = lines;
+    for (let i = 0; i < count; i++) lines.push(createDefaultHorizontalLine());
+    horizontalLines.current = saved;
+    return lines;
+  };
+
   // 横線追加
   const addHorizontalLine = () => {
     horizontalLines.current.push(createDefaultHorizontalLine());
@@ -1330,7 +1337,10 @@ export default function JudgeSheet({
   };
 
   const handleApparatusChange = (a: Apparatus) => {
-    flushSave(recordId, strokes.current, apparatus, athleteName, pageNumber);
+    flushSave(
+      recordId, strokes.current, apparatus, athleteName, pageNumber,
+      undefined, digitalScoresRef.current, digitalAthleteNameRef.current,
+    );
     if (onApparatusChange) {
       onApparatusChange(a);
     } else {
@@ -1340,12 +1350,21 @@ export default function JudgeSheet({
   };
 
   const handleBack = () => {
-    flushSave(recordId, strokes.current, apparatus, athleteName, pageNumber);
+    flushSave(
+      recordId, strokes.current, apparatus, athleteName, pageNumber,
+      undefined, digitalScoresRef.current, digitalAthleteNameRef.current,
+    );
     if (onBack) onBack();
     else navigate('/');
   };
 
   void tick;
+
+  const handleScoreChange = (next: DigitalScores) => {
+    setDigitalScores(next);
+    digitalScoresRef.current = next;
+    saveRef.current();
+  };
 
   return (
     <div className="h-full flex flex-col overflow-hidden select-none bg-white dark:bg-gray-950">
@@ -1361,31 +1380,33 @@ export default function JudgeSheet({
                resetStuckStateRef.current();
              }
            }}>
-        {/* ペン色選択 */}
-        {COLORS.map((c) => (
-          <button key={c.value} onClick={() => pickColor(c.value)}
-            className={`w-8 h-8 rounded-full border-2 transition-transform shrink-0 ${
-              !eraserMode.current && colorRef.current === c.value
-                ? 'border-accent scale-110 ring-2 ring-accent/30'
-                : 'border-gray-300 dark:border-gray-600'
-            }`}
-            style={{ backgroundColor: c.value }} />
-        ))}
+        {/* ペン色選択（小さめの丸） */}
+        <div className="flex items-center gap-1.5 px-1 min-h-[44px]">
+          {COLORS.map((c) => (
+            <button key={c.value} onClick={() => pickColor(c.value)}
+              className={`w-6 h-6 rounded-full border-2 transition-transform shrink-0 ${
+                !eraserMode.current && colorRef.current === c.value
+                  ? 'border-accent scale-110 ring-2 ring-accent/30'
+                  : 'border-gray-300 dark:border-gray-600'
+              }`}
+              style={{ backgroundColor: c.value }} />
+          ))}
+        </div>
 
         <div className="w-px h-6 bg-gray-300" />
 
-        {/* 消しゴム */}
+        {/* 消しゴム（正方形・アイコンのみ） */}
         <button onClick={toggleEraser}
-          className={`flex items-center gap-1 px-2 py-1.5 rounded-lg text-xs font-bold min-h-[44px] transition-all ${
+          title="消しゴム"
+          className={`flex items-center justify-center w-11 h-11 rounded-md transition-all shrink-0 ${
             eraserMode.current
               ? 'bg-danger text-white shadow-md ring-2 ring-danger/30'
               : 'bg-white dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200'
           }`}>
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <path d="M20 20H7L3 16c-.8-.8-.8-2 0-2.8L14.6 1.6c.8-.8 2-.8 2.8 0L21.4 5.6c.8.8.8 2 0 2.8L12 18" />
             <path d="M6 12l5.4-5.4" />
           </svg>
-          消しゴム
         </button>
 
         <div className="w-px h-6 bg-gray-300" />
@@ -1531,6 +1552,13 @@ export default function JudgeSheet({
               : 'crosshair',
           }} />
       </div>
+
+      {/* デジタルスコア入力バー（Canvas下部、薄め2段） */}
+      <ScoreInputBar
+        value={digitalScores}
+        eJudgeCount={eJudgeCount}
+        onChange={handleScoreChange}
+      />
     </div>
   );
 }

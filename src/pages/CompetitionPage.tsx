@@ -6,6 +6,7 @@ import type { Session, MemoRecord } from '../db/database';
 import type { Apparatus } from '../types';
 import JudgeSheet from '../components/JudgeSheet';
 import { renderSheetCanvas, loadVaultImage } from '../utils/renderSheet';
+import RankingModal from '../components/RankingModal';
 
 // サムネイル描画用定数（内部解像度。表示は列幅にフィット）
 const THUMB_W = 280;
@@ -49,6 +50,8 @@ function drawThumbnail(
     strokes: rec?.strokes ?? [],
     lines: rec?.lines,
     vaultImg: apparatus === 'VT' ? vaultImg : null,
+    digitalScores: rec?.digitalScores,
+    digitalAthleteName: rec?.digitalAthleteName,
   });
 
   const scale = Math.min(THUMB_W / srcW, THUMB_H / srcH);
@@ -134,6 +137,9 @@ export default function CompetitionPage() {
   const [pageRecords, setPageRecords] = useState<MemoRecord[]>([]);
   const [vaultImg, setVaultImg] = useState<HTMLImageElement | null>(null);
   const [deletedPage, setDeletedPage] = useState<DeletedPageSnapshot | null>(null);
+  const [showRanking, setShowRanking] = useState(false);
+  const [digitalNameDraft, setDigitalNameDraft] = useState('');
+  const digitalNameSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     if (!sessionId) return;
@@ -243,6 +249,18 @@ export default function CompetitionPage() {
     setDeletedPage(null);
   };
 
+  // 現在ページの digitalAthleteName を DB から読み込む（ページ切替時に同期）
+  useEffect(() => {
+    if (!sessionId) return;
+    let cancelled = false;
+    const id = `comp:${sessionId}:${currentPage}`;
+    db.memoRecords.get(id).then(rec => {
+      if (cancelled) return;
+      setDigitalNameDraft(rec?.digitalAthleteName ?? '');
+    });
+    return () => { cancelled = true; };
+  }, [sessionId, currentPage]);
+
   if (!session || !session.apparatus || !sessionId) return null;
 
   const recordId = `comp:${sessionId}:${currentPage}`;
@@ -256,8 +274,49 @@ export default function CompetitionPage() {
     setShowPageList(false);
   };
 
+  const onDigitalNameChange = (v: string) => {
+    setDigitalNameDraft(v);
+    if (digitalNameSaveTimer.current) clearTimeout(digitalNameSaveTimer.current);
+    digitalNameSaveTimer.current = setTimeout(() => {
+      // update-or-insert: 既存があれば update、なければ stub を put
+      db.transaction('rw', db.memoRecords, async () => {
+        const existing = await db.memoRecords.get(recordId);
+        if (existing) {
+          await db.memoRecords.update(recordId, { digitalAthleteName: v, updatedAt: new Date() });
+        } else {
+          await db.memoRecords.put({
+            id: recordId,
+            sessionId,
+            athleteName: '',
+            apparatus: session!.apparatus!,
+            pageNumber: currentPage,
+            strokes: [],
+            digitalAthleteName: v,
+            updatedAt: new Date(),
+          });
+        }
+      });
+    }, 800);
+  };
+
   const pageNav = (
     <>
+      <div className="w-px h-4 bg-gray-300" />
+      {/* デジタル選手名 */}
+      <input
+        type="text"
+        value={digitalNameDraft}
+        onChange={e => onDigitalNameChange(e.target.value)}
+        placeholder="選手名"
+        className="px-2 py-1 text-sm rounded border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 min-h-[36px] w-32"
+      />
+      <button onClick={() => setShowRanking(true)}
+        title="ランキングを表示"
+        className="flex items-center gap-1 px-2 py-1.5 rounded-lg text-xs font-bold min-h-[44px]
+                   bg-white dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600">
+        <span>🏆</span>
+        <span>順位</span>
+      </button>
       <div className="w-px h-4 bg-gray-300" />
       <button onClick={goPrev} disabled={currentPage <= 1}
         className="px-3 py-1 rounded-lg text-base font-bold bg-white dark:bg-gray-700 text-gray-600 dark:text-gray-300 disabled:opacity-30 min-h-[44px] min-w-[44px] hover:bg-gray-200 dark:hover:bg-gray-600 active:bg-gray-300">
@@ -299,7 +358,17 @@ export default function CompetitionPage() {
         showApparatusTabs={false}
         toolbarExtra={pageNav}
         onBack={() => navigate('/')}
+        digitalAthleteName={digitalNameDraft}
       />
+
+      {showRanking && (
+        <RankingModal
+          sessionId={sessionId}
+          mode="competition"
+          apparatus={session.apparatus}
+          onClose={() => setShowRanking(false)}
+        />
+      )}
 
       {/* サムネイル付きページ一覧パネル */}
       {showPageList && (
