@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import type { DigitalScores } from '../types';
-import { calcEFinal, calcFinal, formatScore, eFinalDecimals } from '../utils/scoreCalc';
+import { calcEFinal, calcFinal, formatScore, formatNatural, eFinalDecimals } from '../utils/scoreCalc';
 import ScoreNumpad from './ScoreNumpad';
 
 interface Props {
@@ -106,7 +106,7 @@ export default function ScoreInputBar({ value, eJudgeCount, onChange }: Props) {
           {eArr.map((v, i) => renderInputCell(
             { kind: 'e', index: i },
             v !== undefined
-              ? <span className={valueClass}>{formatScore(v, 1)}</span>
+              ? <span className={valueClass}>{formatNatural(v, 3)}</span>
               : <span className={placeholderClass}>―</span>,
             'flex-1',
           ))}

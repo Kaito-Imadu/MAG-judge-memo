@@ -72,6 +72,18 @@ export function formatScore(v: number | undefined, digits = 3): string {
   return v.toFixed(digits);
 }
 
+// 表示用フォーマッタ（自然桁）: 値の自然な桁数で表示（最大 maxDigits まで）。
+// 例) 8 → "8" / 8.5 → "8.5" / 8.55 → "8.55" / 8.5555 → "8.556"
+// 個人E スコアなど「ユーザが入力した有効数字をそのまま見たい」用途。
+export function formatNatural(v: number | undefined, maxDigits = 3): string {
+  if (typeof v !== 'number' || Number.isNaN(v)) return '';
+  const s = v.toString();
+  if (!s.includes('.')) return s;
+  const decLen = s.length - s.indexOf('.') - 1;
+  if (decLen > maxDigits) return v.toFixed(maxDigits);
+  return s;
+}
+
 function avg(xs: number[]): number {
   return xs.reduce((a, b) => a + b, 0) / xs.length;
 }

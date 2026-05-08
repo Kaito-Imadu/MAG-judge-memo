@@ -79,8 +79,7 @@ function drawThumbnail(
 }
 
 // サムネイルカード
-function ThumbCard({ page, rec, apparatus, eJudgeCount, vaultImg, isActive, onClick, onDelete }: {
-  page: number;
+function ThumbCard({ rec, apparatus, eJudgeCount, vaultImg, isActive, onClick, onDelete }: {
   rec: MemoRecord | undefined;
   apparatus: Apparatus;
   eJudgeCount: number;
@@ -116,22 +115,19 @@ function ThumbCard({ page, rec, apparatus, eJudgeCount, vaultImg, isActive, onCl
           style={{ width: '100%', aspectRatio: `${THUMB_W} / ${THUMB_H}`, maxWidth: THUMB_W }}
           className="rounded" />
       </button>
-      {/* 行1: ページ番号 + 選手名 + 状態 + 削除 */}
+      {/* 行1: 選手名 + 状態 + 削除 */}
       <div className="flex items-center gap-1 w-full px-1">
-        <button onClick={onClick} className={`text-xs font-bold ${isActive ? 'text-accent' : 'text-gray-500'} shrink-0`}>
-          #{page}
+        <button onClick={onClick}
+          className={`text-xs font-bold truncate flex-1 text-left ${
+            labelStr
+              ? (isActive ? 'text-accent' : 'text-gray-700 dark:text-gray-200')
+              : 'text-gray-400'
+          }`}>
+          {labelStr || '未記入'}
         </button>
-        {labelStr && (
-          <button onClick={onClick}
-            className="text-xs font-bold text-gray-700 dark:text-gray-200 truncate flex-1 text-left">
-            {labelStr}
-          </button>
+        {rec && rec.strokes.length > 0 && (
+          <span className="text-success text-[10px] font-bold shrink-0">済</span>
         )}
-        {rec && rec.strokes.length > 0 ? (
-          <span className="text-success text-[10px] font-bold ml-auto shrink-0">済</span>
-        ) : !labelStr ? (
-          <span className="text-gray-400 text-[10px] ml-auto shrink-0">未記入</span>
-        ) : null}
         <button onClick={onDelete}
           className="text-danger text-[10px] font-bold px-2 py-1 rounded hover:bg-red-50 dark:hover:bg-red-900/20 shrink-0">
           削除
@@ -163,6 +159,7 @@ export default function CompetitionPage() {
   const [deletedPage, setDeletedPage] = useState<DeletedPageSnapshot | null>(null);
   const [showRanking, setShowRanking] = useState(false);
   const [digitalNameDraft, setDigitalNameDraft] = useState('');
+  const [isDeleting, setIsDeleting] = useState(false);
   const digitalNameSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
@@ -207,7 +204,7 @@ export default function CompetitionPage() {
   const deletePage = async (page: number) => {
     if (!sessionId) return;
     if (totalPages <= 1) return;
-    const ok = window.confirm(`#${page} を削除しますか？このページのメモも削除されます。`);
+    const ok = window.confirm(`このページのメモも含めて削除しますか？`);
     if (!ok) return;
 
     const targetRecords = await db.memoRecords
@@ -223,6 +220,10 @@ export default function CompetitionPage() {
       shiftedRecords,
       totalPages,
     });
+
+    // 削除/リナンバリング中はJudgeSheetの自動保存を抑止する。
+    // (recordId 変化時の flushSave が古いストロークを別ページに書き戻すバグの回避)
+    flushSync(() => setIsDeleting(true));
 
     if (page <= currentPage) {
       const interimPage = page < totalPages ? page + 1 : page - 1;
@@ -248,7 +249,11 @@ export default function CompetitionPage() {
     recs.sort((a, b) => a.pageNumber - b.pageNumber);
     setPageRecords(recs);
     setTotalPages(nextTotal);
-    setCurrentPage(prev => Math.min(currentPage >= page ? Math.max(1, currentPage - 1) : prev, nextTotal));
+    flushSync(() => {
+      setCurrentPage(prev => Math.min(currentPage >= page ? Math.max(1, currentPage - 1) : prev, nextTotal));
+    });
+    // 全state更新が反映されJudgeSheetのrecordIdが新値で安定した後に抑止解除
+    queueMicrotask(() => setIsDeleting(false));
   };
 
   const undoDeletePage = async () => {
@@ -390,6 +395,7 @@ export default function CompetitionPage() {
         onBack={() => navigate('/')}
         digitalAthleteName={digitalNameDraft}
         headerOverlay={headerOverlay}
+        suppressSave={isDeleting}
       />
 
       {showRanking && (
@@ -442,7 +448,6 @@ export default function CompetitionPage() {
                   return (
                     <ThumbCard
                       key={page}
-                      page={page}
                       rec={rec}
                       apparatus={session.apparatus!}
                       eJudgeCount={session.eJudgeCount}

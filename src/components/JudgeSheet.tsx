@@ -30,6 +30,8 @@ interface Props {
   digitalAthleteName?: string;
   // Canvas ヘッダー領域に重ねるオーバーレイ（選手名の直接入力欄など）
   headerOverlay?: ReactNode;
+  // true の間は自動保存を抑止（ページ削除/リナンバリング中の保護用）
+  suppressSave?: boolean;
 }
 
 const COLORS = [
@@ -273,6 +275,7 @@ export default function JudgeSheet({
   onApparatusChange,
   digitalAthleteName,
   headerOverlay,
+  suppressSave = false,
 }: Props) {
   // === Refs ===
   const staticCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -311,6 +314,10 @@ export default function JudgeSheet({
   const prevPageNumber = useRef(pageNumber);
   // digitalAthleteName は同一recordId内（同じページ）でユーザが任意に書き換える可能性があるので、
   // 「最新値」を常にrefで持っておき、flushSave時にそれを使う。
+  // 削除/リナンバリング中の保存抑止フラグ
+  const suppressSaveRef = useRef(suppressSave);
+  useEffect(() => { suppressSaveRef.current = suppressSave; }, [suppressSave]);
+
   const digitalAthleteNameRef = useRef(digitalAthleteName);
   // 初回（マウント時）はスキップして、以降の prop 変更でのみ自動保存をトリガー。
   const digitalAthleteNameInitialized = useRef(false);
@@ -403,12 +410,14 @@ export default function JudgeSheet({
   useEffect(() => {
     saveRef.current = () => {
       if (saveTimer.current) clearTimeout(saveTimer.current);
+      if (suppressSaveRef.current) return;
       // 現在の値をキャプチャ
       const id = recordId;
       const a = apparatus;
       const an = athleteName;
       const pn = pageNumber;
       saveTimer.current = setTimeout(() => {
+        if (suppressSaveRef.current) return;
         flushSave(
           id, strokes.current, a, an, pn,
           undefined,
@@ -566,13 +575,18 @@ export default function JudgeSheet({
   // --- recordId変更時: 前を保存 → 新を復元 ---
   useEffect(() => {
     if (prevRecordId.current && prevRecordId.current !== recordId) {
-      flushSave(
-        prevRecordId.current, strokes.current,
-        prevApparatus.current, prevAthleteName.current, prevPageNumber.current,
-        undefined,
-        digitalScoresRef.current,
-        digitalAthleteNameRef.current,
-      );
+      if (suppressSaveRef.current) {
+        // 削除/リナンバリング中: 保留中の保存タイマーだけキャンセルし、書き戻しはしない
+        if (saveTimer.current) { clearTimeout(saveTimer.current); saveTimer.current = null; }
+      } else {
+        flushSave(
+          prevRecordId.current, strokes.current,
+          prevApparatus.current, prevAthleteName.current, prevPageNumber.current,
+          undefined,
+          digitalScoresRef.current,
+          digitalAthleteNameRef.current,
+        );
+      }
     }
     prevRecordId.current = recordId;
     prevApparatus.current = apparatus;

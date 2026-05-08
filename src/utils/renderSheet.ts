@@ -7,7 +7,7 @@ import type { Apparatus, DigitalScores } from '../types';
 import type { StrokeData } from '../db/database';
 import { APPARATUS_LIST } from '../constants/apparatus';
 import { getNDChecklist } from '../constants/deductions';
-import { calcFinal, getEFinal, formatScore, eFinalDecimals } from './scoreCalc';
+import { calcFinal, getEFinal, formatScore, formatNatural, eFinalDecimals } from './scoreCalc';
 
 // JudgeSheet と同じ定数
 const LABEL_H = 52;
@@ -193,7 +193,7 @@ export function renderSheetCanvas(opts: RenderOptions): HTMLCanvasElement {
     { label: 'D', value: formatScore(digitalScores?.d, 1) },
   ];
   for (let i = 0; i < eJudgeCount; i++) {
-    parts.push({ label: `E${i + 1}`, value: formatScore(eArr[i], 1) });
+    parts.push({ label: `E${i + 1}`, value: formatNatural(eArr[i], 3) });
   }
   const decimals = eFinalDecimals(eArr);
   parts.push({ label: 'E決定', value: formatScore(eFinalVal, decimals) });

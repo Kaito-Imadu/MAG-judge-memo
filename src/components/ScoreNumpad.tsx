@@ -17,16 +17,16 @@ export default function ScoreNumpad({ initial, label, min = 0, max, onChange, on
   const [error, setError] = useState<string | null>(null);
   const overlayRef = useRef<HTMLDivElement>(null);
 
-  // text 変化を親に伝搬（範囲外なら親には undefined を渡さず、エラー表示のみ）
+  // text 変化を親に伝搬。中間状態 ("8.") は末尾の点を取り除いた値を渡す。
   useEffect(() => {
     if (text === '') {
       onChange(undefined);
       setError(null);
       return;
     }
-    // "8." のように末尾が小数点の場合は中間状態として親に通知しない
-    if (text.endsWith('.')) return;
-    const n = Number(text);
+    const parseText = text.endsWith('.') ? text.slice(0, -1) : text;
+    if (parseText === '') return;
+    const n = Number(parseText);
     if (!Number.isFinite(n)) return;
     if (n < min || (typeof max === 'number' && n > max)) {
       setError(`${min}〜${max ?? '∞'} の範囲で入力してください`);
