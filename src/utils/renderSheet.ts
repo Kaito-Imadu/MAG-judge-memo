@@ -7,7 +7,7 @@ import type { Apparatus, DigitalScores } from '../types';
 import type { StrokeData } from '../db/database';
 import { APPARATUS_LIST } from '../constants/apparatus';
 import { getNDChecklist } from '../constants/deductions';
-import { calcFinal, getEFinal, formatScore } from './scoreCalc';
+import { calcFinal, getEFinal, formatScore, eFinalDecimals } from './scoreCalc';
 
 // JudgeSheet と同じ定数
 const LABEL_H = 52;
@@ -204,10 +204,11 @@ export function renderSheetCanvas(opts: RenderOptions): HTMLCanvasElement {
   for (let i = 0; i < eJudgeCount; i++) {
     parts.push({ label: `E${i + 1}`, value: formatScore(eArr[i], 1) });
   }
-  parts.push({ label: 'E決定', value: formatScore(eFinalVal, 3) });
+  const decimals = eFinalDecimals(eArr);
+  parts.push({ label: 'E決定', value: formatScore(eFinalVal, decimals) });
   parts.push({ label: 'ND', value: formatScore(digitalScores?.nd, 1) });
   if (digitalScores?.bonus) parts.push({ label: '加点', value: '+0.1' });
-  parts.push({ label: '決定点', value: formatScore(finalVal, 3), bold: true });
+  parts.push({ label: '決定点', value: formatScore(finalVal, decimals), bold: true });
 
   // 大会モードでは番号＋デジタル選手名を左端に。
   const namePrefix = (() => {

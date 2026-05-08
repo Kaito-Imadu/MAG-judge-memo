@@ -8,8 +8,9 @@ import { formatScore } from '../utils/scoreCalc';
 interface Props {
   sessionId: string;
   mode: 'trial' | 'competition';
-  apparatus?: Apparatus;        // 大会モード時の固定種目
-  athletes?: string[];           // 試技会モードの選手リスト（順位対象を確定するため）
+  apparatus?: Apparatus;
+  athletes?: string[];
+  eJudgeCount: number;     // E決定・決定点の表示桁数決定に使う
   onClose: () => void;
 }
 
@@ -21,7 +22,9 @@ const SORT_LABELS: Record<SortKey, string> = {
   eFinal: 'E決定',
 };
 
-export default function RankingModal({ sessionId, mode, apparatus, athletes = [], onClose }: Props) {
+export default function RankingModal({ sessionId, mode, apparatus, athletes = [], eJudgeCount, onClose }: Props) {
+  // セッション全体の eJudgeCount に基づき、E決定/決定点の桁数を決定（1〜3=2桁、4以上=3桁）
+  const decimals = eJudgeCount <= 3 ? 2 : 3;
   const data = useSessionScores(sessionId);
   const [sortKey, setSortKey] = useState<SortKey>('final');
   // 試技会モード: タブ（種目別 or AA）
@@ -48,11 +51,11 @@ export default function RankingModal({ sessionId, mode, apparatus, athletes = []
             </td>
             <td className="px-3 py-2 text-sm text-gray-800 dark:text-gray-200">{name}</td>
             <td className="px-3 py-2 text-sm font-mono text-right">{formatScore(e.d, 1)}</td>
-            <td className="px-3 py-2 text-sm font-mono text-right">{formatScore(e.eFinal, 3)}</td>
+            <td className="px-3 py-2 text-sm font-mono text-right">{formatScore(e.eFinal, decimals)}</td>
             <td className="px-3 py-2 text-sm font-mono text-right">{formatScore(e.nd, 1)}</td>
             <td className="px-3 py-2 text-sm font-mono text-right">{e.bonus ? '+0.1' : ''}</td>
             <td className={`px-3 py-2 text-sm font-mono text-right font-bold ${typeof r.score === 'number' ? 'text-primary dark:text-accent' : 'text-gray-300'}`}>
-              {formatScore(r.score, 3) || '-'}
+              {formatScore(r.score, decimals) || '-'}
             </td>
           </tr>
         );
@@ -74,11 +77,11 @@ export default function RankingModal({ sessionId, mode, apparatus, athletes = []
           </td>
           <td className="px-3 py-2 text-sm text-gray-800 dark:text-gray-200">{r.item.name}</td>
           <td className="px-3 py-2 text-sm font-mono text-right">{r.item.e ? formatScore(r.item.e.d, 1) : ''}</td>
-          <td className="px-3 py-2 text-sm font-mono text-right">{r.item.e ? formatScore(r.item.e.eFinal, 3) : ''}</td>
+          <td className="px-3 py-2 text-sm font-mono text-right">{r.item.e ? formatScore(r.item.e.eFinal, decimals) : ''}</td>
           <td className="px-3 py-2 text-sm font-mono text-right">{r.item.e ? formatScore(r.item.e.nd, 1) : ''}</td>
           <td className="px-3 py-2 text-sm font-mono text-right">{r.item.e?.bonus ? '+0.1' : ''}</td>
           <td className={`px-3 py-2 text-sm font-mono text-right font-bold ${typeof r.score === 'number' ? 'text-primary dark:text-accent' : 'text-gray-300'}`}>
-            {formatScore(r.score, 3) || '-'}
+            {formatScore(r.score, decimals) || '-'}
           </td>
         </tr>
       ));
@@ -110,15 +113,15 @@ export default function RankingModal({ sessionId, mode, apparatus, athletes = []
         <td className="px-3 py-2 text-sm text-gray-800 dark:text-gray-200 sticky left-12 bg-white dark:bg-gray-800">{r.item.name}</td>
         {APPARATUS_LIST.map(a => (
           <td key={a.code} className="px-2 py-2 text-xs font-mono text-right text-gray-600 dark:text-gray-400">
-            {formatScore(r.item.perApp[a.code], 3) || '-'}
+            {formatScore(r.item.perApp[a.code], decimals) || '-'}
           </td>
         ))}
         <td className={`px-3 py-2 text-sm font-mono text-right font-bold ${typeof r.score === 'number' ? 'text-primary dark:text-accent' : 'text-gray-300'}`}>
-          {formatScore(r.score, 3) || '-'}
+          {formatScore(r.score, decimals) || '-'}
         </td>
       </tr>
     ));
-  }, [data, mode, apparatus, athletes, trialTab, appTab, sortKey]);
+  }, [data, mode, apparatus, athletes, trialTab, appTab, sortKey, decimals]);
 
   return (
     <div className="fixed inset-0 z-[90] bg-black/40 flex items-center justify-center p-4" onClick={onClose}>

@@ -408,6 +408,7 @@ export default function CompetitionPage() {
           sessionId={sessionId}
           mode="competition"
           apparatus={session.apparatus}
+          eJudgeCount={session.eJudgeCount}
           onClose={() => setShowRanking(false)}
         />
       )}

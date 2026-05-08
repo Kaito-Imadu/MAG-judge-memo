@@ -3,21 +3,23 @@ import { useEffect, useRef, useState } from 'react';
 interface Props {
   initial: number | undefined;
   label: string;
+  min?: number;            // 範囲下限（含む）。デフォルト 0
+  max?: number;            // 範囲上限（含む）。指定時は超過した値はOK時に却下
   onConfirm: (value: number | undefined) => void;
   onCancel: () => void;
-  onNext?: (value: number | undefined) => void;  // OK→次フィールドへ。未指定なら confirm のみ。
 }
 
-// 数字テンキー: タップで値を組み立て、OK で確定して次へ進む。
+// 数字テンキー: タップで値を組み立て、OK で確定。次セルへの自動遷移はしない（1セルずつ確定）。
 // 文字列で保持して "8.", ".5" のような途中入力を許す。
-export default function ScoreNumpad({ initial, label, onConfirm, onCancel, onNext }: Props) {
+export default function ScoreNumpad({ initial, label, min = 0, max, onConfirm, onCancel }: Props) {
   const [text, setText] = useState<string>(initial !== undefined ? String(initial) : '');
+  const [error, setError] = useState<string | null>(null);
   const overlayRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onCancel();
-      else if (e.key === 'Enter') confirm(true);
+      else if (e.key === 'Enter') confirm();
       else if (e.key === 'Backspace') backspace();
       else if (e.key === '.' || /^[0-9]$/.test(e.key)) press(e.key);
     };
@@ -27,6 +29,7 @@ export default function ScoreNumpad({ initial, label, onConfirm, onCancel, onNex
   }, [text]);
 
   const press = (ch: string) => {
+    setError(null);
     setText(prev => {
       if (ch === '.' && prev.includes('.')) return prev;
       if (ch === '.' && prev === '') return '0.';
@@ -40,8 +43,8 @@ export default function ScoreNumpad({ initial, label, onConfirm, onCancel, onNex
       return prev + ch;
     });
   };
-  const backspace = () => setText(prev => prev.slice(0, -1));
-  const clear = () => setText('');
+  const backspace = () => { setError(null); setText(prev => prev.slice(0, -1)); };
+  const clear = () => { setError(null); setText(''); };
 
   const parseValue = (): number | undefined => {
     if (text === '') return undefined;
@@ -49,10 +52,15 @@ export default function ScoreNumpad({ initial, label, onConfirm, onCancel, onNex
     return Number.isFinite(n) ? n : undefined;
   };
 
-  const confirm = (next: boolean) => {
+  const confirm = () => {
     const v = parseValue();
-    if (next && onNext) onNext(v);
-    else onConfirm(v);
+    if (typeof v === 'number') {
+      if (v < min || (typeof max === 'number' && v > max)) {
+        setError(`${min}〜${max ?? '∞'} の範囲で入力してください`);
+        return;
+      }
+    }
+    onConfirm(v);
   };
 
   const onBgClick = (e: React.MouseEvent) => {
@@ -67,10 +75,18 @@ export default function ScoreNumpad({ initial, label, onConfirm, onCancel, onNex
       style={{ touchAction: 'manipulation' }}
     >
       <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl p-4 w-72 max-w-[90vw]">
-        <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">{label}</div>
-        <div className="bg-gray-100 dark:bg-gray-900 rounded-lg px-4 py-3 mb-3 text-right text-3xl font-mono text-gray-900 dark:text-gray-100 min-h-[60px] flex items-center justify-end">
+        <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">
+          {label}
+          {typeof max === 'number' && (
+            <span className="ml-2 text-gray-400">({min}〜{max})</span>
+          )}
+        </div>
+        <div className="bg-gray-100 dark:bg-gray-900 rounded-lg px-4 py-3 mb-2 text-right text-3xl font-mono text-gray-900 dark:text-gray-100 min-h-[60px] flex items-center justify-end">
           {text || <span className="text-gray-400">―</span>}
         </div>
+        {error && (
+          <div className="text-xs text-danger mb-2">{error}</div>
+        )}
         <div className="grid grid-cols-4 gap-2">
           {['7', '8', '9'].map(d => (
             <button key={d} onClick={() => press(d)}
@@ -110,7 +126,7 @@ export default function ScoreNumpad({ initial, label, onConfirm, onCancel, onNex
             className="h-14 rounded-lg bg-gray-100 dark:bg-gray-700 text-2xl font-bold text-gray-800 dark:text-gray-100 active:scale-95 hover:bg-gray-200 dark:hover:bg-gray-600">
             .
           </button>
-          <button onClick={() => confirm(true)}
+          <button onClick={confirm}
             className="h-14 rounded-lg bg-accent text-white text-base font-bold active:scale-95">
             OK
           </button>

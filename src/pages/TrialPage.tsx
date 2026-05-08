@@ -381,10 +381,11 @@ export default function TrialPage() {
                     {(() => {
                       const r = aaRanking.get(name);
                       if (!r || typeof r.total !== 'number') return null;
+                      const decimals = session.eJudgeCount <= 3 ? 2 : 3;
                       return (
                         <span className="text-[10px] font-bold text-accent flex items-center gap-1">
                           <span>{r.rank}位</span>
-                          <span className="font-mono">{formatScore(r.total, 3)}</span>
+                          <span className="font-mono">{formatScore(r.total, decimals)}</span>
                         </span>
                       );
                     })()}
@@ -502,6 +503,7 @@ export default function TrialPage() {
           sessionId={sessionId}
           mode="trial"
           athletes={session.athletes}
+          eJudgeCount={session.eJudgeCount}
           onClose={() => setShowRanking(false)}
         />
       )}
