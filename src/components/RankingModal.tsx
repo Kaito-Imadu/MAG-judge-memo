@@ -41,7 +41,7 @@ export default function RankingModal({ sessionId, mode, apparatus, athletes = []
       return ranked.map(r => {
         const e = r.item;
         const namePart = (e.record.digitalAthleteName || '').trim();
-        const numPart = typeof e.record.digitalAthleteNumber === 'number' ? `№${e.record.digitalAthleteNumber}` : '';
+        const numPart = typeof e.record.digitalAthleteNumber === 'number' ? String(e.record.digitalAthleteNumber) : '';
         const labelParts = [numPart, namePart].filter(Boolean);
         const name = labelParts.length > 0 ? labelParts.join(' ') : `P${e.record.pageNumber}`;
         return (

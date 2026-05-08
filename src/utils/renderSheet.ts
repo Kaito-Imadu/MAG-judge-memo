@@ -98,7 +98,7 @@ export function renderSheetCanvas(opts: RenderOptions): HTMLCanvasElement {
     const labelW = c.measureText(apparatusLabel).width;
     let cursorX = 10 + labelW + 24;
     if (typeof digitalAthleteNumber === 'number') {
-      const numText = `№${digitalAthleteNumber}`;
+      const numText = String(digitalAthleteNumber);
       c.fillStyle = '#1B4F72';
       c.font = 'bold 18px "Noto Sans JP", sans-serif';
       c.fillText(numText, cursorX, LABEL_H / 2 + 7);
@@ -214,7 +214,7 @@ export function renderSheetCanvas(opts: RenderOptions): HTMLCanvasElement {
   const namePrefix = (() => {
     if (mode !== 'competition') return '';
     const tokens: string[] = [];
-    if (typeof digitalAthleteNumber === 'number') tokens.push(`№${digitalAthleteNumber}`);
+    if (typeof digitalAthleteNumber === 'number') tokens.push(String(digitalAthleteNumber));
     if (digitalAthleteName) tokens.push(digitalAthleteName);
     return tokens.length > 0 ? tokens.join(' ') + '：' : '';
   })();

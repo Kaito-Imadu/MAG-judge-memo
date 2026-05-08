@@ -7,6 +7,7 @@ import type { Apparatus } from '../types';
 import JudgeSheet from '../components/JudgeSheet';
 import { renderSheetCanvas, loadVaultImage } from '../utils/renderSheet';
 import RankingModal from '../components/RankingModal';
+import { calcFinal, getEFinal, formatScore, eFinalDecimals } from '../utils/scoreCalc';
 
 // サムネイル描画用定数（内部解像度。表示は列幅にフィット）
 const THUMB_W = 280;
@@ -97,6 +98,14 @@ function ThumbCard({ page, rec, apparatus, eJudgeCount, vaultImg, isActive, onCl
     }
   }, [rec, apparatus, eJudgeCount, vaultImg]);
 
+  const ds = rec?.digitalScores;
+  const eFinalVal = ds ? getEFinal(ds) : undefined;
+  const finalVal = ds ? calcFinal(ds) : undefined;
+  const decimals = ds ? eFinalDecimals(ds.e) : (eJudgeCount <= 3 ? 2 : 3);
+  const numStr = typeof rec?.digitalAthleteNumber === 'number' ? String(rec.digitalAthleteNumber) : '';
+  const nameStr = (rec?.digitalAthleteName || '').trim();
+  const labelStr = [numStr, nameStr].filter(Boolean).join(' ');
+
   return (
     <div
       className={`flex flex-col items-center gap-0.5 p-1 rounded-lg border-2 transition-all
@@ -110,20 +119,37 @@ function ThumbCard({ page, rec, apparatus, eJudgeCount, vaultImg, isActive, onCl
           style={{ width: '100%', aspectRatio: `${THUMB_W} / ${THUMB_H}`, maxWidth: THUMB_W }}
           className="rounded" />
       </button>
+      {/* 行1: ページ番号 + 選手名 + 状態 + 削除 */}
       <div className="flex items-center gap-1 w-full px-1">
-        <button onClick={onClick} className={`text-xs font-bold ${isActive ? 'text-accent' : 'text-gray-500'}`}>
+        <button onClick={onClick} className={`text-xs font-bold ${isActive ? 'text-accent' : 'text-gray-500'} shrink-0`}>
           #{page}
         </button>
-        {rec && rec.strokes.length > 0 ? (
-          <span className="text-success text-[10px] font-bold ml-auto">済</span>
-        ) : (
-          <span className="text-gray-400 text-[10px] ml-auto">未記入</span>
+        {labelStr && (
+          <button onClick={onClick}
+            className="text-xs font-bold text-gray-700 dark:text-gray-200 truncate flex-1 text-left">
+            {labelStr}
+          </button>
         )}
+        {rec && rec.strokes.length > 0 ? (
+          <span className="text-success text-[10px] font-bold ml-auto shrink-0">済</span>
+        ) : !labelStr ? (
+          <span className="text-gray-400 text-[10px] ml-auto shrink-0">未記入</span>
+        ) : null}
         <button onClick={onDelete}
-          className="text-danger text-[10px] font-bold px-2 py-1 rounded hover:bg-red-50 dark:hover:bg-red-900/20">
+          className="text-danger text-[10px] font-bold px-2 py-1 rounded hover:bg-red-50 dark:hover:bg-red-900/20 shrink-0">
           削除
         </button>
       </div>
+      {/* 行2: スコア（デジタルスコアがある時のみ）*/}
+      {ds && (
+        <div className="flex items-center gap-2 w-full px-1 text-[10px] font-mono text-gray-600 dark:text-gray-400">
+          <span>D <span className="font-bold text-gray-800 dark:text-gray-200">{formatScore(ds.d, 1) || '-'}</span></span>
+          <span>E <span className="font-bold text-gray-800 dark:text-gray-200">{formatScore(eFinalVal, decimals) || '-'}</span></span>
+          <span>ND <span className="font-bold text-gray-800 dark:text-gray-200">{formatScore(ds.nd, 1) || '-'}</span></span>
+          {ds.bonus && <span className="text-success font-bold">+0.1</span>}
+          <span className="ml-auto text-primary dark:text-accent font-bold">{formatScore(finalVal, decimals) || '-'}</span>
+        </div>
+      )}
     </div>
   );
 }
@@ -330,27 +356,32 @@ export default function CompetitionPage() {
     }, 800);
   };
 
-  const pageNav = (
-    <>
-      <div className="w-px h-4 bg-gray-300" />
-      {/* 番号 */}
+  // Canvas ヘッダーに重ねる「番号・選手名」直接入力欄
+  // 「FX ゆか」ラベル(おおよそ x=10 + 80px)の右側に配置するため左パディングを取る
+  const headerOverlay = (
+    <div className="flex items-center gap-2 pl-32 pr-3 h-full">
       <input
         type="text"
         inputMode="numeric"
         pattern="[0-9]*"
         value={digitalNumberDraft}
         onChange={e => onDigitalNumberChange(e.target.value)}
-        placeholder="№"
-        className="px-2 py-1 text-sm font-mono text-center rounded border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 min-h-[36px] w-14"
+        placeholder="番号"
+        className="px-2 py-1 text-sm font-mono font-bold text-center rounded bg-white/90 dark:bg-gray-800/80 border border-gray-300 dark:border-gray-600 dark:text-gray-100 min-h-[36px] w-16 focus:outline-none focus:border-accent"
       />
-      {/* デジタル選手名 */}
       <input
         type="text"
         value={digitalNameDraft}
         onChange={e => onDigitalNameChange(e.target.value)}
         placeholder="選手名"
-        className="px-2 py-1 text-sm rounded border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 min-h-[36px] w-32"
+        className="px-2 py-1 text-base font-bold rounded bg-white/90 dark:bg-gray-800/80 border border-gray-300 dark:border-gray-600 dark:text-gray-100 min-h-[36px] w-48 focus:outline-none focus:border-accent"
       />
+    </div>
+  );
+
+  const pageNav = (
+    <>
+      <div className="w-px h-4 bg-gray-300" />
       <button onClick={() => setShowRanking(true)}
         title="ランキングを表示"
         className="flex items-center gap-1 px-2 py-1.5 rounded-lg text-xs font-bold min-h-[44px]
@@ -401,6 +432,7 @@ export default function CompetitionPage() {
         onBack={() => navigate('/')}
         digitalAthleteName={digitalNameDraft}
         digitalAthleteNumber={digitalNumberDraft === '' ? undefined : Number(digitalNumberDraft)}
+        headerOverlay={headerOverlay}
       />
 
       {showRanking && (

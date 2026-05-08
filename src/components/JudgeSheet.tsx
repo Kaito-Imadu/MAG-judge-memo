@@ -30,6 +30,8 @@ interface Props {
   digitalAthleteName?: string;
   // 大会モード用ゼッケン番号
   digitalAthleteNumber?: number;
+  // Canvas ヘッダー領域に重ねるオーバーレイ（番号・選手名の直接入力欄など）
+  headerOverlay?: ReactNode;
 }
 
 const COLORS = [
@@ -273,6 +275,7 @@ export default function JudgeSheet({
   onApparatusChange,
   digitalAthleteName,
   digitalAthleteNumber,
+  headerOverlay,
 }: Props) {
   // === Refs ===
   const staticCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -452,30 +455,11 @@ export default function JudgeSheet({
       c.lineTo(w, LABEL_H);
       c.stroke();
     } else {
-      // 大会モード: 種目名 + 番号 + デジタル選手名（テキスト表示のみ。入力はツールバー）
+      // 大会モード: 種目名のみCanvasに描画。番号・選手名は HTML オーバーレイ (headerOverlay) で入力
       c.fillStyle = '#1B4F72';
       c.font = 'bold 16px "Noto Sans JP", sans-serif';
       const apparatusLabel = `${apparatus} ${apparatusInfo?.name ?? ''}`;
       c.fillText(apparatusLabel, 10, LABEL_H / 2 + 6);
-      const labelW = c.measureText(apparatusLabel).width;
-      let cursorX = 10 + labelW + 24;
-      // 番号（あれば名前の左に表示）
-      if (typeof digitalAthleteNumber === 'number') {
-        const numText = `№${digitalAthleteNumber}`;
-        c.fillStyle = '#1B4F72';
-        c.font = 'bold 18px "Noto Sans JP", sans-serif';
-        c.fillText(numText, cursorX, LABEL_H / 2 + 7);
-        cursorX += c.measureText(numText).width + 16;
-      }
-      if (digitalAthleteName && digitalAthleteName.trim()) {
-        c.fillStyle = '#1B4F72';
-        c.font = 'bold 20px "Noto Sans JP", sans-serif';
-        c.fillText(digitalAthleteName, cursorX, LABEL_H / 2 + 7);
-      } else if (typeof digitalAthleteNumber !== 'number') {
-        c.fillStyle = '#bbb';
-        c.font = '13px "Noto Sans JP", sans-serif';
-        c.fillText('番号・選手名はツールバーから入力', cursorX, LABEL_H / 2 + 6);
-      }
       // ラベル下に薄い区切り線
       c.strokeStyle = '#ddd';
       c.lineWidth = 0.5;
@@ -567,7 +551,7 @@ export default function JudgeSheet({
     }
 
     c.restore();
-  }, [getStaticCtx, hasND, hasCV, ndItems, mode, athleteName, apparatus, apparatusInfo, vtFlip, vtScale, digitalAthleteName, digitalAthleteNumber]);
+  }, [getStaticCtx, hasND, hasCV, ndItems, mode, athleteName, apparatus, apparatusInfo, vtFlip, vtScale]);
 
   // === Static Canvas 全再描画 ===
   const redrawStatic = useCallback(() => {
@@ -1572,6 +1556,15 @@ export default function JudgeSheet({
               ? `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='${ERASER_WIDTH * 2}' height='${ERASER_WIDTH * 2}'%3E%3Ccircle cx='${ERASER_WIDTH}' cy='${ERASER_WIDTH}' r='${ERASER_WIDTH - 1}' fill='none' stroke='%23E74C3C' stroke-width='2'/%3E%3C/svg%3E") ${ERASER_WIDTH} ${ERASER_WIDTH}, crosshair`
               : 'crosshair',
           }} />
+        {/* ヘッダー領域オーバーレイ（番号・選手名の直接入力） */}
+        {headerOverlay && (
+          <div
+            className="absolute left-0 right-0 top-0 flex items-center pointer-events-none"
+            style={{ height: LABEL_H }}
+          >
+            <div className="flex-1 pointer-events-auto">{headerOverlay}</div>
+          </div>
+        )}
       </div>
 
       {/* デジタルスコア入力バー（Canvas下部、薄め2段） */}
