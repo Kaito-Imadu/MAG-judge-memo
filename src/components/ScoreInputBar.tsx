@@ -67,11 +67,11 @@ export default function ScoreInputBar({ value, eJudgeCount, onChange }: Props) {
     return next;
   };
 
-  const onConfirm = (v: number | undefined) => {
+  // テンキーから値が変わるたびに親state へ反映（自動保存）。OK は押さなくて良い。
+  const onLiveChange = (v: number | undefined) => {
     if (!editing) return;
     const next = applyValue(editing, v);
     onChange(next);
-    setEditing(null);
   };
 
   const toggleBonus = () => {
@@ -170,8 +170,8 @@ export default function ScoreInputBar({ value, eJudgeCount, onChange }: Props) {
           label={cellLabel(editing)}
           min={cellRange(editing).min}
           max={cellRange(editing).max}
-          onConfirm={onConfirm}
-          onCancel={() => setEditing(null)}
+          onChange={onLiveChange}
+          onClose={() => setEditing(null)}
         />
       )}
     </>

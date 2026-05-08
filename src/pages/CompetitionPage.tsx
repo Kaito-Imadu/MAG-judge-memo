@@ -53,7 +53,6 @@ function drawThumbnail(
     vaultImg: apparatus === 'VT' ? vaultImg : null,
     digitalScores: rec?.digitalScores,
     digitalAthleteName: rec?.digitalAthleteName,
-    digitalAthleteNumber: rec?.digitalAthleteNumber,
   });
 
   const scale = Math.min(THUMB_W / srcW, THUMB_H / srcH);
@@ -102,9 +101,7 @@ function ThumbCard({ page, rec, apparatus, eJudgeCount, vaultImg, isActive, onCl
   const eFinalVal = ds ? getEFinal(ds) : undefined;
   const finalVal = ds ? calcFinal(ds) : undefined;
   const decimals = ds ? eFinalDecimals(ds.e) : (eJudgeCount <= 3 ? 2 : 3);
-  const numStr = typeof rec?.digitalAthleteNumber === 'number' ? String(rec.digitalAthleteNumber) : '';
-  const nameStr = (rec?.digitalAthleteName || '').trim();
-  const labelStr = [numStr, nameStr].filter(Boolean).join(' ');
+  const labelStr = (rec?.digitalAthleteName || '').trim();
 
   return (
     <div
@@ -166,9 +163,7 @@ export default function CompetitionPage() {
   const [deletedPage, setDeletedPage] = useState<DeletedPageSnapshot | null>(null);
   const [showRanking, setShowRanking] = useState(false);
   const [digitalNameDraft, setDigitalNameDraft] = useState('');
-  const [digitalNumberDraft, setDigitalNumberDraft] = useState<string>('');
   const digitalNameSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const digitalNumberSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     if (!sessionId) return;
@@ -278,7 +273,7 @@ export default function CompetitionPage() {
     setDeletedPage(null);
   };
 
-  // 現在ページの digitalAthleteName/Number を DB から読み込む（ページ切替時に同期）
+  // 現在ページの digitalAthleteName を DB から読み込む（ページ切替時に同期）
   useEffect(() => {
     if (!sessionId) return;
     let cancelled = false;
@@ -286,7 +281,6 @@ export default function CompetitionPage() {
     db.memoRecords.get(id).then(rec => {
       if (cancelled) return;
       setDigitalNameDraft(rec?.digitalAthleteName ?? '');
-      setDigitalNumberDraft(typeof rec?.digitalAthleteNumber === 'number' ? String(rec.digitalAthleteNumber) : '');
     });
     return () => { cancelled = true; };
   }, [sessionId, currentPage]);
@@ -329,52 +323,16 @@ export default function CompetitionPage() {
     }, 800);
   };
 
-  const onDigitalNumberChange = (v: string) => {
-    // 数字のみ抽出（前後の不正文字を弾く）
-    const cleaned = v.replace(/[^0-9]/g, '');
-    setDigitalNumberDraft(cleaned);
-    const numValue: number | undefined = cleaned === '' ? undefined : Number(cleaned);
-    if (digitalNumberSaveTimer.current) clearTimeout(digitalNumberSaveTimer.current);
-    digitalNumberSaveTimer.current = setTimeout(() => {
-      db.transaction('rw', db.memoRecords, async () => {
-        const existing = await db.memoRecords.get(recordId);
-        if (existing) {
-          await db.memoRecords.update(recordId, { digitalAthleteNumber: numValue, updatedAt: new Date() });
-        } else {
-          await db.memoRecords.put({
-            id: recordId,
-            sessionId,
-            athleteName: '',
-            apparatus: session!.apparatus!,
-            pageNumber: currentPage,
-            strokes: [],
-            digitalAthleteNumber: numValue,
-            updatedAt: new Date(),
-          });
-        }
-      });
-    }, 800);
-  };
-
-  // Canvas ヘッダーに重ねる「番号・選手名」直接入力欄
+  // Canvas ヘッダーに重ねる「選手名」直接入力欄
   // 「FX ゆか」ラベル(おおよそ x=10 + 80px)の右側に配置するため左パディングを取る
   const headerOverlay = (
     <div className="flex items-center gap-2 pl-32 pr-3 h-full">
       <input
         type="text"
-        inputMode="numeric"
-        pattern="[0-9]*"
-        value={digitalNumberDraft}
-        onChange={e => onDigitalNumberChange(e.target.value)}
-        placeholder="番号"
-        className="px-2 py-1 text-sm font-mono font-bold text-center rounded bg-white/90 dark:bg-gray-800/80 border border-gray-300 dark:border-gray-600 dark:text-gray-100 min-h-[36px] w-16 focus:outline-none focus:border-accent"
-      />
-      <input
-        type="text"
         value={digitalNameDraft}
         onChange={e => onDigitalNameChange(e.target.value)}
         placeholder="選手名"
-        className="px-2 py-1 text-base font-bold rounded bg-white/90 dark:bg-gray-800/80 border border-gray-300 dark:border-gray-600 dark:text-gray-100 min-h-[36px] w-48 focus:outline-none focus:border-accent"
+        className="px-2 py-1 text-base font-bold rounded bg-white/90 dark:bg-gray-800/80 border border-gray-300 dark:border-gray-600 dark:text-gray-100 min-h-[36px] w-56 focus:outline-none focus:border-accent"
       />
     </div>
   );
@@ -404,12 +362,12 @@ export default function CompetitionPage() {
         ▶
       </button>
       <button onClick={openPageList}
-        className="px-2 py-0.5 rounded text-xs bg-white dark:bg-gray-700 text-gray-600 dark:text-gray-300 font-bold min-h-[28px]
+        className="px-3 py-1.5 rounded-lg text-sm bg-white dark:bg-gray-700 text-gray-600 dark:text-gray-300 font-bold min-h-[40px]
                    hover:bg-gray-200 dark:hover:bg-gray-600">
         一覧
       </button>
       <button onClick={addPage}
-        className="px-2 py-0.5 rounded text-xs bg-accent text-white font-bold min-h-[28px]">
+        className="px-3 py-1.5 rounded-lg text-sm bg-accent text-white font-bold min-h-[40px] hover:bg-accent/90">
         + 次の選手
       </button>
     </>
@@ -431,7 +389,6 @@ export default function CompetitionPage() {
         toolbarExtra={pageNav}
         onBack={() => navigate('/')}
         digitalAthleteName={digitalNameDraft}
-        digitalAthleteNumber={digitalNumberDraft === '' ? undefined : Number(digitalNumberDraft)}
         headerOverlay={headerOverlay}
       />
 

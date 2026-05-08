@@ -1,9 +1,6 @@
 // 種目
 export type Apparatus = 'FX' | 'PH' | 'SR' | 'VT' | 'PB' | 'HB';
 
-// 大会モード用: 選手番号（ゼッケン等）。number で保持、表示は文字列扱いも考慮。
-export type AthleteNumber = number | undefined;
-
 // デジタルスコア（D, E1..EN, ND, 加点, E決定/決定点の手動上書き）
 export interface DigitalScores {
   d?: number;                    // Dスコア（手入力）

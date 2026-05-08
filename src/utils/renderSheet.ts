@@ -48,7 +48,6 @@ interface RenderOptions {
   vaultImg?: HTMLImageElement | null;
   digitalScores?: DigitalScores;
   digitalAthleteName?: string;
-  digitalAthleteNumber?: number;
 }
 
 /**
@@ -56,7 +55,7 @@ interface RenderOptions {
  * 返される Canvas は CSS ピクセルサイズ (w × h) で描画済み。
  */
 export function renderSheetCanvas(opts: RenderOptions): HTMLCanvasElement {
-  const { w, h, apparatus, eJudgeCount, mode, athleteName, strokes, lines, vaultImg, digitalScores, digitalAthleteName, digitalAthleteNumber } = opts;
+  const { w, h, apparatus, eJudgeCount, mode, athleteName, strokes, lines, vaultImg, digitalScores, digitalAthleteName } = opts;
   const canvas = document.createElement('canvas');
   canvas.width = w;
   canvas.height = h;
@@ -96,18 +95,10 @@ export function renderSheetCanvas(opts: RenderOptions): HTMLCanvasElement {
     const apparatusLabel = `${apparatus} ${apparatusInfo?.name ?? ''}`;
     c.fillText(apparatusLabel, 10, LABEL_H / 2 + 6);
     const labelW = c.measureText(apparatusLabel).width;
-    let cursorX = 10 + labelW + 24;
-    if (typeof digitalAthleteNumber === 'number') {
-      const numText = String(digitalAthleteNumber);
-      c.fillStyle = '#1B4F72';
-      c.font = 'bold 18px "Noto Sans JP", sans-serif';
-      c.fillText(numText, cursorX, LABEL_H / 2 + 7);
-      cursorX += c.measureText(numText).width + 16;
-    }
     if (digitalAthleteName && digitalAthleteName.trim()) {
       c.fillStyle = '#1B4F72';
       c.font = 'bold 20px "Noto Sans JP", sans-serif';
-      c.fillText(digitalAthleteName, cursorX, LABEL_H / 2 + 7);
+      c.fillText(digitalAthleteName, 10 + labelW + 24, LABEL_H / 2 + 7);
     }
     c.strokeStyle = '#aaa';
     c.lineWidth = 2;
@@ -210,14 +201,8 @@ export function renderSheetCanvas(opts: RenderOptions): HTMLCanvasElement {
   if (digitalScores?.bonus) parts.push({ label: '加点', value: '+0.1' });
   parts.push({ label: '決定点', value: formatScore(finalVal, decimals), bold: true });
 
-  // 大会モードでは番号＋デジタル選手名を左端に。
-  const namePrefix = (() => {
-    if (mode !== 'competition') return '';
-    const tokens: string[] = [];
-    if (typeof digitalAthleteNumber === 'number') tokens.push(String(digitalAthleteNumber));
-    if (digitalAthleteName) tokens.push(digitalAthleteName);
-    return tokens.length > 0 ? tokens.join(' ') + '：' : '';
-  })();
+  // 大会モードではデジタル選手名を左端に。
+  const namePrefix = (mode === 'competition' && digitalAthleteName) ? `${digitalAthleteName}：` : '';
 
   c.fillStyle = '#222';
   c.font = '11px "Noto Sans JP", sans-serif';

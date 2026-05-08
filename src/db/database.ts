@@ -27,7 +27,6 @@ export interface MemoRecord {
   canvasH?: number;
   digitalScores?: DigitalScores;       // デジタルスコア入力（v4 新規）
   digitalAthleteName?: string;         // 大会モード用デジタル選手名（v4 新規）
-  digitalAthleteNumber?: number;       // 大会モード用ゼッケン番号（v4 新規）
   updatedAt: Date;
 }
 

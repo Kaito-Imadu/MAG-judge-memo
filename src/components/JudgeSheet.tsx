@@ -28,9 +28,7 @@ interface Props {
   onApparatusChange?: (apparatus: Apparatus) => void;
   // 大会モード用デジタル選手名（親が管理。JudgeSheet は保存にのみ使う）
   digitalAthleteName?: string;
-  // 大会モード用ゼッケン番号
-  digitalAthleteNumber?: number;
-  // Canvas ヘッダー領域に重ねるオーバーレイ（番号・選手名の直接入力欄など）
+  // Canvas ヘッダー領域に重ねるオーバーレイ（選手名の直接入力欄など）
   headerOverlay?: ReactNode;
 }
 
@@ -274,7 +272,6 @@ export default function JudgeSheet({
   onBack,
   onApparatusChange,
   digitalAthleteName,
-  digitalAthleteNumber,
   headerOverlay,
 }: Props) {
   // === Refs ===
@@ -315,19 +312,17 @@ export default function JudgeSheet({
   // digitalAthleteName は同一recordId内（同じページ）でユーザが任意に書き換える可能性があるので、
   // 「最新値」を常にrefで持っておき、flushSave時にそれを使う。
   const digitalAthleteNameRef = useRef(digitalAthleteName);
-  const digitalAthleteNumberRef = useRef(digitalAthleteNumber);
   // 初回（マウント時）はスキップして、以降の prop 変更でのみ自動保存をトリガー。
   const digitalAthleteNameInitialized = useRef(false);
   useEffect(() => {
     digitalAthleteNameRef.current = digitalAthleteName;
-    digitalAthleteNumberRef.current = digitalAthleteNumber;
     if (!digitalAthleteNameInitialized.current) {
       digitalAthleteNameInitialized.current = true;
       return;
     }
     // 1500ms デバウンスで保存。
     saveRef.current();
-  }, [digitalAthleteName, digitalAthleteNumber]);
+  }, [digitalAthleteName]);
   const pendingDefaultHorizontalLine = useRef(false);
   const navigate = useNavigate();
   const [tick, setTick] = useState(0);
@@ -382,7 +377,6 @@ export default function JudgeSheet({
     saveLines?: HLine[],
     saveScores?: DigitalScores,
     saveDigitalAthleteName?: string,
-    saveDigitalAthleteNumber?: number,
   ) => {
     if (saveTimer.current) { clearTimeout(saveTimer.current); saveTimer.current = null; }
     const { w, h } = sizeRef.current;
@@ -400,7 +394,6 @@ export default function JudgeSheet({
       canvasH: h || undefined,
       digitalScores: hasAnyScore(scoresToSave) ? scoresToSave : undefined,
       digitalAthleteName: saveDigitalAthleteName,
-      digitalAthleteNumber: saveDigitalAthleteNumber,
       updatedAt: new Date(),
     });
   }, [sessionId]);
@@ -421,7 +414,6 @@ export default function JudgeSheet({
           undefined,
           digitalScoresRef.current,
           digitalAthleteNameRef.current,
-          digitalAthleteNumberRef.current,
         );
       }, SAVE_DEBOUNCE);
     };
@@ -580,7 +572,6 @@ export default function JudgeSheet({
         undefined,
         digitalScoresRef.current,
         digitalAthleteNameRef.current,
-        digitalAthleteNumberRef.current,
       );
     }
     prevRecordId.current = recordId;
@@ -684,8 +675,7 @@ export default function JudgeSheet({
       const id = prevRecordId.current;
       const scores = digitalScoresRef.current;
       const dn = digitalAthleteNameRef.current;
-      const dnum = digitalAthleteNumberRef.current;
-      const hasDigitalName = !!dn || typeof dnum === 'number';
+      const hasDigitalName = !!dn;
       if (id && (strokes.current.length > 0 || horizontalLines.current.length > 0 || hasAnyScore(scores) || hasDigitalName)) {
         const { w, h } = sizeRef.current;
         const data: StrokeData[] = strokes.current.map(s => ({ points: s.points, color: s.color, width: s.width }));
@@ -701,7 +691,6 @@ export default function JudgeSheet({
           canvasH: h || undefined,
           digitalScores: hasAnyScore(scores) ? scores : undefined,
           digitalAthleteName: dn,
-          digitalAthleteNumber: dnum,
           updatedAt: new Date(),
         });
       }
@@ -1343,7 +1332,6 @@ export default function JudgeSheet({
     flushSave(
       recordId, strokes.current, apparatus, athleteName, pageNumber,
       undefined, digitalScoresRef.current, digitalAthleteNameRef.current,
-      digitalAthleteNumberRef.current,
     );
     if (onApparatusChange) {
       onApparatusChange(a);
@@ -1357,7 +1345,6 @@ export default function JudgeSheet({
     flushSave(
       recordId, strokes.current, apparatus, athleteName, pageNumber,
       undefined, digitalScoresRef.current, digitalAthleteNameRef.current,
-      digitalAthleteNumberRef.current,
     );
     if (onBack) onBack();
     else navigate('/');
