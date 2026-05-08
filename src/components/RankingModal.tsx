@@ -37,7 +37,10 @@ export default function RankingModal({ sessionId, mode, apparatus, athletes = []
       const ranked = rankBy(entries, e => entryScore(e, sortKey));
       return ranked.map(r => {
         const e = r.item;
-        const name = (e.record.digitalAthleteName || '').trim() || `P${e.record.pageNumber}`;
+        const namePart = (e.record.digitalAthleteName || '').trim();
+        const numPart = typeof e.record.digitalAthleteNumber === 'number' ? `№${e.record.digitalAthleteNumber}` : '';
+        const labelParts = [numPart, namePart].filter(Boolean);
+        const name = labelParts.length > 0 ? labelParts.join(' ') : `P${e.record.pageNumber}`;
         return (
           <tr key={e.record.id} className="border-b border-gray-100 dark:border-gray-700">
             <td className="px-3 py-2 text-sm font-bold text-gray-700 dark:text-gray-300 w-12">

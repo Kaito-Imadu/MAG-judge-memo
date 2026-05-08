@@ -180,6 +180,7 @@ export async function exportAthleteSheet(
       vaultImg: apparatus === 'VT' ? vaultImg : null,
       digitalScores: record?.digitalScores,
       digitalAthleteName: record?.digitalAthleteName,
+      digitalAthleteNumber: record?.digitalAthleteNumber,
     });
 
     // 縮小してセルに配置

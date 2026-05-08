@@ -52,6 +52,7 @@ function drawThumbnail(
     vaultImg: apparatus === 'VT' ? vaultImg : null,
     digitalScores: rec?.digitalScores,
     digitalAthleteName: rec?.digitalAthleteName,
+    digitalAthleteNumber: rec?.digitalAthleteNumber,
   });
 
   const scale = Math.min(THUMB_W / srcW, THUMB_H / srcH);
@@ -139,7 +140,9 @@ export default function CompetitionPage() {
   const [deletedPage, setDeletedPage] = useState<DeletedPageSnapshot | null>(null);
   const [showRanking, setShowRanking] = useState(false);
   const [digitalNameDraft, setDigitalNameDraft] = useState('');
+  const [digitalNumberDraft, setDigitalNumberDraft] = useState<string>('');
   const digitalNameSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const digitalNumberSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     if (!sessionId) return;
@@ -249,7 +252,7 @@ export default function CompetitionPage() {
     setDeletedPage(null);
   };
 
-  // 現在ページの digitalAthleteName を DB から読み込む（ページ切替時に同期）
+  // 現在ページの digitalAthleteName/Number を DB から読み込む（ページ切替時に同期）
   useEffect(() => {
     if (!sessionId) return;
     let cancelled = false;
@@ -257,6 +260,7 @@ export default function CompetitionPage() {
     db.memoRecords.get(id).then(rec => {
       if (cancelled) return;
       setDigitalNameDraft(rec?.digitalAthleteName ?? '');
+      setDigitalNumberDraft(typeof rec?.digitalAthleteNumber === 'number' ? String(rec.digitalAthleteNumber) : '');
     });
     return () => { cancelled = true; };
   }, [sessionId, currentPage]);
@@ -299,9 +303,46 @@ export default function CompetitionPage() {
     }, 800);
   };
 
+  const onDigitalNumberChange = (v: string) => {
+    // 数字のみ抽出（前後の不正文字を弾く）
+    const cleaned = v.replace(/[^0-9]/g, '');
+    setDigitalNumberDraft(cleaned);
+    const numValue: number | undefined = cleaned === '' ? undefined : Number(cleaned);
+    if (digitalNumberSaveTimer.current) clearTimeout(digitalNumberSaveTimer.current);
+    digitalNumberSaveTimer.current = setTimeout(() => {
+      db.transaction('rw', db.memoRecords, async () => {
+        const existing = await db.memoRecords.get(recordId);
+        if (existing) {
+          await db.memoRecords.update(recordId, { digitalAthleteNumber: numValue, updatedAt: new Date() });
+        } else {
+          await db.memoRecords.put({
+            id: recordId,
+            sessionId,
+            athleteName: '',
+            apparatus: session!.apparatus!,
+            pageNumber: currentPage,
+            strokes: [],
+            digitalAthleteNumber: numValue,
+            updatedAt: new Date(),
+          });
+        }
+      });
+    }, 800);
+  };
+
   const pageNav = (
     <>
       <div className="w-px h-4 bg-gray-300" />
+      {/* 番号 */}
+      <input
+        type="text"
+        inputMode="numeric"
+        pattern="[0-9]*"
+        value={digitalNumberDraft}
+        onChange={e => onDigitalNumberChange(e.target.value)}
+        placeholder="№"
+        className="px-2 py-1 text-sm font-mono text-center rounded border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 min-h-[36px] w-14"
+      />
       {/* デジタル選手名 */}
       <input
         type="text"
@@ -359,6 +400,7 @@ export default function CompetitionPage() {
         toolbarExtra={pageNav}
         onBack={() => navigate('/')}
         digitalAthleteName={digitalNameDraft}
+        digitalAthleteNumber={digitalNumberDraft === '' ? undefined : Number(digitalNumberDraft)}
       />
 
       {showRanking && (

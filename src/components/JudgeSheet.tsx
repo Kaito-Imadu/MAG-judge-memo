@@ -28,6 +28,8 @@ interface Props {
   onApparatusChange?: (apparatus: Apparatus) => void;
   // 大会モード用デジタル選手名（親が管理。JudgeSheet は保存にのみ使う）
   digitalAthleteName?: string;
+  // 大会モード用ゼッケン番号
+  digitalAthleteNumber?: number;
 }
 
 const COLORS = [
@@ -61,8 +63,6 @@ const LABEL_H = 52;          // モード別ラベル領域の高さ
 const SCORE_ROW_H = 0;       // 旧: Canvas内スコア行の高さ。デジタル化により0（互換のため定数は残す）
 const CV_LABEL_H = 28;
 const ND_WIDTH_RATIO = 0.2;
-const NAME_BOX_W = 360;      // 大会モード: 選手名記入欄の幅
-const NAME_BOX_H = 44;       // 大会モード: 選手名記入欄の高さ
 
 // 空間インデックス: グリッドセルサイズ
 const GRID_CELL = 40;
@@ -272,6 +272,7 @@ export default function JudgeSheet({
   onBack,
   onApparatusChange,
   digitalAthleteName,
+  digitalAthleteNumber,
 }: Props) {
   // === Refs ===
   const staticCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -311,17 +312,19 @@ export default function JudgeSheet({
   // digitalAthleteName は同一recordId内（同じページ）でユーザが任意に書き換える可能性があるので、
   // 「最新値」を常にrefで持っておき、flushSave時にそれを使う。
   const digitalAthleteNameRef = useRef(digitalAthleteName);
+  const digitalAthleteNumberRef = useRef(digitalAthleteNumber);
   // 初回（マウント時）はスキップして、以降の prop 変更でのみ自動保存をトリガー。
   const digitalAthleteNameInitialized = useRef(false);
   useEffect(() => {
     digitalAthleteNameRef.current = digitalAthleteName;
+    digitalAthleteNumberRef.current = digitalAthleteNumber;
     if (!digitalAthleteNameInitialized.current) {
       digitalAthleteNameInitialized.current = true;
       return;
     }
     // 1500ms デバウンスで保存。
     saveRef.current();
-  }, [digitalAthleteName]);
+  }, [digitalAthleteName, digitalAthleteNumber]);
   const pendingDefaultHorizontalLine = useRef(false);
   const navigate = useNavigate();
   const [tick, setTick] = useState(0);
@@ -376,6 +379,7 @@ export default function JudgeSheet({
     saveLines?: HLine[],
     saveScores?: DigitalScores,
     saveDigitalAthleteName?: string,
+    saveDigitalAthleteNumber?: number,
   ) => {
     if (saveTimer.current) { clearTimeout(saveTimer.current); saveTimer.current = null; }
     const { w, h } = sizeRef.current;
@@ -393,6 +397,7 @@ export default function JudgeSheet({
       canvasH: h || undefined,
       digitalScores: hasAnyScore(scoresToSave) ? scoresToSave : undefined,
       digitalAthleteName: saveDigitalAthleteName,
+      digitalAthleteNumber: saveDigitalAthleteNumber,
       updatedAt: new Date(),
     });
   }, [sessionId]);
@@ -413,6 +418,7 @@ export default function JudgeSheet({
           undefined,
           digitalScoresRef.current,
           digitalAthleteNameRef.current,
+          digitalAthleteNumberRef.current,
         );
       }, SAVE_DEBOUNCE);
     };
@@ -446,20 +452,30 @@ export default function JudgeSheet({
       c.lineTo(w, LABEL_H);
       c.stroke();
     } else {
-      // 大会モード: 種目名 + 大きめの選手名記入枠
+      // 大会モード: 種目名 + 番号 + デジタル選手名（テキスト表示のみ。入力はツールバー）
       c.fillStyle = '#1B4F72';
       c.font = 'bold 16px "Noto Sans JP", sans-serif';
       const apparatusLabel = `${apparatus} ${apparatusInfo?.name ?? ''}`;
       c.fillText(apparatusLabel, 10, LABEL_H / 2 + 6);
-      // 選手名手書き記入枠
-      const boxX = c.measureText(apparatusLabel).width + 28;
-      const boxY = (LABEL_H - NAME_BOX_H) / 2;
-      c.strokeStyle = '#888';
-      c.lineWidth = 1.5;
-      c.strokeRect(boxX, boxY, NAME_BOX_W, NAME_BOX_H);
-      c.fillStyle = '#ccc';
-      c.font = '12px "Noto Sans JP", sans-serif';
-      c.fillText('選手名 / No.', boxX + 8, boxY + 14);
+      const labelW = c.measureText(apparatusLabel).width;
+      let cursorX = 10 + labelW + 24;
+      // 番号（あれば名前の左に表示）
+      if (typeof digitalAthleteNumber === 'number') {
+        const numText = `№${digitalAthleteNumber}`;
+        c.fillStyle = '#1B4F72';
+        c.font = 'bold 18px "Noto Sans JP", sans-serif';
+        c.fillText(numText, cursorX, LABEL_H / 2 + 7);
+        cursorX += c.measureText(numText).width + 16;
+      }
+      if (digitalAthleteName && digitalAthleteName.trim()) {
+        c.fillStyle = '#1B4F72';
+        c.font = 'bold 20px "Noto Sans JP", sans-serif';
+        c.fillText(digitalAthleteName, cursorX, LABEL_H / 2 + 7);
+      } else if (typeof digitalAthleteNumber !== 'number') {
+        c.fillStyle = '#bbb';
+        c.font = '13px "Noto Sans JP", sans-serif';
+        c.fillText('番号・選手名はツールバーから入力', cursorX, LABEL_H / 2 + 6);
+      }
       // ラベル下に薄い区切り線
       c.strokeStyle = '#ddd';
       c.lineWidth = 0.5;
@@ -551,7 +567,7 @@ export default function JudgeSheet({
     }
 
     c.restore();
-  }, [getStaticCtx, hasND, hasCV, ndItems, mode, athleteName, apparatus, apparatusInfo, vtFlip, vtScale]);
+  }, [getStaticCtx, hasND, hasCV, ndItems, mode, athleteName, apparatus, apparatusInfo, vtFlip, vtScale, digitalAthleteName, digitalAthleteNumber]);
 
   // === Static Canvas 全再描画 ===
   const redrawStatic = useCallback(() => {
@@ -580,6 +596,7 @@ export default function JudgeSheet({
         undefined,
         digitalScoresRef.current,
         digitalAthleteNameRef.current,
+        digitalAthleteNumberRef.current,
       );
     }
     prevRecordId.current = recordId;
@@ -683,7 +700,8 @@ export default function JudgeSheet({
       const id = prevRecordId.current;
       const scores = digitalScoresRef.current;
       const dn = digitalAthleteNameRef.current;
-      const hasDigitalName = !!dn;
+      const dnum = digitalAthleteNumberRef.current;
+      const hasDigitalName = !!dn || typeof dnum === 'number';
       if (id && (strokes.current.length > 0 || horizontalLines.current.length > 0 || hasAnyScore(scores) || hasDigitalName)) {
         const { w, h } = sizeRef.current;
         const data: StrokeData[] = strokes.current.map(s => ({ points: s.points, color: s.color, width: s.width }));
@@ -699,6 +717,7 @@ export default function JudgeSheet({
           canvasH: h || undefined,
           digitalScores: hasAnyScore(scores) ? scores : undefined,
           digitalAthleteName: dn,
+          digitalAthleteNumber: dnum,
           updatedAt: new Date(),
         });
       }
@@ -1340,6 +1359,7 @@ export default function JudgeSheet({
     flushSave(
       recordId, strokes.current, apparatus, athleteName, pageNumber,
       undefined, digitalScoresRef.current, digitalAthleteNameRef.current,
+      digitalAthleteNumberRef.current,
     );
     if (onApparatusChange) {
       onApparatusChange(a);
@@ -1353,6 +1373,7 @@ export default function JudgeSheet({
     flushSave(
       recordId, strokes.current, apparatus, athleteName, pageNumber,
       undefined, digitalScoresRef.current, digitalAthleteNameRef.current,
+      digitalAthleteNumberRef.current,
     );
     if (onBack) onBack();
     else navigate('/');
