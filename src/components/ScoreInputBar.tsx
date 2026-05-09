@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import type { DigitalScores } from '../types';
-import { calcEFinal, calcFinal, formatScore, formatNatural, eFinalDecimals } from '../utils/scoreCalc';
+import { calcEFinal, calcFinal, formatScore, formatNatural, eFinalDecimals, FINAL_SCORE_DECIMALS } from '../utils/scoreCalc';
 import ScoreNumpad from './ScoreNumpad';
 
 interface Props {
@@ -157,7 +157,7 @@ export default function ScoreInputBar({ value, eJudgeCount, onChange }: Props) {
           {renderInputCell(
             { kind: 'final' },
             (typeof normalized.finalManual === 'number' || finalDisplay !== undefined)
-              ? <span className={`text-lg font-mono font-bold leading-tight ${typeof normalized.finalManual === 'number' ? 'text-accent' : 'text-primary dark:text-accent'}`}>{formatScore(finalDisplay, decimals)}</span>
+              ? <span className={`text-lg font-mono font-bold leading-tight ${typeof normalized.finalManual === 'number' ? 'text-accent' : 'text-primary dark:text-accent'}`}>{formatScore(finalDisplay, FINAL_SCORE_DECIMALS)}</span>
               : <span className={placeholderClass}>―</span>,
             'flex-1',
           )}

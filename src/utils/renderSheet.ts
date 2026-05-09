@@ -7,7 +7,7 @@ import type { Apparatus, DigitalScores } from '../types';
 import type { StrokeData } from '../db/database';
 import { APPARATUS_LIST } from '../constants/apparatus';
 import { getNDChecklist } from '../constants/deductions';
-import { calcFinal, getEFinal, formatScore, formatNatural, eFinalDecimals } from './scoreCalc';
+import { calcFinal, getEFinal, formatScore, formatNatural, eFinalDecimals, FINAL_SCORE_DECIMALS } from './scoreCalc';
 
 // JudgeSheet と同じ定数
 const LABEL_H = 52;
@@ -81,7 +81,7 @@ export function renderSheetCanvas(opts: RenderOptions): HTMLCanvasElement {
   if (mode === 'trial' || mode === 'individual') {
     c.fillStyle = '#1B4F72';
     c.font = 'bold 16px "Noto Sans JP", sans-serif';
-    const label = `${athleteName}\u3000${apparatus} ${apparatusInfo?.name ?? ''}`;
+    const label = `${athleteName} ${apparatus} ${apparatusInfo?.name ?? ''}`;
     c.fillText(label, 10, LABEL_H / 2 + 6);
     c.strokeStyle = '#aaa';
     c.lineWidth = 2;
@@ -199,7 +199,7 @@ export function renderSheetCanvas(opts: RenderOptions): HTMLCanvasElement {
   parts.push({ label: 'E決定', value: formatScore(eFinalVal, decimals) });
   parts.push({ label: 'ND', value: formatScore(digitalScores?.nd, 1) });
   if (digitalScores?.bonus) parts.push({ label: '加点', value: '+0.1' });
-  parts.push({ label: '決定点', value: formatScore(finalVal, decimals), bold: true });
+  parts.push({ label: '決定点', value: formatScore(finalVal, FINAL_SCORE_DECIMALS), bold: true });
 
   // 大会モードではデジタル選手名を左端に。
   const namePrefix = (mode === 'competition' && digitalAthleteName) ? `${digitalAthleteName}：` : '';

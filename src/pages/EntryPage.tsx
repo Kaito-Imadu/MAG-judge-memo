@@ -85,7 +85,8 @@ export default function EntryPage() {
 
   return (
     <div className="h-full bg-bg-light dark:bg-bg-dark flex flex-col overflow-y-auto">
-      <header className="bg-primary text-white px-6 py-4 flex items-baseline justify-between">
+      <header className="bg-primary text-white px-6 py-4 flex items-baseline justify-between"
+        style={{ paddingTop: 'max(env(safe-area-inset-top), 1rem)' }}>
         <h1 className="text-xl font-bold tracking-tight">MAG Judge Memo</h1>
         <div className="flex items-center gap-3">
           <button
