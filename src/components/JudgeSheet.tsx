@@ -335,6 +335,10 @@ export default function JudgeSheet({
   const [tick, setTick] = useState(0);
   // 復旧ボタンから呼ぶための ref（useEffect 内で実体をセット）
   const resetStuckStateRef = useRef<() => void>(() => {});
+  // Wake Lock の状態（true = 取得中で画面スリープ抑止中）
+  const [wakeLockActive, setWakeLockActive] = useState(false);
+  // ペン入力の最終時刻（接続インジケータ用、ms）
+  const [penLastSeen, setPenLastSeen] = useState<number | null>(null);
 
   const ndItems = getNDChecklist(apparatus);
   const hasND = ndItems.length > 0;
@@ -446,7 +450,7 @@ export default function JudgeSheet({
       // 試技会モード: 選手名 + 種目名をラベル表示
       c.fillStyle = '#1B4F72';
       c.font = 'bold 16px "Noto Sans JP", sans-serif';
-      const label = `${athleteName}\u3000${apparatus} ${apparatusInfo?.name ?? ''}`;
+      const label = `${athleteName} ${apparatus} ${apparatusInfo?.name ?? ''}`;
       c.fillText(label, 10, LABEL_H / 2 + 6);
       // ラベル下に薄い区切り線
       c.strokeStyle = '#ddd';
@@ -672,6 +676,68 @@ export default function JudgeSheet({
 
   useEffect(() => { redrawStatic(); }, [redrawStatic]);
 
+  // === Wake Lock: 採点画面では画面スリープを抑止 ===
+  // iPad の自動ロック → Bluetooth 切断 → Apple Pencil 切断のループを防ぐ
+  // バックグラウンド復帰時には Wake Lock が解放されるので再取得が必要
+  useEffect(() => {
+    type WakeLockSentinel = { release: () => Promise<void>; addEventListener: (t: string, h: () => void) => void };
+    type NavigatorWithWL = Navigator & { wakeLock?: { request: (type: string) => Promise<WakeLockSentinel> } };
+    const nav = navigator as NavigatorWithWL;
+    if (!nav.wakeLock) return; // 非対応環境は何もしない
+
+    let sentinel: WakeLockSentinel | null = null;
+    let cancelled = false;
+
+    const acquire = async () => {
+      try {
+        const wl = await nav.wakeLock!.request('screen');
+        if (cancelled) {
+          wl.release().catch(() => {});
+          return;
+        }
+        sentinel = wl;
+        setWakeLockActive(true);
+        wl.addEventListener('release', () => {
+          if (!cancelled) setWakeLockActive(false);
+        });
+      } catch {
+        // ユーザー設定や OS 側で拒否された場合は静かに諦める
+        if (!cancelled) setWakeLockActive(false);
+      }
+    };
+
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible' && !sentinel) {
+        acquire();
+      }
+    };
+
+    acquire();
+    document.addEventListener('visibilitychange', onVisibilityChange);
+
+    return () => {
+      cancelled = true;
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+      if (sentinel) {
+        sentinel.release().catch(() => {});
+        sentinel = null;
+      }
+      setWakeLockActive(false);
+    };
+  }, []);
+
+  // === ペン接続インジケータ: 最後に pen 入力を受けた時刻を 1秒ごとに参照 ===
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      setPenLastSeen(prev => {
+        // useEffect 内の lastPtrEventTime は閉じてしまうので、グローバル window 経由で取得
+        const t = (window as unknown as { __lastPenInputTime?: number }).__lastPenInputTime;
+        return typeof t === 'number' ? t : prev;
+      });
+    }, 1000);
+    return () => window.clearInterval(id);
+  }, []);
+
   // redrawStatic / clearActive を ref 化し、Pointer Events の useEffect 依存を安定化
   const redrawStaticRef = useRef(redrawStatic);
   useEffect(() => { redrawStaticRef.current = redrawStatic; }, [redrawStatic]);
@@ -858,6 +924,10 @@ export default function JudgeSheet({
       lastPtrEventTime = now;
 
       const isTouch = e.pointerType === 'touch';
+      // ペン入力の最終時刻を window に書いて、接続インジケータから参照可能にする
+      if (e.pointerType === 'pen') {
+        (window as unknown as { __lastPenInputTime?: number }).__lastPenInputTime = Date.now();
+      }
       const p = getPos(e);
       logPtr({ ev: 'down', pt: e.pointerType, pid: e.pointerId, x: p.x, y: p.y, pr: e.pressure, d: drawing.current, a: activePointerId.current, cap: safeHasCapture(e.pointerId) });
 
@@ -1379,7 +1449,7 @@ export default function JudgeSheet({
       {/* onPointerDown 保険: Canvas に詰まったポインターキャプチャをツールバータップ時に強制解放
           (Apple Pencil 切断で drawing 状態が残ったまま toolbar が無反応化する事象への対策) */}
       <div className="flex items-center gap-2 px-2 py-2 bg-gray-100 dark:bg-gray-800 shrink-0 whitespace-nowrap overflow-x-auto relative z-10"
-           style={{ touchAction: 'manipulation', isolation: 'isolate' }}
+           style={{ touchAction: 'manipulation', isolation: 'isolate', paddingTop: 'max(env(safe-area-inset-top), 0.5rem)' }}
            onPointerDownCapture={() => {
              if (drawing.current || activePointerId.current !== null) {
                logPtr({ ev: 'toolbar-tap-recover', d: drawing.current, a: activePointerId.current });
@@ -1527,7 +1597,29 @@ export default function JudgeSheet({
 
         {toolbarExtra}
 
-        <div className="ml-auto flex items-center gap-1.5">
+        {/* 接続/Wake Lock インジケータ */}
+        {(() => {
+          const now = Date.now();
+          const recentlyActive = penLastSeen !== null && now - penLastSeen < 60_000;
+          const dotColor = recentlyActive ? 'bg-success' : 'bg-gray-400';
+          const label = recentlyActive ? 'ペン検出' : 'ペン未検出';
+          return (
+            <div className="ml-auto flex items-center gap-2 mr-2"
+                 title={`${label}${wakeLockActive ? ' / 画面ON維持中' : ''}`}>
+              <span className="flex items-center gap-1 text-[10px] text-gray-500 dark:text-gray-400 select-none">
+                <span className={`w-2 h-2 rounded-full ${dotColor}`} />
+                <span className="hidden sm:inline">{label}</span>
+              </span>
+              {wakeLockActive && (
+                <span className="text-[10px] text-success select-none" title="画面スリープ抑止 ON">
+                  🔒画面ON
+                </span>
+              )}
+            </div>
+          );
+        })()}
+
+        <div className="flex items-center gap-1.5">
           {showApparatusTabs && APPARATUS_LIST.map((a) => (
             <button key={a.code} onClick={() => handleApparatusChange(a.code)}
               className={`px-2.5 py-1 rounded text-xs font-bold min-h-[36px] ${

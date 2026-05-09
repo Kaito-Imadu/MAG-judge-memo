@@ -3,7 +3,7 @@ import type { Apparatus } from '../types';
 import { APPARATUS_LIST } from '../constants/apparatus';
 import { useSessionScores, rankBy } from '../hooks/useSessionScores';
 import type { ScoredEntry } from '../hooks/useSessionScores';
-import { formatScore } from '../utils/scoreCalc';
+import { formatScore, FINAL_SCORE_DECIMALS } from '../utils/scoreCalc';
 
 interface Props {
   sessionId: string;
@@ -53,7 +53,7 @@ export default function RankingModal({ sessionId, mode, apparatus, athletes = []
             <td className="px-3 py-2 text-sm font-mono text-right">{formatScore(e.nd, 1)}</td>
             <td className="px-3 py-2 text-sm font-mono text-right">{e.bonus ? '+0.1' : ''}</td>
             <td className={`px-3 py-2 text-sm font-mono text-right font-bold ${typeof r.score === 'number' ? 'text-primary dark:text-accent' : 'text-gray-300'}`}>
-              {formatScore(r.score, decimals) || '-'}
+              {formatScore(r.score, FINAL_SCORE_DECIMALS) || '-'}
             </td>
           </tr>
         );
@@ -79,7 +79,7 @@ export default function RankingModal({ sessionId, mode, apparatus, athletes = []
           <td className="px-3 py-2 text-sm font-mono text-right">{r.item.e ? formatScore(r.item.e.nd, 1) : ''}</td>
           <td className="px-3 py-2 text-sm font-mono text-right">{r.item.e?.bonus ? '+0.1' : ''}</td>
           <td className={`px-3 py-2 text-sm font-mono text-right font-bold ${typeof r.score === 'number' ? 'text-primary dark:text-accent' : 'text-gray-300'}`}>
-            {formatScore(r.score, decimals) || '-'}
+            {formatScore(r.score, FINAL_SCORE_DECIMALS) || '-'}
           </td>
         </tr>
       ));

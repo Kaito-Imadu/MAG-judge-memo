@@ -13,7 +13,7 @@ import {
 } from '../utils/exportSheet';
 import { useSessionScores, rankBy } from '../hooks/useSessionScores';
 import RankingModal from '../components/RankingModal';
-import { formatScore } from '../utils/scoreCalc';
+import { formatScore, FINAL_SCORE_DECIMALS } from '../utils/scoreCalc';
 
 export default function TrialPage() {
   const { sessionId } = useParams<{ sessionId: string }>();
@@ -381,11 +381,10 @@ export default function TrialPage() {
                     {(() => {
                       const r = aaRanking.get(name);
                       if (!r || typeof r.total !== 'number') return null;
-                      const decimals = session.eJudgeCount <= 3 ? 2 : 3;
                       return (
                         <span className="text-[10px] font-bold text-accent flex items-center gap-1">
                           <span>{r.rank}位</span>
-                          <span className="font-mono">{formatScore(r.total, decimals)}</span>
+                          <span className="font-mono">{formatScore(r.total, FINAL_SCORE_DECIMALS)}</span>
                         </span>
                       );
                     })()}

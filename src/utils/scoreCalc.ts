@@ -31,15 +31,19 @@ export function eFinalDecimals(eScores: (number | undefined)[]): number {
 // 決定点 = D + E決定 − ND + (加点 ? 0.1 : 0)
 // finalManual が指定されていればそれを優先。
 // E決定は eFinalManual があればそれ、なければ eScores から計算。
-// 表示桁数は E決定 と同じルール（1〜3人=2桁、4人以上=3桁）に揃える。
+// 表示桁数は常に小数第3位まで。最低値は 0.000 にクランプ。
 export function calcFinal(s: DigitalScores): number | undefined {
-  if (typeof s.finalManual === 'number') return s.finalManual;
+  if (typeof s.finalManual === 'number') return Math.max(0, roundN(s.finalManual, 3));
   const eFinal = typeof s.eFinalManual === 'number' ? s.eFinalManual : calcEFinal(s.e);
   if (typeof s.d !== 'number' || typeof eFinal !== 'number') return undefined;
   const nd = typeof s.nd === 'number' ? s.nd : 0;
   const bonus = s.bonus ? 0.1 : 0;
-  return roundN(s.d + eFinal - nd + bonus, eFinalDecimals(s.e));
+  const raw = s.d + eFinal - nd + bonus;
+  return Math.max(0, roundN(raw, 3));
 }
+
+// 決定点表示用桁数（常に3桁固定）
+export const FINAL_SCORE_DECIMALS = 3;
 
 // 表示用E決定（手動上書きを反映）
 export function getEFinal(s: DigitalScores): number | undefined {
