@@ -13,6 +13,7 @@ import {
 } from '../utils/exportSheet';
 import { useSessionScores, rankBy } from '../hooks/useSessionScores';
 import RankingModal from '../components/RankingModal';
+import StatsModal from '../components/StatsModal';
 import { formatScore, FINAL_SCORE_DECIMALS } from '../utils/scoreCalc';
 
 export default function TrialPage() {
@@ -34,6 +35,7 @@ export default function TrialPage() {
   const [sessionNameDraft, setSessionNameDraft] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
   const [showRanking, setShowRanking] = useState(false);
+  const [showStats, setShowStats] = useState(false);
   const sessionScores = useSessionScores(sessionId);
 
   const reload = async () => {
@@ -276,6 +278,11 @@ export default function TrialPage() {
           <span>🏆</span>
           <span>ランキング</span>
         </button>
+        <button onClick={() => setShowStats(true)}
+          className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 min-h-[36px] text-sm font-bold">
+          <span>📊</span>
+          <span>統計</span>
+        </button>
         <span className="text-sm text-white/60">
           {session.judgeMode}審判
           {session.judgeMode === 'E' ? ` (${session.eJudgeCount}人)` : ''}
@@ -506,6 +513,17 @@ export default function TrialPage() {
           athletes={session.athletes}
           eJudgeCount={session.eJudgeCount}
           onClose={() => setShowRanking(false)}
+        />
+      )}
+      {showStats && sessionId && (
+        <StatsModal
+          sessionId={sessionId}
+          sessionName={session.name}
+          sessionDate={session.date}
+          mode="trial"
+          athletes={session.athletes}
+          eJudgeCount={session.eJudgeCount}
+          onClose={() => setShowStats(false)}
         />
       )}
     </div>
