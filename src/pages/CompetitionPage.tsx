@@ -401,6 +401,8 @@ export default function CompetitionPage() {
       {showRanking && (
         <RankingModal
           sessionId={sessionId}
+          sessionName={session.name}
+          sessionDate={session.date}
           mode="competition"
           apparatus={session.apparatus}
           eJudgeCount={session.eJudgeCount}

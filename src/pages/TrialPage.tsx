@@ -500,6 +500,8 @@ export default function TrialPage() {
       {showRanking && sessionId && (
         <RankingModal
           sessionId={sessionId}
+          sessionName={session.name}
+          sessionDate={session.date}
           mode="trial"
           athletes={session.athletes}
           eJudgeCount={session.eJudgeCount}

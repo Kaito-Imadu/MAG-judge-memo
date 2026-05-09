@@ -4,9 +4,17 @@ import { APPARATUS_LIST } from '../constants/apparatus';
 import { useSessionScores, rankBy } from '../hooks/useSessionScores';
 import type { ScoredEntry } from '../hooks/useSessionScores';
 import { formatScore, FINAL_SCORE_DECIMALS } from '../utils/scoreCalc';
+import {
+  exportAARanking,
+  exportApparatusRanking,
+  type AAItem,
+  type ApparatusItem,
+} from '../utils/exportRanking';
 
 interface Props {
   sessionId: string;
+  sessionName: string;
+  sessionDate: Date;
   mode: 'trial' | 'competition';
   apparatus?: Apparatus;
   athletes?: string[];
@@ -22,7 +30,7 @@ const SORT_LABELS: Record<SortKey, string> = {
   eFinal: 'E決定',
 };
 
-export default function RankingModal({ sessionId, mode, apparatus, athletes = [], eJudgeCount, onClose }: Props) {
+export default function RankingModal({ sessionId, sessionName, sessionDate, mode, apparatus, athletes = [], eJudgeCount, onClose }: Props) {
   // セッション全体の eJudgeCount に基づき、E決定/決定点の桁数を決定（1〜3=2桁、4以上=3桁）
   const decimals = eJudgeCount <= 3 ? 2 : 3;
   const data = useSessionScores(sessionId);
@@ -31,6 +39,119 @@ export default function RankingModal({ sessionId, mode, apparatus, athletes = []
   const [trialTab, setTrialTab] = useState<'apparatus' | 'aa'>('aa');
   // 試技会モード: 種目別タブで見る種目
   const [appTab, setAppTab] = useState<Apparatus>('FX');
+  // 共有処理中フラグ
+  const [sharing, setSharing] = useState(false);
+
+  const handleShare = async () => {
+    if (!data || sharing) return;
+    setSharing(true);
+    try {
+      let result: { shared: number } = { shared: 0 };
+      if (mode === 'competition' && apparatus) {
+        // 大会モード: ページ単位の中間表
+        const entries = data.scored.filter((e) => e.record.apparatus === apparatus);
+        const ranked = rankBy(entries, (e) => entryScore(e, sortKey));
+        const items: ApparatusItem[] = ranked.map((r) => {
+          const e = r.item;
+          const namePart = (e.record.digitalAthleteName || '').trim();
+          const name = namePart || `P${e.record.pageNumber}`;
+          return {
+            rank: r.rank,
+            prefix: `#${e.record.pageNumber}`,
+            name,
+            d: e.d,
+            eFinal: e.eFinal,
+            nd: e.nd,
+            bonus: e.bonus,
+            final: e.final,
+          };
+        });
+        result = await exportApparatusRanking({
+          sessionName,
+          sessionDate,
+          apparatus,
+          eJudgeCount,
+          hasPrefix: true,
+          items,
+        });
+      } else if (mode === 'trial' && trialTab === 'aa') {
+        // 試技会 AAタブ: 詳細カード
+        const aaRows = athletes.map((name) => {
+          const m = data.byAthlete.get(name);
+          let total = 0;
+          let any = false;
+          const perApp: AAItem['perApp'] = {};
+          APPARATUS_LIST.forEach((a) => {
+            const e = m?.get(a.code);
+            if (e && typeof e.final === 'number') {
+              perApp[a.code] = {
+                d: e.d,
+                eFinal: e.eFinal,
+                nd: e.nd,
+                bonus: e.bonus,
+                final: e.final,
+              };
+              total += e.final;
+              any = true;
+            } else if (e) {
+              // 部分入力（D だけ等）も保持
+              perApp[a.code] = {
+                d: e.d,
+                eFinal: e.eFinal,
+                nd: e.nd,
+                bonus: e.bonus,
+                final: e.final,
+              };
+            }
+          });
+          return { name, total: any ? Math.round(total * 1000) / 1000 : undefined, perApp };
+        });
+        const ranked = rankBy(aaRows, (r) => r.total);
+        const items: AAItem[] = ranked.map((r) => ({
+          rank: r.rank,
+          name: r.item.name,
+          total: r.score,
+          perApp: r.item.perApp,
+        }));
+        result = await exportAARanking({
+          sessionName,
+          sessionDate,
+          eJudgeCount,
+          items,
+        });
+      } else if (mode === 'trial' && trialTab === 'apparatus') {
+        // 試技会 種目別タブ: 中間表
+        const rows = athletes.map((name) => {
+          const m = data.byAthlete.get(name);
+          const e = m?.get(appTab);
+          return { name, e };
+        });
+        const ranked = rankBy(rows, (r) => (r.e ? entryScore(r.e, sortKey) : undefined));
+        const items: ApparatusItem[] = ranked.map((r) => ({
+          rank: r.rank,
+          name: r.item.name,
+          d: r.item.e?.d,
+          eFinal: r.item.e?.eFinal,
+          nd: r.item.e?.nd,
+          bonus: r.item.e?.bonus ?? false,
+          final: r.item.e?.final,
+        }));
+        result = await exportApparatusRanking({
+          sessionName,
+          sessionDate,
+          apparatus: appTab,
+          eJudgeCount,
+          hasPrefix: false,
+          items,
+        });
+      }
+      if (result.shared === 0) {
+        alert('共有できる採点結果がありません。スコアを入力してから再度お試しください。');
+      }
+    } finally {
+      setSharing(false);
+    }
+  };
 
   const renderRows = useMemo(() => {
     if (!data) return null;
@@ -132,10 +253,30 @@ export default function RankingModal({ sessionId, mode, apparatus, athletes = []
               <span className="text-sm text-gray-500 font-normal">— {apparatus}</span>
             )}
           </h3>
-          <button onClick={onClose}
-            className="text-gray-400 hover:text-gray-600 text-xl min-w-[44px] min-h-[44px] flex items-center justify-center">
-            ×
-          </button>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={handleShare}
+              disabled={sharing || !data}
+              className="px-3 py-1.5 rounded-lg bg-accent text-white text-sm font-bold hover:bg-primary disabled:opacity-50 disabled:cursor-not-allowed min-h-[44px] flex items-center gap-1.5"
+              title="現在表示中のランキングを画像で共有"
+            >
+              {sharing ? (
+                <>
+                  <span className="inline-block w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  <span>生成中…</span>
+                </>
+              ) : (
+                <>
+                  <span>📤</span>
+                  <span>共有</span>
+                </>
+              )}
+            </button>
+            <button onClick={onClose}
+              className="text-gray-400 hover:text-gray-600 text-xl min-w-[44px] min-h-[44px] flex items-center justify-center">
+              ×
+            </button>
+          </div>
         </div>
 
         {/* タブ・ソート切替 */}
