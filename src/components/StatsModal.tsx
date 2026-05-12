@@ -44,6 +44,8 @@ interface Props {
   athletes?: string[];
   eJudgeCount: number;
   onClose: () => void;
+  // 親モーダル（例: RankingModal）に埋め込む場合は外側枠とヘッダを省略する
+  embedded?: boolean;
 }
 
 const CANVAS_W = 800;
@@ -85,6 +87,7 @@ export default function StatsModal({
   athletes = [],
   eJudgeCount,
   onClose,
+  embedded = false,
 }: Props) {
   const data = useSessionScores(sessionId);
   const [trialTab, setTrialTab] = useState<TrialTab>('radar');
@@ -288,48 +291,9 @@ export default function StatsModal({
   const showCanvas =
     !(mode === 'trial' && trialTab === 'deviation');
 
-  return (
-    <div className="fixed inset-0 z-[90] bg-black/40 flex items-center justify-center p-4" onClick={onClose}>
-      <div
-        onClick={(e) => e.stopPropagation()}
-        className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-5xl max-h-[90vh] flex flex-col overflow-hidden"
-      >
-        {/* ヘッダー */}
-        <div className="px-5 py-3 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between shrink-0">
-          <h3 className="font-bold text-gray-700 dark:text-gray-300 flex items-center gap-2">
-            <span>📊 統計</span>
-            {mode === 'competition' && apparatus && (
-              <span className="text-sm text-gray-500 font-normal">— {apparatus} {APPARATUS_MAP[apparatus].name}</span>
-            )}
-          </h3>
-          <div className="flex items-center gap-1">
-            <button
-              onClick={handleShare}
-              disabled={sharing || !data}
-              className="px-3 py-1.5 rounded-lg bg-accent text-white text-sm font-bold hover:bg-primary disabled:opacity-50 disabled:cursor-not-allowed min-h-[44px] flex items-center gap-1.5"
-              title="現在のチャートを画像で共有"
-            >
-              {sharing ? (
-                <>
-                  <span className="inline-block w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                  <span>生成中…</span>
-                </>
-              ) : (
-                <>
-                  <span>📤</span>
-                  <span>共有</span>
-                </>
-              )}
-            </button>
-            <button
-              onClick={onClose}
-              className="text-gray-400 hover:text-gray-600 text-xl min-w-[44px] min-h-[44px] flex items-center justify-center"
-            >
-              ×
-            </button>
-          </div>
-        </div>
-
+  // 埋め込みモード（親モーダルに統合）
+  const body = (
+    <>
         {/* タブ */}
         <div className="px-4 py-2 border-b border-gray-200 dark:border-gray-700 flex flex-wrap items-center gap-2 shrink-0">
           <div className="flex rounded-lg overflow-hidden border border-gray-300 dark:border-gray-600">
@@ -427,6 +391,80 @@ export default function StatsModal({
             </div>
           )}
         </div>
+    </>
+  );
+
+  // 親モーダルに埋め込む場合: 共有ボタン + 本体のみ返す
+  if (embedded) {
+    return (
+      <div className="flex flex-col h-full">
+        <div className="px-4 py-2 border-b border-gray-200 dark:border-gray-700 flex items-center gap-2 shrink-0">
+          <button
+            onClick={handleShare}
+            disabled={sharing || !data}
+            className="ml-auto px-3 py-1.5 rounded-lg bg-accent text-white text-sm font-bold hover:bg-primary disabled:opacity-50 disabled:cursor-not-allowed min-h-[40px] flex items-center gap-1.5"
+            title="現在のチャートを画像で共有"
+          >
+            {sharing ? (
+              <>
+                <span className="inline-block w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                <span>生成中…</span>
+              </>
+            ) : (
+              <>
+                <span>📤</span>
+                <span>共有</span>
+              </>
+            )}
+          </button>
+        </div>
+        {body}
+      </div>
+    );
+  }
+
+  // 単体モーダル
+  return (
+    <div className="fixed inset-0 z-[90] bg-black/40 flex items-center justify-center p-4" onClick={onClose}>
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-5xl max-h-[90vh] flex flex-col overflow-hidden"
+      >
+        <div className="px-5 py-3 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between shrink-0">
+          <h3 className="font-bold text-gray-700 dark:text-gray-300 flex items-center gap-2">
+            <span>📊 統計</span>
+            {mode === 'competition' && apparatus && (
+              <span className="text-sm text-gray-500 font-normal">— {apparatus} {APPARATUS_MAP[apparatus].name}</span>
+            )}
+          </h3>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={handleShare}
+              disabled={sharing || !data}
+              className="px-3 py-1.5 rounded-lg bg-accent text-white text-sm font-bold hover:bg-primary disabled:opacity-50 disabled:cursor-not-allowed min-h-[44px] flex items-center gap-1.5"
+              title="現在のチャートを画像で共有"
+            >
+              {sharing ? (
+                <>
+                  <span className="inline-block w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  <span>生成中…</span>
+                </>
+              ) : (
+                <>
+                  <span>📤</span>
+                  <span>共有</span>
+                </>
+              )}
+            </button>
+            <button
+              onClick={onClose}
+              className="text-gray-400 hover:text-gray-600 text-xl min-w-[44px] min-h-[44px] flex items-center justify-center"
+            >
+              ×
+            </button>
+          </div>
+        </div>
+        {body}
       </div>
     </div>
   );

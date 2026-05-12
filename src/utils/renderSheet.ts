@@ -187,7 +187,7 @@ export function renderSheetCanvas(opts: RenderOptions): HTMLCanvasElement {
     return arr;
   })();
   const eFinalVal = digitalScores ? getEFinal(digitalScores) : undefined;
-  const finalVal = digitalScores ? calcFinal(digitalScores) : undefined;
+  const finalVal = digitalScores ? calcFinal(digitalScores, apparatus) : undefined;
 
   const parts: Array<{ label: string; value: string; bold?: boolean }> = [
     { label: 'D', value: formatScore(digitalScores?.d, 1) },

@@ -1,11 +1,12 @@
 import { useState } from 'react';
-import type { DigitalScores } from '../types';
+import type { DigitalScores, Apparatus } from '../types';
 import { calcEFinal, calcFinal, formatScore, formatNatural, eFinalDecimals, FINAL_SCORE_DECIMALS } from '../utils/scoreCalc';
 import ScoreNumpad from './ScoreNumpad';
 
 interface Props {
   value: DigitalScores;
   eJudgeCount: number;
+  apparatus?: Apparatus;
   onChange: (next: DigitalScores) => void;
 }
 
@@ -15,8 +16,11 @@ interface Editing { kind: CellKind; index?: number; }
 // 上段: E1..EN
 // 下段: D / E決定 / ND / 加点 / 決定点
 // セルタップ → ScoreNumpad ポップアップ。E決定/決定点は自動計算（手動上書き可）。
-export default function ScoreInputBar({ value, eJudgeCount, onChange }: Props) {
+export default function ScoreInputBar({ value, eJudgeCount, apparatus, onChange }: Props) {
   const [editing, setEditing] = useState<Editing | null>(null);
+
+  // あん馬は加点 +0.1 を扱わない
+  const bonusDisabled = apparatus === 'PH';
 
   // E配列を必ず eJudgeCount に揃える（人数変更後の安全策）
   const eArr = (() => {
@@ -24,11 +28,16 @@ export default function ScoreInputBar({ value, eJudgeCount, onChange }: Props) {
     while (arr.length < eJudgeCount) arr.push(undefined);
     return arr;
   })();
-  const normalized: DigitalScores = { ...value, e: eArr };
+  const normalized: DigitalScores = {
+    ...value,
+    e: eArr,
+    // PH では bonus を計算に反映させない
+    bonus: bonusDisabled ? false : value.bonus,
+  };
 
   const eAuto = calcEFinal(eArr);
   const eFinalDisplay = typeof normalized.eFinalManual === 'number' ? normalized.eFinalManual : eAuto;
-  const finalAuto = calcFinal(normalized);
+  const finalAuto = calcFinal(normalized, apparatus);
   const finalDisplay = finalAuto;
 
   const cellKey = (c: Editing) => `${c.kind}:${c.index ?? ''}`;
@@ -119,41 +128,43 @@ export default function ScoreInputBar({ value, eJudgeCount, onChange }: Props) {
             normalized.d !== undefined
               ? <span className={valueClass}>{formatScore(normalized.d, 1)}</span>
               : <span className={placeholderClass}>―</span>,
-            'w-[14%]',
+            bonusDisabled ? 'w-[18%]' : 'w-[14%]',
           )}
           {renderInputCell(
             { kind: 'eFinal' },
             eFinalDisplay !== undefined
               ? <span className={`${valueClass} ${typeof normalized.eFinalManual === 'number' ? 'text-accent' : ''}`}>{formatScore(eFinalDisplay, decimals)}</span>
               : <span className={placeholderClass}>―</span>,
-            'w-[18%]',
+            bonusDisabled ? 'w-[24%]' : 'w-[18%]',
           )}
           {renderInputCell(
             { kind: 'nd' },
             normalized.nd !== undefined
               ? <span className={valueClass}>{formatScore(normalized.nd, 1)}</span>
               : <span className={placeholderClass}>―</span>,
-            'w-[12%]',
+            bonusDisabled ? 'w-[16%]' : 'w-[12%]',
           )}
-          {/* 加点トグル */}
-          <button
-            onClick={toggleBonus}
-            className={`${cellBase} w-[16%] h-full transition-colors ${
-              normalized.bonus
-                ? 'bg-success/10 hover:bg-success/15'
-                : 'hover:bg-accent/5'
-            }`}
-            style={{ touchAction: 'manipulation' }}
-          >
-            <span className={labelClass}>加点</span>
-            <span className={`text-base font-mono font-semibold leading-tight ${
-              normalized.bonus
-                ? 'text-success'
-                : 'text-gray-300 dark:text-gray-600'
-            }`}>
-              {normalized.bonus ? '+0.1' : 'OFF'}
-            </span>
-          </button>
+          {/* 加点トグル（あん馬では非表示） */}
+          {!bonusDisabled && (
+            <button
+              onClick={toggleBonus}
+              className={`${cellBase} w-[16%] h-full transition-colors ${
+                normalized.bonus
+                  ? 'bg-success/10 hover:bg-success/15'
+                  : 'hover:bg-accent/5'
+              }`}
+              style={{ touchAction: 'manipulation' }}
+            >
+              <span className={labelClass}>加点</span>
+              <span className={`text-base font-mono font-semibold leading-tight ${
+                normalized.bonus
+                  ? 'text-success'
+                  : 'text-gray-300 dark:text-gray-600'
+              }`}>
+                {normalized.bonus ? '+0.1' : 'OFF'}
+              </span>
+            </button>
+          )}
           {renderInputCell(
             { kind: 'final' },
             (typeof normalized.finalManual === 'number' || finalDisplay !== undefined)

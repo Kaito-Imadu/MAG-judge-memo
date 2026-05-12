@@ -32,7 +32,7 @@ export function useSessionScores(sessionId: string | undefined): SessionScores |
         eFinal: ds ? getEFinal(ds) : undefined,
         nd: ds?.nd,
         bonus: ds?.bonus ?? false,
-        final: ds ? calcFinal(ds) : undefined,
+        final: ds ? calcFinal(ds, r.apparatus) : undefined,
       };
       return entry;
     });

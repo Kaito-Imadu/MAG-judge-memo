@@ -10,6 +10,7 @@ import {
   type AAItem,
   type ApparatusItem,
 } from '../utils/exportRanking';
+import StatsModal from './StatsModal';
 
 interface Props {
   sessionId: string;
@@ -41,6 +42,8 @@ export default function RankingModal({ sessionId, sessionName, sessionDate, mode
   const [appTab, setAppTab] = useState<Apparatus>('FX');
   // 共有処理中フラグ
   const [sharing, setSharing] = useState(false);
+  // ランキング / 統計 のビュー切替
+  const [view, setView] = useState<'ranking' | 'stats'>('ranking');
 
   const handleShare = async () => {
     if (!data || sharing) return;
@@ -245,33 +248,49 @@ export default function RankingModal({ sessionId, sessionName, sessionDate, mode
   return (
     <div className="fixed inset-0 z-[90] bg-black/40 flex items-center justify-center p-4" onClick={onClose}>
       <div onClick={e => e.stopPropagation()}
-        className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-4xl max-h-[85vh] flex flex-col overflow-hidden">
+        className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-5xl max-h-[90vh] flex flex-col overflow-hidden">
         <div className="px-5 py-3 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between shrink-0">
-          <h3 className="font-bold text-gray-700 dark:text-gray-300 flex items-center gap-2">
-            <span>🏆 ランキング</span>
+          <div className="flex items-center gap-3">
+            {/* ランキング / 統計 ビュー切替 */}
+            <div className="flex rounded-lg overflow-hidden border border-gray-300 dark:border-gray-600">
+              <button onClick={() => setView('ranking')}
+                className={`px-3 py-1.5 text-sm font-bold min-h-[40px] ${
+                  view === 'ranking' ? 'bg-accent text-white' : 'bg-white dark:bg-gray-700 text-gray-600 dark:text-gray-300'
+                }`}>
+                🏆 ランキング
+              </button>
+              <button onClick={() => setView('stats')}
+                className={`px-3 py-1.5 text-sm font-bold min-h-[40px] ${
+                  view === 'stats' ? 'bg-accent text-white' : 'bg-white dark:bg-gray-700 text-gray-600 dark:text-gray-300'
+                }`}>
+                📊 統計
+              </button>
+            </div>
             {mode === 'competition' && apparatus && (
               <span className="text-sm text-gray-500 font-normal">— {apparatus}</span>
             )}
-          </h3>
+          </div>
           <div className="flex items-center gap-1">
-            <button
-              onClick={handleShare}
-              disabled={sharing || !data}
-              className="px-3 py-1.5 rounded-lg bg-accent text-white text-sm font-bold hover:bg-primary disabled:opacity-50 disabled:cursor-not-allowed min-h-[44px] flex items-center gap-1.5"
-              title="現在表示中のランキングを画像で共有"
-            >
-              {sharing ? (
-                <>
-                  <span className="inline-block w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                  <span>生成中…</span>
-                </>
-              ) : (
-                <>
-                  <span>📤</span>
-                  <span>共有</span>
-                </>
-              )}
-            </button>
+            {view === 'ranking' && (
+              <button
+                onClick={handleShare}
+                disabled={sharing || !data}
+                className="px-3 py-1.5 rounded-lg bg-accent text-white text-sm font-bold hover:bg-primary disabled:opacity-50 disabled:cursor-not-allowed min-h-[44px] flex items-center gap-1.5"
+                title="現在表示中のランキングを画像で共有"
+              >
+                {sharing ? (
+                  <>
+                    <span className="inline-block w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    <span>生成中…</span>
+                  </>
+                ) : (
+                  <>
+                    <span>📤</span>
+                    <span>共有</span>
+                  </>
+                )}
+              </button>
+            )}
             <button onClick={onClose}
               className="text-gray-400 hover:text-gray-600 text-xl min-w-[44px] min-h-[44px] flex items-center justify-center">
               ×
@@ -279,6 +298,22 @@ export default function RankingModal({ sessionId, sessionName, sessionDate, mode
           </div>
         </div>
 
+        {view === 'stats' ? (
+          <div className="flex-1 overflow-hidden">
+            <StatsModal
+              embedded
+              sessionId={sessionId}
+              sessionName={sessionName}
+              sessionDate={sessionDate}
+              mode={mode}
+              apparatus={apparatus}
+              athletes={athletes}
+              eJudgeCount={eJudgeCount}
+              onClose={onClose}
+            />
+          </div>
+        ) : (
+        <>
         {/* タブ・ソート切替 */}
         <div className="px-4 py-2 border-b border-gray-200 dark:border-gray-700 flex flex-wrap items-center gap-2 shrink-0">
           {mode === 'trial' && (
@@ -353,6 +388,8 @@ export default function RankingModal({ sessionId, sessionName, sessionDate, mode
             </div>
           )}
         </div>
+        </>
+        )}
       </div>
     </div>
   );

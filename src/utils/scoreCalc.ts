@@ -1,4 +1,4 @@
-import type { DigitalScores } from '../types';
+import type { DigitalScores, Apparatus } from '../types';
 
 // E審判数ごとのE決定算出ルール
 // 1〜3人: 全員平均（小数第2位まで）
@@ -28,16 +28,22 @@ export function eFinalDecimals(eScores: (number | undefined)[]): number {
   return n <= 3 ? 2 : 3;
 }
 
+// あん馬は加点 +0.1 を扱わない種目
+export function isBonusApplicable(apparatus?: Apparatus): boolean {
+  return apparatus !== 'PH';
+}
+
 // 決定点 = D + E決定 − ND + (加点 ? 0.1 : 0)
 // finalManual が指定されていればそれを優先。
 // E決定は eFinalManual があればそれ、なければ eScores から計算。
 // 表示桁数は常に小数第3位まで。最低値は 0.000 にクランプ。
-export function calcFinal(s: DigitalScores): number | undefined {
+// apparatus が PH（あん馬）の場合は bonus を加算しない。
+export function calcFinal(s: DigitalScores, apparatus?: Apparatus): number | undefined {
   if (typeof s.finalManual === 'number') return Math.max(0, roundN(s.finalManual, 3));
   const eFinal = typeof s.eFinalManual === 'number' ? s.eFinalManual : calcEFinal(s.e);
   if (typeof s.d !== 'number' || typeof eFinal !== 'number') return undefined;
   const nd = typeof s.nd === 'number' ? s.nd : 0;
-  const bonus = s.bonus ? 0.1 : 0;
+  const bonus = s.bonus && isBonusApplicable(apparatus) ? 0.1 : 0;
   const raw = s.d + eFinal - nd + bonus;
   return Math.max(0, roundN(raw, 3));
 }

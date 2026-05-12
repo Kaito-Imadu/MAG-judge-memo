@@ -19,6 +19,8 @@ export default function EntryPage() {
   // セッション名インライン編集
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingName, setEditingName] = useState('');
+  // 過去セッション一覧のモード別タブ
+  const [activeTab, setActiveTab] = useState<'trial' | 'competition' | 'individual'>('trial');
 
   useEffect(() => {
     db.sessions.orderBy('date').reverse().toArray().then(setSessions);
@@ -124,11 +126,44 @@ export default function EntryPage() {
           </button>
         </div>
 
-        {sessions.length > 0 && (
+        {sessions.length > 0 && (() => {
+          const filtered = sessions.filter(s => s.mode === activeTab);
+          const counts = {
+            trial: sessions.filter(s => s.mode === 'trial').length,
+            competition: sessions.filter(s => s.mode === 'competition').length,
+            individual: sessions.filter(s => s.mode === 'individual').length,
+          };
+          const tabs: Array<{ key: 'trial' | 'competition' | 'individual'; label: string }> = [
+            { key: 'trial', label: '試技会' },
+            { key: 'competition', label: '大会' },
+            { key: 'individual', label: '個別' },
+          ];
+          return (
           <div>
             <h2 className="text-lg font-bold text-gray-700 dark:text-gray-300 mb-3">過去のセッション</h2>
+            <div className="flex gap-1 mb-3 border-b border-gray-200 dark:border-gray-700">
+              {tabs.map(t => (
+                <button
+                  key={t.key}
+                  onClick={() => setActiveTab(t.key)}
+                  className={`px-4 py-2 text-sm font-bold border-b-2 transition-colors min-h-[40px] ${
+                    activeTab === t.key
+                      ? 'border-accent text-accent'
+                      : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'
+                  }`}
+                >
+                  {t.label}
+                  <span className="ml-1.5 text-xs text-gray-400">({counts[t.key]})</span>
+                </button>
+              ))}
+            </div>
+            {filtered.length === 0 ? (
+              <div className="text-sm text-gray-400 py-6 text-center">
+                このモードのセッションはまだありません
+              </div>
+            ) : (
             <div className="space-y-2">
-              {sessions.map(s => (
+              {filtered.map(s => (
                 <div key={s.id} className="flex items-center bg-white dark:bg-gray-800 rounded-lg shadow px-4 py-3">
                   {editingId === s.id ? (
                     <div className="flex-1 flex items-center gap-2 min-h-[44px]">
@@ -176,8 +211,10 @@ export default function EntryPage() {
                 </div>
               ))}
             </div>
+            )}
           </div>
-        )}
+          );
+        })()}
       </main>
 
       {showModal && (

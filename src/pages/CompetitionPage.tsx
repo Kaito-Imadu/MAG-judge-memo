@@ -7,7 +7,6 @@ import type { Apparatus } from '../types';
 import JudgeSheet from '../components/JudgeSheet';
 import { renderSheetCanvas, loadVaultImage } from '../utils/renderSheet';
 import RankingModal from '../components/RankingModal';
-import StatsModal from '../components/StatsModal';
 import { calcFinal, getEFinal, formatScore, eFinalDecimals, FINAL_SCORE_DECIMALS } from '../utils/scoreCalc';
 
 // サムネイル描画用定数（内部解像度。表示は列幅にフィット）
@@ -99,7 +98,7 @@ function ThumbCard({ rec, apparatus, eJudgeCount, vaultImg, isActive, onClick, o
 
   const ds = rec?.digitalScores;
   const eFinalVal = ds ? getEFinal(ds) : undefined;
-  const finalVal = ds ? calcFinal(ds) : undefined;
+  const finalVal = ds ? calcFinal(ds, apparatus) : undefined;
   const decimals = ds ? eFinalDecimals(ds.e) : (eJudgeCount <= 3 ? 2 : 3);
   const labelStr = (rec?.digitalAthleteName || '').trim();
 
@@ -159,7 +158,6 @@ export default function CompetitionPage() {
   const [vaultImg, setVaultImg] = useState<HTMLImageElement | null>(null);
   const [deletedPage, setDeletedPage] = useState<DeletedPageSnapshot | null>(null);
   const [showRanking, setShowRanking] = useState(false);
-  const [showStats, setShowStats] = useState(false);
   const [digitalNameDraft, setDigitalNameDraft] = useState('');
   const [isDeleting, setIsDeleting] = useState(false);
   const digitalNameSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -354,13 +352,6 @@ export default function CompetitionPage() {
         <span>🏆</span>
         <span>順位</span>
       </button>
-      <button onClick={() => setShowStats(true)}
-        title="統計を表示"
-        className="flex items-center gap-1 px-2 py-1.5 rounded-lg text-xs font-bold min-h-[44px]
-                   bg-white dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600">
-        <span>📊</span>
-        <span>統計</span>
-      </button>
       <div className="w-px h-4 bg-gray-300" />
       <button onClick={goPrev} disabled={currentPage <= 1}
         className="px-3 py-1 rounded-lg text-base font-bold bg-white dark:bg-gray-700 text-gray-600 dark:text-gray-300 disabled:opacity-30 min-h-[44px] min-w-[44px] hover:bg-gray-200 dark:hover:bg-gray-600 active:bg-gray-300">
@@ -416,17 +407,6 @@ export default function CompetitionPage() {
           apparatus={session.apparatus}
           eJudgeCount={session.eJudgeCount}
           onClose={() => setShowRanking(false)}
-        />
-      )}
-      {showStats && (
-        <StatsModal
-          sessionId={sessionId}
-          sessionName={session.name}
-          sessionDate={session.date}
-          mode="competition"
-          apparatus={session.apparatus}
-          eJudgeCount={session.eJudgeCount}
-          onClose={() => setShowStats(false)}
         />
       )}
 
