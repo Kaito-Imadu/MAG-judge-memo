@@ -48,11 +48,11 @@ const COLORS = [
 ];
 const ERASER_WIDTH = 28;              // 消しゴムツールのカーソル半径・ヒット判定
 const SCRUB_HIT_RADIUS = 18;          // スクラブ消去のヒット判定半径（カーソルより小さく、軌跡から外れた線は残す）
-const SCRUB_DIRS_NEEDED = 6;          // 方向転換の必要回数（厳格化）
-const SCRUB_MIN_SWING = 20;           // ピーク/トラフからの反転量(px) — 12→20 に引き上げ
-const SCRUB_PERP_MAX_RANGE = 50;      // 副軸（スクラブ方向と直交）の最大レンジ — 細長い線を除外
-const SCRUB_PARALLEL_MAX_RANGE = 220; // 主軸の最大レンジ — 長い直線を除外
-const SCRUB_MIN_POINTS = 12;          // スクラブと判定する最小点数
+const SCRUB_DIRS_NEEDED = 3;          // 方向転換の必要回数（自然な「ジグザグ」3回で発火）
+const SCRUB_MIN_SWING = 12;           // ピーク/トラフからの反転量(px)
+const SCRUB_PERP_MAX_RANGE = 90;      // 副軸（スクラブ方向と直交）の最大レンジ
+const SCRUB_PARALLEL_MAX_RANGE = 320; // 主軸の最大レンジ
+const SCRUB_MIN_POINTS = 6;           // スクラブと判定する最小点数
 const SAVE_DEBOUNCE = 1500;
 // 横線ハンドル定数
 const HLINE_HANDLE_R = 5;        // ハンドル円の半径
@@ -1665,26 +1665,12 @@ function findStrokeAtIndexed(
 }
 
 // スクラブ軌跡に触れた全ストロークの index を返す。
-// パディング付きバウンディングボックス外に大部分が出ているストロークは保護（誤削除防止）。
+// threshold は十分タイトな前提で、軌跡から threshold 以内にあるストロークのみ削除する。
 function findAllStrokesAlongPath(
   strokes: Stroke[], grid: SpatialGrid, path: Point[], threshold: number,
 ): Set<number> {
   const hits = new Set<number>();
   if (path.length === 0) return hits;
-
-  // スクラブのバウンディングボックス + パディング
-  const padding = threshold * 2;
-  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-  for (const p of path) {
-    if (p.x < minX) minX = p.x;
-    if (p.x > maxX) maxX = p.x;
-    if (p.y < minY) minY = p.y;
-    if (p.y > maxY) maxY = p.y;
-  }
-  const bbMinX = minX - padding;
-  const bbMinY = minY - padding;
-  const bbMaxX = maxX + padding;
-  const bbMaxY = maxY + padding;
 
   // 候補ストロークを集める（軌跡の各点周辺）
   const candidates = new Set<number>();
@@ -1697,13 +1683,6 @@ function findAllStrokesAlongPath(
     if (si >= strokes.length) continue;
     const pts = strokes[si].points;
     if (pts.length === 0) continue;
-
-    // 誤削除保護: ストロークの大部分が BB 外なら除外
-    let inBB = 0;
-    for (const sp of pts) {
-      if (sp.x >= bbMinX && sp.x <= bbMaxX && sp.y >= bbMinY && sp.y <= bbMaxY) inBB++;
-    }
-    if (inBB / pts.length < 0.5) continue; // 半数以上が BB 内にないものは保護
 
     // 軌跡と接触判定: 軌跡の各点について、ストロークの最近接距離が threshold 以下なら hit
     let hit = false;
