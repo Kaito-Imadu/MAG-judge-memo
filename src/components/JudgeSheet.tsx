@@ -53,6 +53,7 @@ const SCRUB_MIN_SWING = 12;           // ピーク/トラフからの反転量(p
 const SCRUB_PERP_MAX_RANGE = 90;      // 副軸（スクラブ方向と直交）の最大レンジ
 const SCRUB_PARALLEL_MAX_RANGE = 320; // 主軸の最大レンジ
 const SCRUB_MIN_POINTS = 6;           // スクラブと判定する最小点数
+const SCRUB_DETECT_WINDOW = 18;       // リアルタイム検出: 直近 N 点をスクラブ判定にかける
 const SAVE_DEBOUNCE = 1500;
 // 横線ハンドル定数
 const HLINE_HANDLE_R = 5;        // ハンドル円の半径
@@ -349,6 +350,11 @@ export default function JudgeSheet({
   const lineWidthRef = useRef(settingsRef.current.penWidth);
   const eraserMode = useRef(false);
   const drawing = useRef(false);
+  // GoodNotes 風リアルタイム擦り消し: 描画中に擦り検出したらここから先は eraser として動作
+  const scribbling = useRef(false);
+  const scribbleSnapshot = useRef<Stroke[] | null>(null);
+  const scribbleSnapshotGrid = useRef<SpatialGrid | null>(null);
+  const scribbleHits = useRef<Set<number>>(new Set());
   const activePointerId = useRef<number | null>(null);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   // scrubDirs等のリアルタイム追跡は廃止 → finishStroke内でまとめて分析
@@ -814,6 +820,25 @@ export default function JudgeSheet({
       // Active Canvas クリア
       clearActiveRef.current();
 
+      // リアルタイム擦り消し中だった場合: 削除を確定して終了
+      if (scribbling.current) {
+        const snap = scribbleSnapshot.current;
+        const hits = scribbleHits.current;
+        if (snap && hits.size > 0) {
+          const items = [...hits]
+            .sort((a, b) => a - b)
+            .map(idx => ({ stroke: snap[idx], index: idx }));
+          undoStack.current.push({ type: 'erase', items });
+          redoStack.current = [];
+          saveRef.current();
+        }
+        scribbling.current = false;
+        scribbleSnapshot.current = null;
+        scribbleSnapshotGrid.current = null;
+        scribbleHits.current = new Set();
+        return;
+      }
+
       // スクラブ消去判定（GoodNotes 風: 軌跡が触れた全ストロークを一括削除）
       if (isScrubPattern(finished.points)) {
         const hits = findAllStrokesAlongPath(
@@ -1008,11 +1033,65 @@ export default function JudgeSheet({
       /* eslint-enable @typescript-eslint/no-explicit-any */
       const events: PointerEvent[] = coalesced.length > 0 ? coalesced : [e];
       const prevDrawn = curDrawnIndex.current;
+      const newPointsStart = cur.current.points.length;
 
       for (const ce of events) {
         const p = getPos(ce);
         const pts = cur.current!.points;
         pts.push(p);
+      }
+
+      // === GoodNotes 風リアルタイム擦り消し ===
+      const pathPts = cur.current.points;
+
+      // まだ擦り中でなければ、直近 N 点で検出を試みる
+      if (!scribbling.current && pathPts.length >= SCRUB_MIN_POINTS) {
+        const recent = pathPts.slice(-SCRUB_DETECT_WINDOW);
+        if (recent.length >= SCRUB_MIN_POINTS && isScrubPattern(recent)) {
+          // 擦り突入: スナップショット取り → 現ストローク描画を消す
+          scribbling.current = true;
+          scribbleSnapshot.current = [...strokes.current];
+          scribbleSnapshotGrid.current = spatialGrid.current;
+          scribbleHits.current = new Set();
+          clearActiveRef.current();
+          // これまでの軌跡が触れていた線を一括ヒット登録
+          const initialHits = findAllStrokesAlongPath(
+            scribbleSnapshot.current,
+            scribbleSnapshotGrid.current,
+            pathPts,
+            SCRUB_HIT_RADIUS,
+          );
+          for (const idx of initialHits) scribbleHits.current.add(idx);
+        }
+      }
+
+      if (scribbling.current && scribbleSnapshot.current && scribbleSnapshotGrid.current) {
+        // 新規追加点ぶんだけヒットテスト
+        let added = false;
+        for (let i = newPointsStart; i < pathPts.length; i++) {
+          const hits = findStrokeHitsAtPoint(
+            scribbleSnapshot.current,
+            scribbleSnapshotGrid.current,
+            pathPts[i],
+            SCRUB_HIT_RADIUS,
+          );
+          for (const idx of hits) {
+            if (!scribbleHits.current.has(idx)) {
+              scribbleHits.current.add(idx);
+              added = true;
+            }
+          }
+        }
+        if (added) {
+          // strokes.current を snapshot − hits で再構築して即時反映
+          const hitSet = scribbleHits.current;
+          strokes.current = scribbleSnapshot.current.filter((_, i) => !hitSet.has(i));
+          spatialGrid.current = rebuildGrid(strokes.current);
+          redrawStaticRef.current();
+        }
+        // 擦り中は通常描画しない（active canvas はクリアされたまま）
+        curDrawnIndex.current = pathPts.length - 1;
+        return;
       }
 
       // フリーハンド: Active Canvas にインクリメンタル曲線描画
@@ -1200,6 +1279,20 @@ export default function JudgeSheet({
   // === UI Actions ===
   // 描画中の状態をリセットしてからUI操作を実行（iPad でボタンタップ時の競合防止）
   const cancelDrawing = () => {
+    // 擦り消し中に UI 操作で中断された場合は、その時点までの削除を確定して記録
+    if (scribbling.current && scribbleSnapshot.current && scribbleHits.current.size > 0) {
+      const snap = scribbleSnapshot.current;
+      const items = [...scribbleHits.current]
+        .sort((a, b) => a - b)
+        .map(idx => ({ stroke: snap[idx], index: idx }));
+      undoStack.current.push({ type: 'erase', items });
+      redoStack.current = [];
+      saveRef.current();
+    }
+    scribbling.current = false;
+    scribbleSnapshot.current = null;
+    scribbleSnapshotGrid.current = null;
+    scribbleHits.current = new Set();
     const cv = activeCanvasRef.current;
     const id = activePointerId.current;
     if (cv && id != null) {
@@ -1703,4 +1796,27 @@ function findAllStrokesAlongPath(
   }
 
   return hits;
+}
+
+// 単点 p が触れている全ストロークの index を返す（snapshot 用）。
+function findStrokeHitsAtPoint(
+  snapshot: Stroke[], grid: SpatialGrid, p: Point, threshold: number,
+): number[] {
+  const candidates = queryNear(grid, p, threshold);
+  const out: number[] = [];
+  for (const si of candidates) {
+    if (si >= snapshot.length) continue;
+    const pts = snapshot[si].points;
+    for (let i = 0; i < pts.length - 1; i++) {
+      const a = pts[i], b = pts[i + 1];
+      const dx = b.x - a.x, dy = b.y - a.y, lenSq = dx * dx + dy * dy;
+      let t = lenSq === 0 ? 0 : ((p.x - a.x) * dx + (p.y - a.y) * dy) / lenSq;
+      t = Math.max(0, Math.min(1, t));
+      if (Math.hypot(p.x - (a.x + t * dx), p.y - (a.y + t * dy)) < threshold) {
+        out.push(si);
+        break;
+      }
+    }
+  }
+  return out;
 }
