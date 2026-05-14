@@ -47,7 +47,7 @@ const COLORS = [
   { value: '#2E86C1' },
 ];
 const ERASER_WIDTH = 28;              // 消しゴムツールのカーソル半径・ヒット判定
-const SCRUB_HIT_RADIUS = 10;          // スクラブ消去のヒット判定半径（カーソルより小さく）
+const SCRUB_HIT_RADIUS = 18;          // スクラブ消去のヒット判定半径（カーソルより小さく、軌跡から外れた線は残す）
 const SCRUB_DIRS_NEEDED = 6;          // 方向転換の必要回数（厳格化）
 const SCRUB_MIN_SWING = 20;           // ピーク/トラフからの反転量(px) — 12→20 に引き上げ
 const SCRUB_PERP_MAX_RANGE = 50;      // 副軸（スクラブ方向と直交）の最大レンジ — 細長い線を除外
@@ -1491,20 +1491,22 @@ export default function JudgeSheet({
 
         {toolbarExtra}
 
-        <div className="flex items-center gap-1.5">
-          {showApparatusTabs && APPARATUS_LIST.map((a) => (
-            <button key={a.code} onClick={() => handleApparatusChange(a.code)}
-              className={`px-2.5 py-1 rounded text-xs font-bold min-h-[36px] ${
-                apparatus === a.code ? 'bg-primary text-white' : 'text-gray-500 hover:bg-gray-200 dark:hover:bg-gray-600'
-              }`}>
-              {a.code}
-            </button>
-          ))}
-          <button onClick={handleBack}
-            className="px-3 py-1 rounded text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 ml-1 min-h-[36px]">
-            {onBack ? '← 戻る' : 'ホーム'}
-          </button>
-        </div>
+        {showApparatusTabs && (
+          <div className="flex items-center gap-1.5">
+            {APPARATUS_LIST.map((a) => (
+              <button key={a.code} onClick={() => handleApparatusChange(a.code)}
+                className={`px-2.5 py-1 rounded text-xs font-bold min-h-[36px] ${
+                  apparatus === a.code ? 'bg-primary text-white' : 'text-gray-500 hover:bg-gray-200 dark:hover:bg-gray-600'
+                }`}>
+                {a.code}
+              </button>
+            ))}
+          </div>
+        )}
+        <button onClick={handleBack}
+          className="ml-auto shrink-0 px-3 py-1 rounded text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 min-h-[36px]">
+          {onBack ? '← 戻る' : 'ホーム'}
+        </button>
       </div>
 
       {/* ポップオーバー: ツールバーの overflow に依存しないよう Portal で body に出す */}

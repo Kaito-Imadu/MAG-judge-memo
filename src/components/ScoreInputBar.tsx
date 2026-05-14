@@ -22,6 +22,8 @@ export default function ScoreInputBar({ value, eJudgeCount, apparatus, onChange 
   // あん馬は加点 +0.1 を扱わない
   const bonusDisabled = apparatus === 'PH';
 
+  // eJudgeCount=0 のときは E1..EN 行を非表示（個別モード用: E決定を直接入力する想定）
+  const showEJudges = eJudgeCount > 0;
   // E配列を必ず eJudgeCount に揃える（人数変更後の安全策）
   const eArr = (() => {
     const arr = value.e.slice(0, eJudgeCount);
@@ -110,19 +112,21 @@ export default function ScoreInputBar({ value, eJudgeCount, apparatus, onChange 
   return (
     <>
       <div className="border-t border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 shrink-0">
-        {/* 上段: E1..EN（少し厚め） */}
-        <div className="flex h-12" style={{ borderBottom: '1px solid var(--tw-color-gray-300, #d1d5db)' }}>
-          {eArr.map((v, i) => renderInputCell(
-            { kind: 'e', index: i },
-            v !== undefined
-              ? <span className={valueClass}>{formatNatural(v, 3)}</span>
-              : <span className={placeholderClass}>―</span>,
-            'flex-1',
-          ))}
-        </div>
+        {/* 上段: E1..EN（少し厚め） — eJudgeCount=0 のときは非表示 */}
+        {showEJudges && (
+          <div className="flex h-12" style={{ borderBottom: '1px solid var(--tw-color-gray-300, #d1d5db)' }}>
+            {eArr.map((v, i) => renderInputCell(
+              { kind: 'e', index: i },
+              v !== undefined
+                ? <span className={valueClass}>{formatNatural(v, 3)}</span>
+                : <span className={placeholderClass}>―</span>,
+              'flex-1',
+            ))}
+          </div>
+        )}
 
         {/* 下段: D / E決定 / ND / 加点 / 決定点（少し厚め） */}
-        <div className="flex h-14 border-t border-gray-300 dark:border-gray-700">
+        <div className={`flex h-14 ${showEJudges ? 'border-t border-gray-300 dark:border-gray-700' : ''}`}>
           {renderInputCell(
             { kind: 'd' },
             normalized.d !== undefined
