@@ -1,5 +1,6 @@
-import { useRef, useState, useCallback, useEffect } from 'react';
+import { useRef, useState, useCallback, useEffect, useLayoutEffect } from 'react';
 import type { ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import type { Apparatus, DigitalScores } from '../types';
 import { APPARATUS_LIST } from '../constants/apparatus';
@@ -12,6 +13,12 @@ import { emptyScores, hasAnyScore } from '../utils/scoreCalc';
 
 interface Point { x: number; y: number }
 interface Stroke { points: Point[]; color: string; width: number }
+
+// 操作履歴: 描画追加 / 消去（単発・スクラブ共通） / 全消去 を可逆に扱う
+type UndoOp =
+  | { type: 'add'; stroke: Stroke }
+  | { type: 'erase'; items: Array<{ stroke: Stroke; index: number }> }
+  | { type: 'clear'; strokes: Stroke[]; lines: HLine[] };
 
 interface Props {
   apparatus: Apparatus;
@@ -39,7 +46,8 @@ const COLORS = [
   { value: '#E74C3C' },
   { value: '#2E86C1' },
 ];
-const ERASER_WIDTH = 28;
+const ERASER_WIDTH = 28;              // 消しゴムツールのカーソル半径・ヒット判定
+const SCRUB_HIT_RADIUS = 10;          // スクラブ消去のヒット判定半径（カーソルより小さく）
 const SCRUB_DIRS_NEEDED = 6;          // 方向転換の必要回数（厳格化）
 const SCRUB_MIN_SWING = 20;           // ピーク/トラフからの反転量(px) — 12→20 に引き上げ
 const SCRUB_PERP_MAX_RANGE = 50;      // 副軸（スクラブ方向と直交）の最大レンジ — 細長い線を除外
@@ -235,6 +243,49 @@ function drawIncrementalSmooth(
   }
 }
 
+// ---------- ツールバー用ポップオーバー ----------
+// FIX: ツールバーが `overflow-x-auto` を持つため、CSS 仕様により overflow-y も auto に
+// 強制され、ボタン直下に絶対配置したポップオーバーが視覚的にクリップされてしまう
+// （iPad で「３点リーダーが反応しない」「色選択ができない」の原因）。
+// createPortal で document.body に出し、fixed 配置でアンカーボタン直下に表示する。
+interface ToolbarPopoverProps {
+  anchor: HTMLElement | null;
+  open: boolean;
+  onClose: () => void;
+  children: ReactNode;
+}
+function ToolbarPopover({ anchor, open, onClose, children }: ToolbarPopoverProps) {
+  const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
+  useLayoutEffect(() => {
+    if (!open || !anchor) return;
+    const update = () => {
+      const r = anchor.getBoundingClientRect();
+      setPos({ top: r.bottom + 4, left: r.left });
+    };
+    update();
+    window.addEventListener('resize', update);
+    window.addEventListener('scroll', update, true);
+    return () => {
+      window.removeEventListener('resize', update);
+      window.removeEventListener('scroll', update, true);
+    };
+  }, [open, anchor]);
+  if (!open || !anchor || !pos) return null;
+  return createPortal(
+    <>
+      <div className="fixed inset-0 z-[60]" onClick={onClose} />
+      <div
+        className="fixed z-[61] bg-white dark:bg-gray-800 rounded-lg shadow-xl border border-gray-200 dark:border-gray-700"
+        style={{ top: pos.top, left: pos.left }}
+        onClick={e => e.stopPropagation()}
+      >
+        {children}
+      </div>
+    </>,
+    document.body,
+  );
+}
+
 // ---------- 診断ログ（Apple Pencil 無反応事象の調査用） ----------
 interface PtrLogEntry {
   t: number;             // performance.now() (ms)
@@ -282,10 +333,9 @@ export default function JudgeSheet({
 
   const strokes = useRef<Stroke[]>([]);
   const spatialGrid = useRef<SpatialGrid>(createGrid());
-  const redoStack = useRef<Stroke[]>([]);
-  const preClearSnapshot = useRef<Stroke[] | null>(null);
+  const undoStack = useRef<UndoOp[]>([]);
+  const redoStack = useRef<UndoOp[]>([]);
   const horizontalLines = useRef<HLine[]>([]);
-  const preClearLinesSnapshot = useRef<HLine[] | null>(null);
   // デジタルスコアは React state で管理（手動入力ペース → 高頻度ではない）
   const [digitalScores, setDigitalScores] = useState<DigitalScores>(() => emptyScores(eJudgeCount));
   const digitalScoresRef = useRef<DigitalScores>(digitalScores);
@@ -331,6 +381,8 @@ export default function JudgeSheet({
   // ツールバーのポップオーバー類
   const [showPenPopover, setShowPenPopover] = useState(false);
   const [showMoreMenu, setShowMoreMenu] = useState(false);
+  const penButtonRef = useRef<HTMLButtonElement>(null);
+  const moreButtonRef = useRef<HTMLButtonElement>(null);
   // 復旧ボタンから呼ぶための ref（useEffect 内で実体をセット）
   const resetStuckStateRef = useRef<() => void>(() => {});
   // ペン入力の最終時刻（接続インジケータ用、ms）
@@ -620,9 +672,8 @@ export default function JudgeSheet({
         saveRef.current();
       }
       spatialGrid.current = rebuildGrid(strokes.current);
+      undoStack.current = [];
       redoStack.current = [];
-      preClearSnapshot.current = null;
-      preClearLinesSnapshot.current = null;
       redrawStatic();
       clearActive();
       // FIX: 横線削除ボタンの表示条件は horizontalLines.current.length に依存するが、
@@ -769,13 +820,20 @@ export default function JudgeSheet({
           strokes.current,
           spatialGrid.current,
           finished.points,
-          ERASER_WIDTH,
+          SCRUB_HIT_RADIUS,
         );
         if (hits.size > 0) {
-          // splice ずれ防止のため降順で削除
+          // 元の index を保持したまま削除（undo で復元するため）
           const sorted = [...hits].sort((a, b) => b - a);
-          for (const i of sorted) strokes.current.splice(i, 1);
+          const removed: Array<{ stroke: Stroke; index: number }> = [];
+          for (const i of sorted) {
+            removed.push({ stroke: strokes.current[i], index: i });
+            strokes.current.splice(i, 1);
+          }
+          // 復元時に splice しやすいよう昇順で保持
+          removed.sort((a, b) => a.index - b.index);
           spatialGrid.current = rebuildGrid(strokes.current);
+          undoStack.current.push({ type: 'erase', items: removed });
           redoStack.current = [];
           redrawStaticRef.current();
           saveRef.current();
@@ -793,6 +851,7 @@ export default function JudgeSheet({
       const idx = strokes.current.length;
       strokes.current.push(finished);
       insertStroke(spatialGrid.current, idx, finished);
+      undoStack.current.push({ type: 'add', stroke: finished });
       redoStack.current = [];
       saveRef.current();
     };
@@ -801,8 +860,10 @@ export default function JudgeSheet({
     const eraseAt = (p: Point) => {
       const idx = findStrokeAtIndexed(strokes.current, spatialGrid.current, p, ERASER_WIDTH);
       if (idx >= 0) {
+        const removed = strokes.current[idx];
         strokes.current.splice(idx, 1);
         spatialGrid.current = rebuildGrid(strokes.current);
+        undoStack.current.push({ type: 'erase', items: [{ stroke: removed, index: idx }] });
         redoStack.current = [];
         redrawStaticRef.current();
         saveRef.current();
@@ -1152,24 +1213,24 @@ export default function JudgeSheet({
 
   const undo = () => {
     cancelDrawing();
-    // 全消去直後: スナップショットから全復元
-    if (strokes.current.length === 0 && preClearSnapshot.current) {
-      strokes.current = preClearSnapshot.current;
-      preClearSnapshot.current = null;
-      if (preClearLinesSnapshot.current) {
-        horizontalLines.current = preClearLinesSnapshot.current;
-        preClearLinesSnapshot.current = null;
+    const op = undoStack.current.pop();
+    if (!op) return;
+    if (op.type === 'add') {
+      // 末尾に追加されたストロークを取り除く
+      strokes.current.pop();
+    } else if (op.type === 'erase') {
+      // 削除時の index 順（昇順）に再挿入
+      for (const item of op.items) {
+        const idx = Math.min(item.index, strokes.current.length);
+        strokes.current.splice(idx, 0, item.stroke);
       }
-      spatialGrid.current = rebuildGrid(strokes.current);
-      redoStack.current = [];
-      redrawStaticRef.current();
-      saveRef.current();
-      setTick(t => t + 1);
-      return;
+    } else {
+      // clear: 全ストローク・横線を復元
+      strokes.current = [...op.strokes];
+      horizontalLines.current = [...op.lines];
     }
-    if (strokes.current.length === 0) return;
-    redoStack.current.push(strokes.current.pop()!);
     spatialGrid.current = rebuildGrid(strokes.current);
+    redoStack.current.push(op);
     redrawStaticRef.current();
     saveRef.current();
     setTick(t => t + 1);
@@ -1178,11 +1239,21 @@ export default function JudgeSheet({
   undoRef.current = undo;
   const redo = () => {
     cancelDrawing();
-    if (redoStack.current.length === 0) return;
-    const s = redoStack.current.pop()!;
-    const idx = strokes.current.length;
-    strokes.current.push(s);
-    insertStroke(spatialGrid.current, idx, s);
+    const op = redoStack.current.pop();
+    if (!op) return;
+    if (op.type === 'add') {
+      strokes.current.push(op.stroke);
+    } else if (op.type === 'erase') {
+      // 削除を再適用: 降順で splice
+      const desc = [...op.items].sort((a, b) => b.index - a.index);
+      for (const item of desc) strokes.current.splice(item.index, 1);
+    } else {
+      // clear を再適用
+      strokes.current = [];
+      horizontalLines.current = [];
+    }
+    spatialGrid.current = rebuildGrid(strokes.current);
+    undoStack.current.push(op);
     redrawStaticRef.current();
     saveRef.current();
     setTick(t => t + 1);
@@ -1191,14 +1262,16 @@ export default function JudgeSheet({
   redoRef.current = redo;
   const clear = () => {
     cancelDrawing();
-    if (strokes.current.length > 0 || horizontalLines.current.length > 0) {
-      preClearSnapshot.current = [...strokes.current];
-      preClearLinesSnapshot.current = [...horizontalLines.current];
-    }
+    if (strokes.current.length === 0 && horizontalLines.current.length === 0) return;
+    undoStack.current.push({
+      type: 'clear',
+      strokes: [...strokes.current],
+      lines: [...horizontalLines.current],
+    });
+    redoStack.current = [];
     strokes.current = [];
     horizontalLines.current = [];
     spatialGrid.current = createGrid();
-    redoStack.current = [];
     redrawStaticRef.current();
     clearActiveRef.current();
     saveRef.current();
@@ -1334,8 +1407,9 @@ export default function JudgeSheet({
              }
            }}>
         {/* ペン（色＋太さをポップオーバーに集約） */}
-        <div className="relative shrink-0">
+        <div className="shrink-0">
           <button
+            ref={penButtonRef}
             onClick={() => { setShowPenPopover(v => !v); setShowMoreMenu(false); }}
             title="ペン色・太さ"
             className={`flex items-center gap-1.5 px-2 h-11 rounded-md transition-all ${
@@ -1350,36 +1424,6 @@ export default function JudgeSheet({
               <circle cx="10" cy="10" r={Math.max(2, lineWidthRef.current * 2)} fill="currentColor" />
             </svg>
           </button>
-          {showPenPopover && (
-            <>
-              <div className="fixed inset-0 z-20" onClick={() => setShowPenPopover(false)} />
-              <div className="absolute top-full left-0 mt-1 bg-white dark:bg-gray-800 rounded-lg shadow-xl border border-gray-200 dark:border-gray-700 p-3 z-30 flex items-center gap-3"
-                   onClick={e => e.stopPropagation()}>
-                <div className="flex items-center gap-1.5">
-                  {COLORS.map((c) => (
-                    <button key={c.value} onClick={() => { pickColor(c.value); }}
-                      className={`w-8 h-8 rounded-full border-2 transition-transform shrink-0 ${
-                        !eraserMode.current && colorRef.current === c.value
-                          ? 'border-accent scale-110 ring-2 ring-accent/30'
-                          : 'border-gray-300 dark:border-gray-600'
-                      }`}
-                      style={{ backgroundColor: c.value }} />
-                  ))}
-                </div>
-                <div className="w-px h-8 bg-gray-300" />
-                <div className="flex items-center gap-2 min-h-[32px]">
-                  <svg width="14" height="14" viewBox="0 0 20 20" className="text-gray-400 shrink-0">
-                    <circle cx="10" cy="10" r={Math.max(2, lineWidthRef.current * 2.5)} fill="currentColor" />
-                  </svg>
-                  <input type="range" min="0.5" max="6" step="0.5"
-                    value={lineWidthRef.current}
-                    onChange={(e) => setLineWidth(parseFloat(e.target.value))}
-                    className="w-24 h-2 accent-accent cursor-pointer" />
-                  <span className="text-xs text-gray-500 dark:text-gray-400 font-mono w-6 text-center">{lineWidthRef.current}</span>
-                </div>
-              </div>
-            </>
-          )}
         </div>
 
         {/* 消しゴム */}
@@ -1432,8 +1476,9 @@ export default function JudgeSheet({
         <div className="w-px h-6 bg-gray-300" />
 
         {/* ︙ オーバーフローメニュー */}
-        <div className="relative shrink-0">
-          <button onClick={() => { setShowMoreMenu(v => !v); setShowPenPopover(false); }}
+        <div className="shrink-0">
+          <button ref={moreButtonRef}
+            onClick={() => { setShowMoreMenu(v => !v); setShowPenPopover(false); }}
             title="その他"
             className="flex items-center justify-center w-11 h-11 rounded-md bg-white dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
@@ -1442,61 +1487,6 @@ export default function JudgeSheet({
               <circle cx="12" cy="19" r="1.5" />
             </svg>
           </button>
-          {showMoreMenu && (
-            <>
-              <div className="fixed inset-0 z-20" onClick={() => setShowMoreMenu(false)} />
-              <div className="absolute top-full left-0 mt-1 bg-white dark:bg-gray-800 rounded-lg shadow-xl border border-gray-200 dark:border-gray-700 py-1 z-30 min-w-[180px] flex flex-col"
-                   onClick={e => e.stopPropagation()}>
-                <button onClick={() => { recoverNow(); setShowMoreMenu(false); }}
-                  className={`flex items-center gap-2 px-3 py-2 text-sm text-left min-h-[40px] hover:bg-gray-100 dark:hover:bg-gray-700 ${
-                    recovering ? 'text-success font-bold' : 'text-gray-700 dark:text-gray-200'
-                  }`}>
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M21 12a9 9 0 1 1-3-6.7L21 8" />
-                    <path d="M21 3v5h-5" />
-                  </svg>
-                  {recovering ? '復旧OK' : 'ペン復旧'}
-                </button>
-                {apparatus !== 'VT' && horizontalLines.current.length > 0 && (
-                  <button onClick={() => { removeLastHorizontalLine(); setShowMoreMenu(false); }}
-                    className="flex items-center gap-2 px-3 py-2 text-sm text-left text-gray-700 dark:text-gray-200 min-h-[40px] hover:bg-gray-100 dark:hover:bg-gray-700">
-                    <span className="inline-block w-4 text-center">−</span>
-                    最後の横線を削除
-                  </button>
-                )}
-                {apparatus === 'VT' && (
-                  <>
-                    <button onClick={() => { toggleVtFlip(); setShowMoreMenu(false); }}
-                      className={`flex items-center gap-2 px-3 py-2 text-sm text-left min-h-[40px] hover:bg-gray-100 dark:hover:bg-gray-700 ${
-                        vtFlip ? 'text-accent font-bold' : 'text-gray-700 dark:text-gray-200'
-                      }`}>
-                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                        <path d="M8 3H5a2 2 0 0 0-2 2v14c0 1.1.9 2 2 2h3" />
-                        <path d="M16 3h3a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-3" />
-                        <path d="M12 20v2M12 14v2M12 8v2M12 2v2" />
-                      </svg>
-                      跳馬画像を反転
-                    </button>
-                    <button onClick={() => { cycleVtScale(); setShowMoreMenu(false); }}
-                      className="flex items-center gap-2 px-3 py-2 text-sm text-left text-gray-700 dark:text-gray-200 min-h-[40px] hover:bg-gray-100 dark:hover:bg-gray-700">
-                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                        <circle cx="11" cy="11" r="8" />
-                        <path d="M21 21l-4.35-4.35" />
-                        <path d="M11 8v6M8 11h6" />
-                      </svg>
-                      跳馬画像のサイズ ({Math.round(vtScale * 100)}%)
-                    </button>
-                  </>
-                )}
-                <div className="border-t border-gray-200 dark:border-gray-700 my-1" />
-                <button onClick={() => { clear(); setShowMoreMenu(false); }}
-                  className="flex items-center gap-2 px-3 py-2 text-sm text-left text-danger font-bold min-h-[40px] hover:bg-red-50 dark:hover:bg-red-900/20">
-                  <span className="inline-block w-4 text-center">✕</span>
-                  全消去
-                </button>
-              </div>
-            </>
-          )}
         </div>
 
         {toolbarExtra}
@@ -1516,6 +1506,86 @@ export default function JudgeSheet({
           </button>
         </div>
       </div>
+
+      {/* ポップオーバー: ツールバーの overflow に依存しないよう Portal で body に出す */}
+      <ToolbarPopover anchor={penButtonRef.current} open={showPenPopover} onClose={() => setShowPenPopover(false)}>
+        <div className="p-3 flex items-center gap-3">
+          <div className="flex items-center gap-1.5">
+            {COLORS.map((c) => (
+              <button key={c.value} onClick={() => { pickColor(c.value); }}
+                className={`w-8 h-8 rounded-full border-2 transition-transform shrink-0 ${
+                  !eraserMode.current && colorRef.current === c.value
+                    ? 'border-accent scale-110 ring-2 ring-accent/30'
+                    : 'border-gray-300 dark:border-gray-600'
+                }`}
+                style={{ backgroundColor: c.value }} />
+            ))}
+          </div>
+          <div className="w-px h-8 bg-gray-300" />
+          <div className="flex items-center gap-2 min-h-[32px]">
+            <svg width="14" height="14" viewBox="0 0 20 20" className="text-gray-400 shrink-0">
+              <circle cx="10" cy="10" r={Math.max(2, lineWidthRef.current * 2.5)} fill="currentColor" />
+            </svg>
+            <input type="range" min="0.5" max="6" step="0.5"
+              value={lineWidthRef.current}
+              onChange={(e) => setLineWidth(parseFloat(e.target.value))}
+              className="w-24 h-2 accent-accent cursor-pointer" />
+            <span className="text-xs text-gray-500 dark:text-gray-400 font-mono w-6 text-center">{lineWidthRef.current}</span>
+          </div>
+        </div>
+      </ToolbarPopover>
+
+      <ToolbarPopover anchor={moreButtonRef.current} open={showMoreMenu} onClose={() => setShowMoreMenu(false)}>
+        <div className="py-1 min-w-[180px] flex flex-col">
+          <button onClick={() => { recoverNow(); setShowMoreMenu(false); }}
+            className={`flex items-center gap-2 px-3 py-2 text-sm text-left min-h-[40px] hover:bg-gray-100 dark:hover:bg-gray-700 ${
+              recovering ? 'text-success font-bold' : 'text-gray-700 dark:text-gray-200'
+            }`}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M21 12a9 9 0 1 1-3-6.7L21 8" />
+              <path d="M21 3v5h-5" />
+            </svg>
+            {recovering ? '復旧OK' : 'ペン復旧'}
+          </button>
+          {apparatus !== 'VT' && horizontalLines.current.length > 0 && (
+            <button onClick={() => { removeLastHorizontalLine(); setShowMoreMenu(false); }}
+              className="flex items-center gap-2 px-3 py-2 text-sm text-left text-gray-700 dark:text-gray-200 min-h-[40px] hover:bg-gray-100 dark:hover:bg-gray-700">
+              <span className="inline-block w-4 text-center">−</span>
+              最後の横線を削除
+            </button>
+          )}
+          {apparatus === 'VT' && (
+            <>
+              <button onClick={() => { toggleVtFlip(); setShowMoreMenu(false); }}
+                className={`flex items-center gap-2 px-3 py-2 text-sm text-left min-h-[40px] hover:bg-gray-100 dark:hover:bg-gray-700 ${
+                  vtFlip ? 'text-accent font-bold' : 'text-gray-700 dark:text-gray-200'
+                }`}>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M8 3H5a2 2 0 0 0-2 2v14c0 1.1.9 2 2 2h3" />
+                  <path d="M16 3h3a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-3" />
+                  <path d="M12 20v2M12 14v2M12 8v2M12 2v2" />
+                </svg>
+                跳馬画像を反転
+              </button>
+              <button onClick={() => { cycleVtScale(); setShowMoreMenu(false); }}
+                className="flex items-center gap-2 px-3 py-2 text-sm text-left text-gray-700 dark:text-gray-200 min-h-[40px] hover:bg-gray-100 dark:hover:bg-gray-700">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="11" cy="11" r="8" />
+                  <path d="M21 21l-4.35-4.35" />
+                  <path d="M11 8v6M8 11h6" />
+                </svg>
+                跳馬画像のサイズ ({Math.round(vtScale * 100)}%)
+              </button>
+            </>
+          )}
+          <div className="border-t border-gray-200 dark:border-gray-700 my-1" />
+          <button onClick={() => { clear(); setShowMoreMenu(false); }}
+            className="flex items-center gap-2 px-3 py-2 text-sm text-left text-danger font-bold min-h-[40px] hover:bg-red-50 dark:hover:bg-red-900/20">
+            <span className="inline-block w-4 text-center">✕</span>
+            全消去
+          </button>
+        </div>
+      </ToolbarPopover>
 
       {/* ステータス帯（ペン検出など） */}
       {(() => {

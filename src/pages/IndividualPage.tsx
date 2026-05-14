@@ -287,7 +287,7 @@ export default function IndividualPage() {
         key={`${recordId}-${apparatus}`}
         apparatus={apparatus}
         judgeMode={session.judgeMode}
-        eJudgeCount={session.eJudgeCount}
+        eJudgeCount={1}
         recordId={recordId}
         sessionId={sessionId}
         mode="individual"
