@@ -46,14 +46,7 @@ const COLORS = [
   { value: '#E74C3C' },
   { value: '#2E86C1' },
 ];
-const ERASER_WIDTH = 28;              // 消しゴムツールのカーソル半径・ヒット判定
-const SCRUB_HIT_RADIUS = 20;          // スクラブ消去のヒット判定半径
-const SCRUB_DIRS_NEEDED = 5;          // 方向転換の必要回数（文字が紛れない程度）
-const SCRUB_MIN_SWING = 15;           // ピーク/トラフからの反転量(px)
-const SCRUB_PERP_MAX_RANGE = 60;      // 副軸（スクラブ方向と直交）の最大レンジ
-const SCRUB_PARALLEL_MAX_RANGE = 320; // 主軸の最大レンジ
-const SCRUB_MIN_POINTS = 12;          // スクラブと判定する最小点数
-const SCRUB_MIN_ASPECT_RATIO = 1.8;   // 主軸/副軸の最小比 — 文字はほぼ正方形なので除外
+const ERASER_WIDTH = 14;              // 消しゴムツールのカーソル半径・ヒット判定
 const SAVE_DEBOUNCE = 1500;
 // 横線ハンドル定数
 const HLINE_HANDLE_R = 5;        // ハンドル円の半径
@@ -123,56 +116,6 @@ function queryNear(grid: SpatialGrid, p: Point, radius: number): Set<number> {
     }
   }
   return result;
-}
-
-// ---------- スクラブ消去: ピーク/トラフ検出 ----------
-// 座標列の方向転換回数を数える（ノイズ耐性あり）
-function countDirChanges(values: number[], minSwing: number): number {
-  if (values.length < 3) return 0;
-  let changes = 0;
-  let extreme = values[0]; // 現在のピークまたはトラフ
-  let dir = 0;             // 1=増加中, -1=減少中, 0=未確定
-  for (let i = 1; i < values.length; i++) {
-    const v = values[i];
-    if (dir === 0) {
-      if (v - extreme >= minSwing) { dir = 1; changes = 1; extreme = v; }
-      else if (extreme - v >= minSwing) { dir = -1; changes = 1; extreme = v; }
-    } else if (dir === 1) {
-      if (v > extreme) extreme = v;
-      if (extreme - v >= minSwing) { dir = -1; changes++; extreme = v; }
-    } else {
-      if (v < extreme) extreme = v;
-      if (v - extreme >= minSwing) { dir = 1; changes++; extreme = v; }
-    }
-  }
-  return changes;
-}
-
-// ストロークがスクラブパターンかどうか判定
-function isScrubPattern(points: Point[]): boolean {
-  if (points.length < SCRUB_MIN_POINTS) return false;
-  const xs = points.map(p => p.x);
-  const ys = points.map(p => p.y);
-  const xChanges = countDirChanges(xs, SCRUB_MIN_SWING);
-  const yChanges = countDirChanges(ys, SCRUB_MIN_SWING);
-  // 主軸（方向転換が多い方）で十分な回数の反転が必要
-  if (Math.max(xChanges, yChanges) < SCRUB_DIRS_NEEDED) return false;
-
-  const xRange = Math.max(...xs) - Math.min(...xs);
-  const yRange = Math.max(...ys) - Math.min(...ys);
-
-  // スクラブは「主軸方向に往復し、副軸はほぼ固定」が特徴
-  // 縦線/横線（片軸のみレンジが大）を誤検出しないように副軸の狭さも条件にする
-  const isHorizontalScrub = xChanges >= yChanges;
-  const parallelRange = isHorizontalScrub ? xRange : yRange;
-  const perpRange = isHorizontalScrub ? yRange : xRange;
-
-  if (parallelRange > SCRUB_PARALLEL_MAX_RANGE) return false; // 長い直線を除外
-  if (perpRange > SCRUB_PERP_MAX_RANGE) return false;         // 広く動いた線を除外
-  // 細長さチェック: 文字や記号はほぼ正方形なので除外（スクラブは横に長い往復のはず）
-  if (parallelRange / Math.max(perpRange, 8) < SCRUB_MIN_ASPECT_RATIO) return false;
-
-  return true;
 }
 
 // ---------- ベジェ曲線描画 ----------
@@ -816,33 +759,6 @@ export default function JudgeSheet({
 
       // Active Canvas クリア
       clearActiveRef.current();
-
-      // スクラブ消去判定（ストローク完了時に軌跡全体を判定: 細長い往復ジグザグだけマッチ）
-      if (isScrubPattern(finished.points)) {
-        const hits = findAllStrokesAlongPath(
-          strokes.current,
-          spatialGrid.current,
-          finished.points,
-          SCRUB_HIT_RADIUS,
-        );
-        if (hits.size > 0) {
-          // 元の index を保持したまま削除（undo で復元するため）
-          const sorted = [...hits].sort((a, b) => b - a);
-          const removed: Array<{ stroke: Stroke; index: number }> = [];
-          for (const i of sorted) {
-            removed.push({ stroke: strokes.current[i], index: i });
-            strokes.current.splice(i, 1);
-          }
-          // 復元時に splice しやすいよう昇順で保持
-          removed.sort((a, b) => a.index - b.index);
-          spatialGrid.current = rebuildGrid(strokes.current);
-          undoStack.current.push({ type: 'erase', items: removed });
-          redoStack.current = [];
-          redrawStaticRef.current();
-          saveRef.current();
-          return;
-        }
-      }
 
       if (finished.points.length < 2) return;
 
@@ -1667,44 +1583,4 @@ function findStrokeAtIndexed(
   return best;
 }
 
-// スクラブ軌跡に触れた全ストロークの index を返す。
-// threshold は十分タイトな前提で、軌跡から threshold 以内にあるストロークのみ削除する。
-function findAllStrokesAlongPath(
-  strokes: Stroke[], grid: SpatialGrid, path: Point[], threshold: number,
-): Set<number> {
-  const hits = new Set<number>();
-  if (path.length === 0) return hits;
-
-  // 候補ストロークを集める（軌跡の各点周辺）
-  const candidates = new Set<number>();
-  for (const p of path) {
-    const near = queryNear(grid, p, threshold);
-    for (const si of near) candidates.add(si);
-  }
-
-  for (const si of candidates) {
-    if (si >= strokes.length) continue;
-    const pts = strokes[si].points;
-    if (pts.length === 0) continue;
-
-    // 軌跡と接触判定: 軌跡の各点について、ストロークの最近接距離が threshold 以下なら hit
-    let hit = false;
-    for (const pp of path) {
-      for (let i = 0; i < pts.length - 1; i++) {
-        const a = pts[i], b = pts[i + 1];
-        const dx = b.x - a.x, dy = b.y - a.y, lenSq = dx * dx + dy * dy;
-        let t = lenSq === 0 ? 0 : ((pp.x - a.x) * dx + (pp.y - a.y) * dy) / lenSq;
-        t = Math.max(0, Math.min(1, t));
-        if (Math.hypot(pp.x - (a.x + t * dx), pp.y - (a.y + t * dy)) < threshold) {
-          hit = true;
-          break;
-        }
-      }
-      if (hit) break;
-    }
-    if (hit) hits.add(si);
-  }
-
-  return hits;
-}
 

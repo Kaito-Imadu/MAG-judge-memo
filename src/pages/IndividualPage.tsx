@@ -2,21 +2,35 @@ import { useState, useEffect, useRef } from 'react';
 import { flushSync } from 'react-dom';
 import { useParams, useNavigate } from 'react-router-dom';
 import { db } from '../db/database';
-import type { Session, MemoRecord, StrokeData } from '../db/database';
+import type { Session, MemoRecord } from '../db/database';
 import type { Apparatus } from '../types';
 import JudgeSheet from '../components/JudgeSheet';
+import { renderSheetCanvas, loadVaultImage } from '../utils/renderSheet';
 
 // サムネイル描画用定数
-const THUMB_W = 180;
-const THUMB_H = 102;
-interface DeletedPageSnapshot {
-  page: number;
-  records: MemoRecord[];
-  shiftedRecords: MemoRecord[];
+const THUMB_W = 240;
+const THUMB_H = 135;
+
+interface AppPageState {
+  currentPage: number;
   totalPages: number;
 }
 
-function drawThumbnail(canvas: HTMLCanvasElement, strokes: StrokeData[]) {
+interface DeletedPageSnapshot {
+  apparatus: Apparatus;
+  page: number;
+  records: MemoRecord[];          // 削除した記録（現在の種目のみ）
+  shiftedRecords: MemoRecord[];   // シフトした記録（現在の種目のみ）
+  totalPages: number;
+}
+
+function drawThumbnail(
+  canvas: HTMLCanvasElement,
+  rec: MemoRecord | undefined,
+  apparatus: Apparatus,
+  eJudgeCount: number,
+  vaultImg: HTMLImageElement | null,
+) {
   const c = canvas.getContext('2d');
   if (!c) return;
   const dpr = window.devicePixelRatio || 1;
@@ -25,56 +39,51 @@ function drawThumbnail(canvas: HTMLCanvasElement, strokes: StrokeData[]) {
   c.scale(dpr, dpr);
   c.clearRect(0, 0, THUMB_W, THUMB_H);
 
-  c.fillStyle = '#fafafa';
+  c.fillStyle = '#ffffff';
   c.fillRect(0, 0, THUMB_W, THUMB_H);
+
+  const srcW = rec?.canvasW ?? 1024;
+  const srcH = rec?.canvasH ?? 700;
+  const sheet = renderSheetCanvas({
+    w: srcW,
+    h: srcH,
+    apparatus,
+    eJudgeCount,
+    mode: 'individual',
+    athleteName: '',
+    strokes: rec?.strokes ?? [],
+    lines: rec?.lines,
+    vaultImg: apparatus === 'VT' ? vaultImg : null,
+    digitalScores: rec?.digitalScores,
+  });
+
+  const scale = Math.min(THUMB_W / srcW, THUMB_H / srcH);
+  const drawW = srcW * scale;
+  const drawH = srcH * scale;
+  const offX = (THUMB_W - drawW) / 2;
+  const offY = (THUMB_H - drawH) / 2;
+  c.drawImage(sheet, offX, offY, drawW, drawH);
+
   c.strokeStyle = '#e0e0e0';
   c.lineWidth = 1;
   c.strokeRect(0, 0, THUMB_W, THUMB_H);
 
-  if (strokes.length === 0) {
-    c.fillStyle = '#ccc';
+  if (!rec || rec.strokes.length === 0) {
+    c.fillStyle = '#ffffffcc';
+    c.fillRect(0, 0, THUMB_W, THUMB_H);
+    c.fillStyle = '#999';
     c.font = '12px "Noto Sans JP", sans-serif';
     c.textAlign = 'center';
     c.fillText('未記入', THUMB_W / 2, THUMB_H / 2 + 4);
-    return;
-  }
-
-  let minX = Infinity, minY = Infinity, maxX = 0, maxY = 0;
-  for (const s of strokes) {
-    for (const p of s.points) {
-      if (p.x < minX) minX = p.x;
-      if (p.y < minY) minY = p.y;
-      if (p.x > maxX) maxX = p.x;
-      if (p.y > maxY) maxY = p.y;
-    }
-  }
-  const rangeX = maxX - minX || 1;
-  const rangeY = maxY - minY || 1;
-  const pad = 8;
-  const scaleX = (THUMB_W - pad * 2) / rangeX;
-  const scaleY = (THUMB_H - pad * 2) / rangeY;
-  const scale = Math.min(scaleX, scaleY, 0.6);
-  const offX = pad + ((THUMB_W - pad * 2) - rangeX * scale) / 2 - minX * scale;
-  const offY = pad + ((THUMB_H - pad * 2) - rangeY * scale) / 2 - minY * scale;
-
-  for (const s of strokes) {
-    if (s.points.length < 2) continue;
-    c.strokeStyle = s.color;
-    c.lineWidth = Math.max(0.5, (s.width ?? 2) * scale);
-    c.lineCap = 'round';
-    c.lineJoin = 'round';
-    c.beginPath();
-    c.moveTo(offX + s.points[0].x * scale, offY + s.points[0].y * scale);
-    for (let i = 1; i < s.points.length; i++) {
-      c.lineTo(offX + s.points[i].x * scale, offY + s.points[i].y * scale);
-    }
-    c.stroke();
   }
 }
 
-function ThumbCard({ page, rec, isActive, onClick, onDelete }: {
+function ThumbCard({ page, rec, apparatus, eJudgeCount, vaultImg, isActive, onClick, onDelete }: {
   page: number;
   rec: MemoRecord | undefined;
+  apparatus: Apparatus;
+  eJudgeCount: number;
+  vaultImg: HTMLImageElement | null;
   isActive: boolean;
   onClick: () => void;
   onDelete: () => void;
@@ -83,9 +92,9 @@ function ThumbCard({ page, rec, isActive, onClick, onDelete }: {
 
   useEffect(() => {
     if (canvasRef.current) {
-      drawThumbnail(canvasRef.current, rec?.strokes ?? []);
+      drawThumbnail(canvasRef.current, rec, apparatus, eJudgeCount, vaultImg);
     }
-  }, [rec]);
+  }, [rec, apparatus, eJudgeCount, vaultImg]);
 
   return (
     <div
@@ -95,9 +104,9 @@ function ThumbCard({ page, rec, isActive, onClick, onDelete }: {
           ? 'border-accent bg-accent/5 shadow-md'
           : 'border-gray-200 dark:border-gray-700 hover:border-accent/50 hover:shadow'
       }`}>
-      <button onClick={onClick} className="active:scale-95">
+      <button onClick={onClick} className="w-full active:scale-95">
         <canvas ref={canvasRef}
-          style={{ width: THUMB_W, height: THUMB_H }}
+          style={{ width: '100%', aspectRatio: `${THUMB_W} / ${THUMB_H}`, maxWidth: THUMB_W }}
           className="rounded" />
       </button>
       <div className="flex items-center gap-1 w-full px-1">
@@ -118,16 +127,40 @@ function ThumbCard({ page, rec, isActive, onClick, onDelete }: {
   );
 }
 
+// 既存レコードから種目別ページ状態の初期値を構築
+function initStateFromRecords(recs: MemoRecord[]): Partial<Record<Apparatus, AppPageState>> {
+  const byApp: Partial<Record<Apparatus, AppPageState>> = {};
+  for (const r of recs) {
+    const cur = byApp[r.apparatus];
+    const maxPage = cur ? Math.max(cur.totalPages, r.pageNumber) : r.pageNumber;
+    byApp[r.apparatus] = { currentPage: maxPage, totalPages: maxPage };
+  }
+  return byApp;
+}
+
 export default function IndividualPage() {
   const { sessionId } = useParams<{ sessionId: string }>();
   const navigate = useNavigate();
   const [session, setSession] = useState<Session | null>(null);
   const [apparatus, setApparatus] = useState<Apparatus>('FX');
-  const [currentPage, setCurrentPage] = useState(1);
-  const [totalPages, setTotalPages] = useState(1);
+  const [pageStateByApp, setPageStateByApp] = useState<Partial<Record<Apparatus, AppPageState>>>({});
   const [showPageList, setShowPageList] = useState(false);
   const [pageRecords, setPageRecords] = useState<MemoRecord[]>([]);
+  const [vaultImg, setVaultImg] = useState<HTMLImageElement | null>(null);
   const [deletedPage, setDeletedPage] = useState<DeletedPageSnapshot | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+
+  // 現在の種目のページ状態を取得（未設定なら {1, 1}）
+  const getAppState = (a: Apparatus): AppPageState =>
+    pageStateByApp[a] ?? { currentPage: 1, totalPages: 1 };
+  const { currentPage, totalPages } = getAppState(apparatus);
+
+  const updateAppState = (a: Apparatus, patch: Partial<AppPageState>) => {
+    setPageStateByApp(prev => ({
+      ...prev,
+      [a]: { ...(prev[a] ?? { currentPage: 1, totalPages: 1 }), ...patch },
+    }));
+  };
 
   useEffect(() => {
     if (!sessionId) return;
@@ -140,60 +173,61 @@ export default function IndividualPage() {
       if (cancelled) return;
       recs.sort((a, b) => a.pageNumber - b.pageNumber);
       setPageRecords(recs);
-      const maxPage = recs.length > 0 ? Math.max(...recs.map(r => r.pageNumber)) : 0;
-      const total = Math.max(1, maxPage);
-      setTotalPages(total);
-      setCurrentPage(total);
+      setPageStateByApp(initStateFromRecords(recs));
+      const img = await loadVaultImage();
+      if (!cancelled) setVaultImg(img);
     })();
     return () => { cancelled = true; };
   }, [sessionId]);
 
-  const openPageList = async () => {
-    if (!sessionId) return;
+  const refreshRecords = async () => {
+    if (!sessionId) return [] as MemoRecord[];
     const recs = await db.memoRecords.where('sessionId').equals(sessionId).toArray();
     recs.sort((a, b) => a.pageNumber - b.pageNumber);
     setPageRecords(recs);
-    const maxPage = recs.length > 0 ? Math.max(...recs.map(r => r.pageNumber)) : 0;
-    setTotalPages(Math.max(totalPages, maxPage));
+    return recs;
+  };
+
+  const openPageList = async () => {
+    await refreshRecords();
     setShowPageList(true);
   };
 
   const jumpToPage = (page: number) => {
-    setCurrentPage(page);
+    updateAppState(apparatus, { currentPage: page });
     setShowPageList(false);
   };
 
   const deletePage = async (page: number) => {
     if (!sessionId) return;
     if (totalPages <= 1) return;
-    const ok = window.confirm(`#${page} を削除しますか？このページの全種目メモも削除されます。`);
+    const ok = window.confirm(`${apparatus} の #${page} を削除しますか？`);
     if (!ok) return;
 
-    const targetRecords = await db.memoRecords
-      .where('sessionId').equals(sessionId)
-      .filter(r => r.pageNumber === page)
-      .toArray();
-    const shiftedRecords = await db.memoRecords
-      .where('sessionId').equals(sessionId)
-      .filter(r => r.pageNumber > page)
-      .toArray();
+    // 現在の種目のみが対象
+    const targetRecords = pageRecords.filter(r => r.apparatus === apparatus && r.pageNumber === page);
+    const shiftedRecords = pageRecords.filter(r => r.apparatus === apparatus && r.pageNumber > page);
     setDeletedPage({
+      apparatus,
       page,
       records: targetRecords,
       shiftedRecords,
       totalPages,
     });
 
-    if (page <= currentPage) {
+    // 削除/リナンバリング中は JudgeSheet の自動保存を抑止する
+    flushSync(() => setIsDeleting(true));
+
+    // 削除対象が現在表示中ページなら一旦近接ページへ退避
+    if (page === currentPage) {
       const interimPage = page < totalPages ? page + 1 : page - 1;
-      flushSync(() => setCurrentPage(interimPage));
+      flushSync(() => updateAppState(apparatus, { currentPage: interimPage }));
     }
 
     await db.transaction('rw', db.memoRecords, async () => {
       for (const rec of targetRecords) {
         await db.memoRecords.delete(rec.id);
       }
-
       for (const rec of shiftedRecords) {
         const newPage = rec.pageNumber - 1;
         await db.memoRecords.delete(rec.id);
@@ -206,12 +240,15 @@ export default function IndividualPage() {
       }
     });
 
+    await refreshRecords();
     const nextTotal = Math.max(1, totalPages - 1);
-    const recs = await db.memoRecords.where('sessionId').equals(sessionId).toArray();
-    recs.sort((a, b) => a.pageNumber - b.pageNumber);
-    setPageRecords(recs);
-    setTotalPages(nextTotal);
-    setCurrentPage(prev => Math.min(currentPage >= page ? Math.max(1, currentPage - 1) : prev, nextTotal));
+    flushSync(() => {
+      updateAppState(apparatus, {
+        totalPages: nextTotal,
+        currentPage: Math.min(currentPage >= page ? Math.max(1, currentPage - 1) : currentPage, nextTotal),
+      });
+    });
+    queueMicrotask(() => setIsDeleting(false));
   };
 
   const undoDeletePage = async () => {
@@ -228,11 +265,11 @@ export default function IndividualPage() {
         await db.memoRecords.put(rec);
       }
     });
-    const recs = await db.memoRecords.where('sessionId').equals(sessionId).toArray();
-    recs.sort((a, b) => a.pageNumber - b.pageNumber);
-    setPageRecords(recs);
-    setTotalPages(deletedPage.totalPages);
-    setCurrentPage(deletedPage.page);
+    await refreshRecords();
+    updateAppState(deletedPage.apparatus, {
+      totalPages: deletedPage.totalPages,
+      currentPage: deletedPage.page,
+    });
     setDeletedPage(null);
   };
 
@@ -240,18 +277,23 @@ export default function IndividualPage() {
 
   const recordId = `individual:${sessionId}:${apparatus}:${currentPage}`;
 
-  const goPrev = () => { if (currentPage > 1) setCurrentPage(p => p - 1); };
-  const goNext = () => { if (currentPage < totalPages) setCurrentPage(p => p + 1); };
+  const goPrev = () => {
+    if (currentPage > 1) updateAppState(apparatus, { currentPage: currentPage - 1 });
+  };
+  const goNext = () => {
+    if (currentPage < totalPages) updateAppState(apparatus, { currentPage: currentPage + 1 });
+  };
   const addPage = () => {
     const newPage = totalPages + 1;
-    setTotalPages(newPage);
-    setCurrentPage(newPage);
+    updateAppState(apparatus, { currentPage: newPage, totalPages: newPage });
     setShowPageList(false);
   };
 
   const handleApparatusChange = (a: Apparatus) => {
     setApparatus(a);
   };
+
+  const recsForApp = pageRecords.filter(r => r.apparatus === apparatus);
 
   const pageNav = (
     <>
@@ -284,10 +326,10 @@ export default function IndividualPage() {
   return (
     <div className="relative h-full">
       <JudgeSheet
-        key={`${recordId}-${apparatus}`}
+        key={recordId}
         apparatus={apparatus}
         judgeMode={session.judgeMode}
-        eJudgeCount={0}
+        eJudgeCount={session.eJudgeCount}
         recordId={recordId}
         sessionId={sessionId}
         mode="individual"
@@ -297,6 +339,7 @@ export default function IndividualPage() {
         toolbarExtra={pageNav}
         onBack={() => navigate('/')}
         onApparatusChange={handleApparatusChange}
+        suppressSave={isDeleting}
       />
 
       {/* サムネイル付きページ一覧パネル */}
@@ -308,7 +351,7 @@ export default function IndividualPage() {
                           rounded-xl shadow-2xl flex flex-col overflow-hidden">
             <div className="px-5 py-3 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between shrink-0">
               <h3 className="font-bold text-gray-700 dark:text-gray-300">
-                ページ一覧
+                {apparatus} のページ一覧
               </h3>
               <div className="flex items-center gap-2">
                 <button onClick={addPage}
@@ -333,12 +376,15 @@ export default function IndividualPage() {
               <div className="grid gap-2"
                 style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${THUMB_W + 12}px, 1fr))` }}>
                 {Array.from({ length: totalPages }, (_, i) => i + 1).map(page => {
-                  const rec = pageRecords.find(r => r.pageNumber === page);
+                  const rec = recsForApp.find(r => r.pageNumber === page);
                   return (
                     <ThumbCard
                       key={page}
                       page={page}
                       rec={rec}
+                      apparatus={apparatus}
+                      eJudgeCount={session.eJudgeCount}
+                      vaultImg={vaultImg}
                       isActive={page === currentPage}
                       onClick={() => jumpToPage(page)}
                       onDelete={() => deletePage(page)}
