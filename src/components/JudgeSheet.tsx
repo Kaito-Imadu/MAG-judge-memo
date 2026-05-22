@@ -1317,7 +1317,7 @@ export default function JudgeSheet({
       {/* touchAction: manipulation で 300ms 遅延を抑止し、isolation で Canvas 側ポインターキャプチャから分離 */}
       {/* onPointerDown 保険: Canvas に詰まったポインターキャプチャをツールバータップ時に強制解放
           (Apple Pencil 切断で drawing 状態が残ったまま toolbar が無反応化する事象への対策) */}
-      <div className="flex items-center gap-2 px-2 py-2 bg-gray-100 dark:bg-gray-800 shrink-0 whitespace-nowrap overflow-x-auto relative z-10"
+      <div className="flex items-center gap-2 px-2 py-2 bg-[#0f172a] dark:bg-[#020617] border-b border-[#020617] shrink-0 whitespace-nowrap overflow-x-auto relative z-10 shadow-[0_1px_0_rgba(255,255,255,0.04)]"
            style={{ touchAction: 'manipulation', isolation: 'isolate', paddingTop: 'max(env(safe-area-inset-top), 0.5rem)' }}
            onPointerDownCapture={() => {
              if (drawing.current || activePointerId.current !== null) {
@@ -1333,8 +1333,8 @@ export default function JudgeSheet({
             title="ペン色・太さ"
             className={`flex items-center gap-1.5 px-2 h-11 rounded-md transition-all ${
               !eraserMode.current
-                ? 'bg-white dark:bg-gray-700 text-gray-600 dark:text-gray-300 ring-2 ring-accent/30'
-                : 'bg-white dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200'
+                ? 'bg-[#f8fafc] text-slate-800 ring-2 ring-accent/60'
+                : 'bg-[#1f2937] text-slate-100 hover:bg-[#334155]'
             }`}
           >
             <span className="inline-block w-5 h-5 rounded-full border border-gray-300 dark:border-gray-500"
@@ -1350,8 +1350,8 @@ export default function JudgeSheet({
           title="消しゴム"
           className={`flex items-center justify-center w-11 h-11 rounded-md transition-all shrink-0 ${
             eraserMode.current
-              ? 'bg-danger text-white shadow-md ring-2 ring-danger/30'
-              : 'bg-white dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200'
+              ? 'bg-danger text-white shadow-md ring-2 ring-danger/40'
+              : 'bg-[#1f2937] text-slate-100 hover:bg-[#334155]'
           }`}>
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <path d="M20 20H7L3 16c-.8-.8-.8-2 0-2.8L14.6 1.6c.8-.8 2-.8 2.8 0L21.4 5.6c.8.8.8 2 0 2.8L12 18" />
@@ -1359,30 +1359,30 @@ export default function JudgeSheet({
           </svg>
         </button>
 
-        <div className="w-px h-6 bg-gray-300" />
+        <div className="w-px h-6 bg-white/20" />
 
         {/* Undo / Redo */}
         <button onClick={undo}
           title="元に戻す"
-          className="px-2 py-1.5 rounded-lg text-xs bg-white dark:bg-gray-700 text-gray-600 dark:text-gray-300
-                     hover:bg-gray-200 dark:hover:bg-gray-600 active:bg-gray-300 min-h-[44px] min-w-[44px]">
+          className="px-2 py-1.5 rounded-lg text-xs bg-[#1f2937] text-slate-100
+                     hover:bg-[#334155] active:bg-[#475569] min-h-[44px] min-w-[44px]">
           ↩
         </button>
         <button onClick={redo}
           title="やり直し"
-          className="px-2 py-1.5 rounded-lg text-xs bg-white dark:bg-gray-700 text-gray-600 dark:text-gray-300
-                     hover:bg-gray-200 dark:hover:bg-gray-600 active:bg-gray-300 min-h-[44px] min-w-[44px]">
+          className="px-2 py-1.5 rounded-lg text-xs bg-[#1f2937] text-slate-100
+                     hover:bg-[#334155] active:bg-[#475569] min-h-[44px] min-w-[44px]">
           ↪
         </button>
 
         {/* 横線追加（VT以外） */}
         {apparatus !== 'VT' && (
           <>
-            <div className="w-px h-6 bg-gray-300" />
+            <div className="w-px h-6 bg-white/20" />
             <button onClick={addHorizontalLine}
               title="横線を追加"
               className="flex items-center gap-1 px-2 py-1.5 rounded-lg text-xs font-bold min-h-[44px]
-                         bg-white dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600">
+                         bg-[#1f2937] text-slate-100 hover:bg-[#334155]">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
                 <path d="M3 12h18" />
                 <path d="M12 5v4M12 15v4" />
@@ -1392,14 +1392,14 @@ export default function JudgeSheet({
           </>
         )}
 
-        <div className="w-px h-6 bg-gray-300" />
+        <div className="w-px h-6 bg-white/20" />
 
         {/* ︙ オーバーフローメニュー */}
         <div className="shrink-0">
           <button ref={moreButtonRef}
             onClick={() => { setShowMoreMenu(v => !v); setShowPenPopover(false); }}
             title="その他"
-            className="flex items-center justify-center w-11 h-11 rounded-md bg-white dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600">
+            className="flex items-center justify-center w-11 h-11 rounded-md bg-[#1f2937] text-slate-100 hover:bg-[#334155]">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
               <circle cx="12" cy="5" r="1.5" />
               <circle cx="12" cy="12" r="1.5" />
@@ -1415,7 +1415,7 @@ export default function JudgeSheet({
             {APPARATUS_LIST.map((a) => (
               <button key={a.code} onClick={() => handleApparatusChange(a.code)}
                 className={`px-2.5 py-1 rounded text-xs font-bold min-h-[36px] ${
-                  apparatus === a.code ? 'bg-primary text-white' : 'text-gray-500 hover:bg-gray-200 dark:hover:bg-gray-600'
+                  apparatus === a.code ? 'bg-primary text-white' : 'text-gray-200 hover:bg-white/10'
                 }`}>
                 {a.code}
               </button>
@@ -1423,7 +1423,7 @@ export default function JudgeSheet({
           </div>
         )}
         <button onClick={handleBack}
-          className="ml-auto shrink-0 px-3 py-1 rounded text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 min-h-[36px]">
+          className="ml-auto shrink-0 px-3 py-1 rounded text-xs text-gray-300 hover:text-white hover:bg-white/10 min-h-[36px]">
           {onBack ? '← 戻る' : 'ホーム'}
         </button>
       </div>
@@ -1582,5 +1582,3 @@ function findStrokeAtIndexed(
   }
   return best;
 }
-
-

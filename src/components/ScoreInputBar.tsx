@@ -24,6 +24,7 @@ export default function ScoreInputBar({ value, eJudgeCount, apparatus, onChange 
 
   // eJudgeCount=0 のときは E1..EN 行を非表示（個別モード用: E決定を直接入力する想定）
   const showEJudges = eJudgeCount > 0;
+  const directEFinalInput = !showEJudges;
   // E配列を必ず eJudgeCount に揃える（人数変更後の安全策）
   const eArr = (() => {
     const arr = value.e.slice(0, eJudgeCount);
@@ -63,7 +64,7 @@ export default function ScoreInputBar({ value, eJudgeCount, apparatus, onChange 
     if (c.kind === 'e') return `E${(c.index ?? 0) + 1}`;
     if (c.kind === 'd') return 'D';
     if (c.kind === 'nd') return 'ND';
-    if (c.kind === 'eFinal') return 'E決定（手動上書き）';
+    if (c.kind === 'eFinal') return directEFinalInput ? 'E決定' : 'E決定（手動上書き）';
     if (c.kind === 'final') return '決定点（手動上書き）';
     return '';
   };
@@ -89,16 +90,16 @@ export default function ScoreInputBar({ value, eJudgeCount, apparatus, onChange 
     onChange({ ...normalized, bonus: !normalized.bonus });
   };
 
-  const cellBase = 'flex flex-col items-center justify-center border-r border-gray-300 dark:border-gray-700 last:border-r-0 px-1 select-none';
-  const labelClass = 'text-[10px] text-gray-500 dark:text-gray-400 leading-none mb-0.5';
-  const valueClass = 'text-base font-mono font-semibold text-gray-900 dark:text-gray-100 leading-tight';
-  const placeholderClass = 'text-base font-mono text-gray-300 dark:text-gray-600 leading-tight';
+  const cellBase = 'flex flex-col items-center justify-center border-r border-[#020617] last:border-r-0 px-1 select-none';
+  const labelClass = 'text-[10px] text-slate-300 leading-none mb-0.5';
+  const valueClass = 'text-base font-mono font-semibold text-white leading-tight';
+  const placeholderClass = 'text-base font-mono text-slate-500 leading-tight';
 
   const renderInputCell = (c: Editing, content: React.ReactNode, extra = '') => (
     <button
       key={cellKey(c)}
       onClick={() => setEditing(c)}
-      className={`${cellBase} ${extra} h-full hover:bg-accent/5 active:bg-accent/10 transition-colors`}
+      className={`${cellBase} ${extra} h-full hover:bg-white/10 active:bg-white/15 transition-colors`}
       style={{ touchAction: 'manipulation' }}
     >
       <span className={labelClass}>{cellLabel(c).split('（')[0]}</span>
@@ -111,10 +112,10 @@ export default function ScoreInputBar({ value, eJudgeCount, apparatus, onChange 
 
   return (
     <>
-      <div className="border-t border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 shrink-0">
+      <div className="border-t border-[#020617] bg-[#0f172a] dark:bg-[#020617] shrink-0 shadow-[0_-1px_0_rgba(255,255,255,0.04)]">
         {/* 上段: E1..EN（少し厚め） — eJudgeCount=0 のときは非表示 */}
         {showEJudges && (
-          <div className="flex h-12" style={{ borderBottom: '1px solid var(--tw-color-gray-300, #d1d5db)' }}>
+          <div className="flex h-12 border-b border-[#020617]">
             {eArr.map((v, i) => renderInputCell(
               { kind: 'e', index: i },
               v !== undefined
@@ -126,7 +127,7 @@ export default function ScoreInputBar({ value, eJudgeCount, apparatus, onChange 
         )}
 
         {/* 下段: D / E決定 / ND / 加点 / 決定点（少し厚め） */}
-        <div className={`flex h-14 ${showEJudges ? 'border-t border-gray-300 dark:border-gray-700' : ''}`}>
+        <div className={`flex h-14 ${showEJudges ? 'border-t border-[#020617]' : ''}`}>
           {renderInputCell(
             { kind: 'd' },
             normalized.d !== undefined
@@ -137,7 +138,7 @@ export default function ScoreInputBar({ value, eJudgeCount, apparatus, onChange 
           {renderInputCell(
             { kind: 'eFinal' },
             eFinalDisplay !== undefined
-              ? <span className={`${valueClass} ${typeof normalized.eFinalManual === 'number' ? 'text-accent' : ''}`}>{formatScore(eFinalDisplay, decimals)}</span>
+              ? <span className={`${valueClass} ${showEJudges && typeof normalized.eFinalManual === 'number' ? 'text-accent' : ''}`}>{formatScore(eFinalDisplay, decimals)}</span>
               : <span className={placeholderClass}>―</span>,
             bonusDisabled ? 'w-[24%]' : 'w-[18%]',
           )}
@@ -154,8 +155,8 @@ export default function ScoreInputBar({ value, eJudgeCount, apparatus, onChange 
               onClick={toggleBonus}
               className={`${cellBase} w-[16%] h-full transition-colors ${
                 normalized.bonus
-                  ? 'bg-success/10 hover:bg-success/15'
-                  : 'hover:bg-accent/5'
+                  ? 'bg-success/20 hover:bg-success/25'
+                  : 'hover:bg-white/10'
               }`}
               style={{ touchAction: 'manipulation' }}
             >
@@ -163,7 +164,7 @@ export default function ScoreInputBar({ value, eJudgeCount, apparatus, onChange 
               <span className={`text-base font-mono font-semibold leading-tight ${
                 normalized.bonus
                   ? 'text-success'
-                  : 'text-gray-300 dark:text-gray-600'
+                  : 'text-gray-500'
               }`}>
                 {normalized.bonus ? '+0.1' : 'OFF'}
               </span>
@@ -172,7 +173,7 @@ export default function ScoreInputBar({ value, eJudgeCount, apparatus, onChange 
           {renderInputCell(
             { kind: 'final' },
             (typeof normalized.finalManual === 'number' || finalDisplay !== undefined)
-              ? <span className={`text-lg font-mono font-bold leading-tight ${typeof normalized.finalManual === 'number' ? 'text-accent' : 'text-primary dark:text-accent'}`}>{formatScore(finalDisplay, FINAL_SCORE_DECIMALS)}</span>
+              ? <span className={`text-lg font-mono font-bold leading-tight ${typeof normalized.finalManual === 'number' ? 'text-accent' : 'text-sky-300'}`}>{formatScore(finalDisplay, FINAL_SCORE_DECIMALS)}</span>
               : <span className={placeholderClass}>―</span>,
             'flex-1',
           )}

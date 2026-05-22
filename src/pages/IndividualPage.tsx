@@ -297,23 +297,23 @@ export default function IndividualPage() {
 
   const pageNav = (
     <>
-      <div className="w-px h-4 bg-gray-300" />
+      <div className="w-px h-4 bg-white/20" />
       <button onClick={goPrev} disabled={currentPage <= 1}
-        className="px-1.5 py-0.5 rounded text-xs bg-white dark:bg-gray-700 text-gray-500 disabled:opacity-30 min-h-[28px]">
+        className="px-1.5 py-0.5 rounded text-xs bg-[#1f2937] text-slate-100 disabled:opacity-30 min-h-[28px] hover:bg-[#334155]">
         ◀
       </button>
       <button onClick={openPageList}
-        className="text-xs text-gray-600 dark:text-gray-300 font-mono min-w-[40px] text-center
-                   hover:bg-gray-200 dark:hover:bg-gray-600 rounded px-1 py-0.5 min-h-[28px]">
+        className="text-xs text-gray-200 font-mono min-w-[40px] text-center
+                   hover:bg-white/10 rounded px-1 py-0.5 min-h-[28px]">
         {currentPage} / {totalPages}
       </button>
       <button onClick={goNext} disabled={currentPage >= totalPages}
-        className="px-1.5 py-0.5 rounded text-xs bg-white dark:bg-gray-700 text-gray-500 disabled:opacity-30 min-h-[28px]">
+        className="px-1.5 py-0.5 rounded text-xs bg-[#1f2937] text-slate-100 disabled:opacity-30 min-h-[28px] hover:bg-[#334155]">
         ▶
       </button>
       <button onClick={openPageList}
-        className="px-2 py-0.5 rounded text-xs bg-white dark:bg-gray-700 text-gray-600 dark:text-gray-300 font-bold min-h-[28px]
-                   hover:bg-gray-200 dark:hover:bg-gray-600">
+        className="px-2 py-0.5 rounded text-xs bg-[#1f2937] text-slate-100 font-bold min-h-[28px]
+                   hover:bg-[#334155]">
         一覧
       </button>
       <button onClick={addPage}
@@ -329,7 +329,7 @@ export default function IndividualPage() {
         key={recordId}
         apparatus={apparatus}
         judgeMode={session.judgeMode}
-        eJudgeCount={session.eJudgeCount}
+        eJudgeCount={0}
         recordId={recordId}
         sessionId={sessionId}
         mode="individual"
@@ -383,7 +383,7 @@ export default function IndividualPage() {
                       page={page}
                       rec={rec}
                       apparatus={apparatus}
-                      eJudgeCount={session.eJudgeCount}
+                      eJudgeCount={0}
                       vaultImg={vaultImg}
                       isActive={page === currentPage}
                       onClick={() => jumpToPage(page)}
