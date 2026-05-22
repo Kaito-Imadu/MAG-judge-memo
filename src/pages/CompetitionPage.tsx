@@ -344,31 +344,31 @@ export default function CompetitionPage() {
 
   const pageNav = (
     <>
-      <div className="w-px h-4 bg-white/20" />
+      <div className="w-px h-4 bg-gray-300" />
       <button onClick={() => setShowRanking(true)}
         title="ランキングを表示"
         className="flex items-center gap-1 px-2 py-1.5 rounded-lg text-xs font-bold min-h-[44px]
-                   bg-[#475569] text-slate-50 hover:bg-[#64748b]">
+                   bg-white dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600">
         <span>🏆</span>
         <span>順位</span>
       </button>
-      <div className="w-px h-4 bg-white/20" />
+      <div className="w-px h-4 bg-gray-300" />
       <button onClick={goPrev} disabled={currentPage <= 1}
-        className="px-3 py-1 rounded-lg text-base font-bold bg-[#475569] text-slate-50 disabled:opacity-30 min-h-[44px] min-w-[44px] hover:bg-[#64748b] active:bg-[#718096]">
+        className="px-3 py-1 rounded-lg text-base font-bold bg-white dark:bg-gray-700 text-gray-600 dark:text-gray-300 disabled:opacity-30 min-h-[44px] min-w-[44px] hover:bg-gray-200 dark:hover:bg-gray-600 active:bg-gray-300">
         ◀
       </button>
       <button onClick={openPageList}
-        className="text-xs text-gray-200 font-mono min-w-[44px] text-center
-                   hover:bg-white/10 rounded px-1 py-0.5 min-h-[28px]">
+        className="text-xs text-gray-600 dark:text-gray-300 font-mono min-w-[44px] text-center
+                   hover:bg-gray-200 dark:hover:bg-gray-600 rounded px-1 py-0.5 min-h-[28px]">
         {currentPage} / {totalPages}
       </button>
       <button onClick={goNext} disabled={currentPage >= totalPages}
-        className="px-3 py-1 rounded-lg text-base font-bold bg-[#475569] text-slate-50 disabled:opacity-30 min-h-[44px] min-w-[44px] hover:bg-[#64748b] active:bg-[#718096]">
+        className="px-3 py-1 rounded-lg text-base font-bold bg-white dark:bg-gray-700 text-gray-600 dark:text-gray-300 disabled:opacity-30 min-h-[44px] min-w-[44px] hover:bg-gray-200 dark:hover:bg-gray-600 active:bg-gray-300">
         ▶
       </button>
       <button onClick={openPageList}
-        className="px-3 py-1.5 rounded-lg text-sm bg-[#475569] text-slate-50 font-bold min-h-[40px]
-                   hover:bg-[#64748b]">
+        className="px-3 py-1.5 rounded-lg text-sm bg-white dark:bg-gray-700 text-gray-600 dark:text-gray-300 font-bold min-h-[40px]
+                   hover:bg-gray-200 dark:hover:bg-gray-600">
         一覧
       </button>
       <button onClick={addPage}

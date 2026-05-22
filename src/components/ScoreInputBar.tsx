@@ -90,16 +90,16 @@ export default function ScoreInputBar({ value, eJudgeCount, apparatus, onChange 
     onChange({ ...normalized, bonus: !normalized.bonus });
   };
 
-  const cellBase = 'flex flex-col items-center justify-center border-r border-[#263241] last:border-r-0 px-1 select-none';
-  const labelClass = 'text-[10px] text-slate-200 leading-none mb-0.5';
-  const valueClass = 'text-base font-mono font-semibold text-white leading-tight';
-  const placeholderClass = 'text-base font-mono text-slate-400 leading-tight';
+  const cellBase = 'flex flex-col items-center justify-center border-r border-gray-300 dark:border-gray-700 last:border-r-0 px-1 select-none';
+  const labelClass = 'text-[10px] text-gray-500 dark:text-gray-400 leading-none mb-0.5';
+  const valueClass = 'text-base font-mono font-semibold text-gray-900 dark:text-gray-100 leading-tight';
+  const placeholderClass = 'text-base font-mono text-gray-300 dark:text-gray-600 leading-tight';
 
   const renderInputCell = (c: Editing, content: React.ReactNode, extra = '') => (
     <button
       key={cellKey(c)}
       onClick={() => setEditing(c)}
-      className={`${cellBase} ${extra} h-full hover:bg-white/10 active:bg-white/15 transition-colors`}
+      className={`${cellBase} ${extra} h-full hover:bg-accent/5 active:bg-accent/10 transition-colors`}
       style={{ touchAction: 'manipulation' }}
     >
       <span className={labelClass}>{cellLabel(c).split('（')[0]}</span>
@@ -112,13 +112,10 @@ export default function ScoreInputBar({ value, eJudgeCount, apparatus, onChange 
 
   return (
     <>
-      <div
-        className="border-t border-[#263241] bg-[#334155] dark:bg-[#1f2937] shrink-0 shadow-[0_-1px_0_rgba(255,255,255,0.08)]"
-        style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
-      >
+      <div className="border-t border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 shrink-0">
         {/* 上段: E1..EN（少し厚め） — eJudgeCount=0 のときは非表示 */}
         {showEJudges && (
-          <div className="flex h-12 border-b border-[#263241]">
+          <div className="flex h-12" style={{ borderBottom: '1px solid var(--tw-color-gray-300, #d1d5db)' }}>
             {eArr.map((v, i) => renderInputCell(
               { kind: 'e', index: i },
               v !== undefined
@@ -130,7 +127,7 @@ export default function ScoreInputBar({ value, eJudgeCount, apparatus, onChange 
         )}
 
         {/* 下段: D / E決定 / ND / 加点 / 決定点（少し厚め） */}
-        <div className={`flex h-14 ${showEJudges ? 'border-t border-[#263241]' : ''}`}>
+        <div className={`flex h-14 ${showEJudges ? 'border-t border-gray-300 dark:border-gray-700' : ''}`}>
           {renderInputCell(
             { kind: 'd' },
             normalized.d !== undefined
@@ -158,8 +155,8 @@ export default function ScoreInputBar({ value, eJudgeCount, apparatus, onChange 
               onClick={toggleBonus}
               className={`${cellBase} w-[16%] h-full transition-colors ${
                 normalized.bonus
-                  ? 'bg-success/20 hover:bg-success/25'
-                  : 'hover:bg-white/10'
+                  ? 'bg-success/10 hover:bg-success/15'
+                  : 'hover:bg-accent/5'
               }`}
               style={{ touchAction: 'manipulation' }}
             >
@@ -167,7 +164,7 @@ export default function ScoreInputBar({ value, eJudgeCount, apparatus, onChange 
               <span className={`text-base font-mono font-semibold leading-tight ${
                 normalized.bonus
                   ? 'text-success'
-                  : 'text-gray-500'
+                  : 'text-gray-300 dark:text-gray-600'
               }`}>
                 {normalized.bonus ? '+0.1' : 'OFF'}
               </span>
@@ -176,7 +173,7 @@ export default function ScoreInputBar({ value, eJudgeCount, apparatus, onChange 
           {renderInputCell(
             { kind: 'final' },
             (typeof normalized.finalManual === 'number' || finalDisplay !== undefined)
-              ? <span className={`text-lg font-mono font-bold leading-tight ${typeof normalized.finalManual === 'number' ? 'text-accent' : 'text-sky-300'}`}>{formatScore(finalDisplay, FINAL_SCORE_DECIMALS)}</span>
+              ? <span className={`text-lg font-mono font-bold leading-tight ${typeof normalized.finalManual === 'number' ? 'text-accent' : 'text-primary dark:text-accent'}`}>{formatScore(finalDisplay, FINAL_SCORE_DECIMALS)}</span>
               : <span className={placeholderClass}>―</span>,
             'flex-1',
           )}
