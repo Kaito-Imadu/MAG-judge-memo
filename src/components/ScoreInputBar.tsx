@@ -90,10 +90,10 @@ export default function ScoreInputBar({ value, eJudgeCount, apparatus, onChange 
     onChange({ ...normalized, bonus: !normalized.bonus });
   };
 
-  const cellBase = 'flex flex-col items-center justify-center border-r border-[#020617] last:border-r-0 px-1 select-none';
-  const labelClass = 'text-[10px] text-slate-300 leading-none mb-0.5';
+  const cellBase = 'flex flex-col items-center justify-center border-r border-[#263241] last:border-r-0 px-1 select-none';
+  const labelClass = 'text-[10px] text-slate-200 leading-none mb-0.5';
   const valueClass = 'text-base font-mono font-semibold text-white leading-tight';
-  const placeholderClass = 'text-base font-mono text-slate-500 leading-tight';
+  const placeholderClass = 'text-base font-mono text-slate-400 leading-tight';
 
   const renderInputCell = (c: Editing, content: React.ReactNode, extra = '') => (
     <button
@@ -112,10 +112,13 @@ export default function ScoreInputBar({ value, eJudgeCount, apparatus, onChange 
 
   return (
     <>
-      <div className="border-t border-[#020617] bg-[#0f172a] dark:bg-[#020617] shrink-0 shadow-[0_-1px_0_rgba(255,255,255,0.04)]">
+      <div
+        className="border-t border-[#263241] bg-[#334155] dark:bg-[#1f2937] shrink-0 shadow-[0_-1px_0_rgba(255,255,255,0.08)]"
+        style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
+      >
         {/* 上段: E1..EN（少し厚め） — eJudgeCount=0 のときは非表示 */}
         {showEJudges && (
-          <div className="flex h-12 border-b border-[#020617]">
+          <div className="flex h-12 border-b border-[#263241]">
             {eArr.map((v, i) => renderInputCell(
               { kind: 'e', index: i },
               v !== undefined
@@ -127,7 +130,7 @@ export default function ScoreInputBar({ value, eJudgeCount, apparatus, onChange 
         )}
 
         {/* 下段: D / E決定 / ND / 加点 / 決定点（少し厚め） */}
-        <div className={`flex h-14 ${showEJudges ? 'border-t border-[#020617]' : ''}`}>
+        <div className={`flex h-14 ${showEJudges ? 'border-t border-[#263241]' : ''}`}>
           {renderInputCell(
             { kind: 'd' },
             normalized.d !== undefined

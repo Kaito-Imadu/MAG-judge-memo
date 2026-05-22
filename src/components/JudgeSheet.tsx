@@ -991,10 +991,16 @@ export default function JudgeSheet({
       }
     };
 
-    // 2本指ダブルタップで undo
+    // 2本指ダブルタップで undo / 3本指タップで一時消しゴム
     let lastTwoFingerTap = 0;
     const onTouchStart = (e: TouchEvent) => {
       e.preventDefault();
+      if (e.touches.length === 3) {
+        if (drawing.current) resetStuckState();
+        eraserMode.current = true;
+        setTick(t => t + 1);
+        return;
+      }
       if (e.touches.length === 2) {
         const now = Date.now();
         if (now - lastTwoFingerTap < 500) {
@@ -1317,7 +1323,7 @@ export default function JudgeSheet({
       {/* touchAction: manipulation で 300ms 遅延を抑止し、isolation で Canvas 側ポインターキャプチャから分離 */}
       {/* onPointerDown 保険: Canvas に詰まったポインターキャプチャをツールバータップ時に強制解放
           (Apple Pencil 切断で drawing 状態が残ったまま toolbar が無反応化する事象への対策) */}
-      <div className="flex items-center gap-2 px-2 py-2 bg-[#0f172a] dark:bg-[#020617] border-b border-[#020617] shrink-0 whitespace-nowrap overflow-x-auto relative z-10 shadow-[0_1px_0_rgba(255,255,255,0.04)]"
+      <div className="flex items-center gap-2 px-2 py-2 bg-[#334155] dark:bg-[#1f2937] border-b border-[#263241] dark:border-[#111827] shrink-0 whitespace-nowrap overflow-x-auto relative z-10 shadow-[0_1px_0_rgba(255,255,255,0.08)]"
            style={{ touchAction: 'manipulation', isolation: 'isolate', paddingTop: 'max(env(safe-area-inset-top), 0.5rem)' }}
            onPointerDownCapture={() => {
              if (drawing.current || activePointerId.current !== null) {
@@ -1334,7 +1340,7 @@ export default function JudgeSheet({
             className={`flex items-center gap-1.5 px-2 h-11 rounded-md transition-all ${
               !eraserMode.current
                 ? 'bg-[#f8fafc] text-slate-800 ring-2 ring-accent/60'
-                : 'bg-[#1f2937] text-slate-100 hover:bg-[#334155]'
+                : 'bg-[#475569] text-slate-50 hover:bg-[#64748b]'
             }`}
           >
             <span className="inline-block w-5 h-5 rounded-full border border-gray-300 dark:border-gray-500"
@@ -1351,7 +1357,7 @@ export default function JudgeSheet({
           className={`flex items-center justify-center w-11 h-11 rounded-md transition-all shrink-0 ${
             eraserMode.current
               ? 'bg-danger text-white shadow-md ring-2 ring-danger/40'
-              : 'bg-[#1f2937] text-slate-100 hover:bg-[#334155]'
+              : 'bg-[#475569] text-slate-50 hover:bg-[#64748b]'
           }`}>
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <path d="M20 20H7L3 16c-.8-.8-.8-2 0-2.8L14.6 1.6c.8-.8 2-.8 2.8 0L21.4 5.6c.8.8.8 2 0 2.8L12 18" />
@@ -1364,14 +1370,14 @@ export default function JudgeSheet({
         {/* Undo / Redo */}
         <button onClick={undo}
           title="元に戻す"
-          className="px-2 py-1.5 rounded-lg text-xs bg-[#1f2937] text-slate-100
-                     hover:bg-[#334155] active:bg-[#475569] min-h-[44px] min-w-[44px]">
+          className="px-2 py-1.5 rounded-lg text-xs bg-[#475569] text-slate-50
+                     hover:bg-[#64748b] active:bg-[#718096] min-h-[44px] min-w-[44px]">
           ↩
         </button>
         <button onClick={redo}
           title="やり直し"
-          className="px-2 py-1.5 rounded-lg text-xs bg-[#1f2937] text-slate-100
-                     hover:bg-[#334155] active:bg-[#475569] min-h-[44px] min-w-[44px]">
+          className="px-2 py-1.5 rounded-lg text-xs bg-[#475569] text-slate-50
+                     hover:bg-[#64748b] active:bg-[#718096] min-h-[44px] min-w-[44px]">
           ↪
         </button>
 
@@ -1382,7 +1388,7 @@ export default function JudgeSheet({
             <button onClick={addHorizontalLine}
               title="横線を追加"
               className="flex items-center gap-1 px-2 py-1.5 rounded-lg text-xs font-bold min-h-[44px]
-                         bg-[#1f2937] text-slate-100 hover:bg-[#334155]">
+                         bg-[#475569] text-slate-50 hover:bg-[#64748b]">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
                 <path d="M3 12h18" />
                 <path d="M12 5v4M12 15v4" />
@@ -1399,7 +1405,7 @@ export default function JudgeSheet({
           <button ref={moreButtonRef}
             onClick={() => { setShowMoreMenu(v => !v); setShowPenPopover(false); }}
             title="その他"
-            className="flex items-center justify-center w-11 h-11 rounded-md bg-[#1f2937] text-slate-100 hover:bg-[#334155]">
+            className="flex items-center justify-center w-11 h-11 rounded-md bg-[#475569] text-slate-50 hover:bg-[#64748b]">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
               <circle cx="12" cy="5" r="1.5" />
               <circle cx="12" cy="12" r="1.5" />

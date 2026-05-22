@@ -348,13 +348,13 @@ export default function CompetitionPage() {
       <button onClick={() => setShowRanking(true)}
         title="ランキングを表示"
         className="flex items-center gap-1 px-2 py-1.5 rounded-lg text-xs font-bold min-h-[44px]
-                   bg-[#1f2937] text-slate-100 hover:bg-[#334155]">
+                   bg-[#475569] text-slate-50 hover:bg-[#64748b]">
         <span>🏆</span>
         <span>順位</span>
       </button>
       <div className="w-px h-4 bg-white/20" />
       <button onClick={goPrev} disabled={currentPage <= 1}
-        className="px-3 py-1 rounded-lg text-base font-bold bg-[#1f2937] text-slate-100 disabled:opacity-30 min-h-[44px] min-w-[44px] hover:bg-[#334155] active:bg-[#475569]">
+        className="px-3 py-1 rounded-lg text-base font-bold bg-[#475569] text-slate-50 disabled:opacity-30 min-h-[44px] min-w-[44px] hover:bg-[#64748b] active:bg-[#718096]">
         ◀
       </button>
       <button onClick={openPageList}
@@ -363,12 +363,12 @@ export default function CompetitionPage() {
         {currentPage} / {totalPages}
       </button>
       <button onClick={goNext} disabled={currentPage >= totalPages}
-        className="px-3 py-1 rounded-lg text-base font-bold bg-[#1f2937] text-slate-100 disabled:opacity-30 min-h-[44px] min-w-[44px] hover:bg-[#334155] active:bg-[#475569]">
+        className="px-3 py-1 rounded-lg text-base font-bold bg-[#475569] text-slate-50 disabled:opacity-30 min-h-[44px] min-w-[44px] hover:bg-[#64748b] active:bg-[#718096]">
         ▶
       </button>
       <button onClick={openPageList}
-        className="px-3 py-1.5 rounded-lg text-sm bg-[#1f2937] text-slate-100 font-bold min-h-[40px]
-                   hover:bg-[#334155]">
+        className="px-3 py-1.5 rounded-lg text-sm bg-[#475569] text-slate-50 font-bold min-h-[40px]
+                   hover:bg-[#64748b]">
         一覧
       </button>
       <button onClick={addPage}

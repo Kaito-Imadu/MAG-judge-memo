@@ -299,7 +299,7 @@ export default function IndividualPage() {
     <>
       <div className="w-px h-4 bg-white/20" />
       <button onClick={goPrev} disabled={currentPage <= 1}
-        className="px-1.5 py-0.5 rounded text-xs bg-[#1f2937] text-slate-100 disabled:opacity-30 min-h-[28px] hover:bg-[#334155]">
+        className="px-1.5 py-0.5 rounded text-xs bg-[#475569] text-slate-50 disabled:opacity-30 min-h-[28px] hover:bg-[#64748b]">
         ◀
       </button>
       <button onClick={openPageList}
@@ -308,12 +308,12 @@ export default function IndividualPage() {
         {currentPage} / {totalPages}
       </button>
       <button onClick={goNext} disabled={currentPage >= totalPages}
-        className="px-1.5 py-0.5 rounded text-xs bg-[#1f2937] text-slate-100 disabled:opacity-30 min-h-[28px] hover:bg-[#334155]">
+        className="px-1.5 py-0.5 rounded text-xs bg-[#475569] text-slate-50 disabled:opacity-30 min-h-[28px] hover:bg-[#64748b]">
         ▶
       </button>
       <button onClick={openPageList}
-        className="px-2 py-0.5 rounded text-xs bg-[#1f2937] text-slate-100 font-bold min-h-[28px]
-                   hover:bg-[#334155]">
+        className="px-2 py-0.5 rounded text-xs bg-[#475569] text-slate-50 font-bold min-h-[28px]
+                   hover:bg-[#64748b]">
         一覧
       </button>
       <button onClick={addPage}
