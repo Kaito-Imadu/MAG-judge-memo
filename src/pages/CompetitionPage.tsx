@@ -55,9 +55,11 @@ function drawThumbnail(
     digitalAthleteName: rec?.digitalAthleteName,
   });
 
-  const scale = Math.min(THUMB_W / srcW, THUMB_H / srcH);
-  const drawW = srcW * scale;
-  const drawH = srcH * scale;
+  const sheetW = sheet.width;
+  const sheetH = sheet.height;
+  const scale = Math.min(THUMB_W / sheetW, THUMB_H / sheetH);
+  const drawW = sheetW * scale;
+  const drawH = sheetH * scale;
   const offX = (THUMB_W - drawW) / 2;
   const offY = (THUMB_H - drawH) / 2;
   c.drawImage(sheet, offX, offY, drawW, drawH);

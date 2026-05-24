@@ -1,18 +1,19 @@
 /**
  * JudgeSheet と同じテンプレート描画ロジック（PNGエクスポート用）。
  * v4 でスコア行は HTML/React UI に移行したため、エクスポート時は
- * デジタルスコアをテキストとして下端に1行で描画する。
+ * 共有画像に2段スコアバーとして焼き込む。
  */
 import type { Apparatus, DigitalScores } from '../types';
 import type { StrokeData } from '../db/database';
 import { APPARATUS_LIST } from '../constants/apparatus';
 import { getNDChecklist } from '../constants/deductions';
-import { calcFinal, getEFinal, formatScore, formatNatural, eFinalDecimals, FINAL_SCORE_DECIMALS } from './scoreCalc';
+import { calcFinal, getEFinal, formatScore, formatNatural, eFinalDecimals, FINAL_SCORE_DECIMALS, isBonusApplicable } from './scoreCalc';
 
 // JudgeSheet と同じ定数
 const LABEL_H = 52;
-// PNG下部にデジタルスコア表示用の領域（1行）。Canvas表示と異なり、エクスポートにはスコアを焼き込む。
-const SCORE_FOOTER_H = 36;
+// PNG下部にデジタルスコア表示用の領域。Canvas表示と異なり、エクスポートにはスコアを焼き込む。
+export const SHEET_SCORE_FOOTER_H = 80;
+const SCORE_E_ROW_H = 36;
 const CV_LABEL_H = 28;
 const ND_WIDTH_RATIO = 0.2;
 const LINE_WIDTH = 2;
@@ -48,22 +49,160 @@ interface RenderOptions {
   vaultImg?: HTMLImageElement | null;
   digitalScores?: DigitalScores;
   digitalAthleteName?: string;
+  renderScale?: number;
+}
+
+interface ScoreCell {
+  label: string;
+  value: string;
+  missing?: boolean;
+  strong?: boolean;
+}
+
+function drawScoreCell(
+  c: CanvasRenderingContext2D,
+  cell: ScoreCell,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+): void {
+  c.fillStyle = cell.missing ? '#FEF2F2' : cell.strong ? '#EFF6FF' : '#ffffff';
+  c.fillRect(x, y, w, h);
+  c.strokeStyle = cell.missing ? '#EF4444' : '#D1D5DB';
+  c.lineWidth = cell.missing ? 1.5 : 1;
+  c.strokeRect(x, y, w, h);
+
+  c.fillStyle = cell.missing ? '#B91C1C' : '#6B7280';
+  c.font = 'bold 10px "Noto Sans JP", sans-serif';
+  c.textAlign = 'center';
+  c.textBaseline = 'alphabetic';
+  c.fillText(cell.label, x + w / 2, y + 13);
+
+  c.fillStyle = cell.missing ? '#DC2626' : cell.strong ? '#1B4F72' : '#111827';
+  c.font = cell.strong
+    ? 'bold 16px "Noto Sans JP", sans-serif'
+    : 'bold 14px "Noto Sans JP", sans-serif';
+  c.fillText(cell.missing ? '未入力' : cell.value, x + w / 2, y + h - 9);
+}
+
+function drawScoreRow(
+  c: CanvasRenderingContext2D,
+  cells: ScoreCell[],
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+): void {
+  if (cells.length === 0) return;
+  const cellW = w / cells.length;
+  cells.forEach((cell, i) => {
+    drawScoreCell(c, cell, x + cellW * i, y, cellW, h);
+  });
+}
+
+function drawScoreFooter(
+  c: CanvasRenderingContext2D,
+  opts: {
+    w: number;
+    scoreRowTop: number;
+    apparatus: Apparatus;
+    eJudgeCount: number;
+    digitalScores?: DigitalScores;
+  },
+): void {
+  const { w, scoreRowTop, apparatus, eJudgeCount, digitalScores } = opts;
+  const eArr = (() => {
+    const src = digitalScores?.e ?? [];
+    const arr = src.slice(0, eJudgeCount);
+    while (arr.length < eJudgeCount) arr.push(undefined);
+    return arr;
+  })();
+
+  const eFinalVal = digitalScores ? getEFinal(digitalScores) : undefined;
+  const finalVal = digitalScores ? calcFinal(digitalScores, apparatus) : undefined;
+  const decimals = eFinalDecimals(eArr);
+  const bonusEnabled = isBonusApplicable(apparatus);
+
+  c.save();
+  c.fillStyle = '#ffffff';
+  c.fillRect(0, scoreRowTop, w, SHEET_SCORE_FOOTER_H);
+  c.strokeStyle = '#111827';
+  c.lineWidth = 2;
+  c.beginPath();
+  c.moveTo(0, scoreRowTop);
+  c.lineTo(w, scoreRowTop);
+  c.stroke();
+
+  if (eJudgeCount > 0) {
+    drawScoreRow(
+      c,
+      eArr.map((v, i) => ({
+        label: `E${i + 1}`,
+        value: formatNatural(v, 3),
+        missing: typeof v !== 'number',
+      })),
+      0,
+      scoreRowTop,
+      w,
+      SCORE_E_ROW_H,
+    );
+  }
+
+  const lowerTop = scoreRowTop + (eJudgeCount > 0 ? SCORE_E_ROW_H : 0);
+  const lowerH = SHEET_SCORE_FOOTER_H - (eJudgeCount > 0 ? SCORE_E_ROW_H : 0);
+  const lowerCells: ScoreCell[] = [
+    {
+      label: 'D',
+      value: formatScore(digitalScores?.d, 1),
+      missing: typeof digitalScores?.d !== 'number',
+    },
+    {
+      label: 'E決定',
+      value: formatScore(eFinalVal, decimals),
+      missing: typeof eFinalVal !== 'number',
+    },
+    {
+      label: 'ND',
+      value: formatScore(digitalScores?.nd, 1),
+      missing: typeof digitalScores?.nd !== 'number',
+    },
+  ];
+
+  if (bonusEnabled) {
+    lowerCells.push({
+      label: '加点',
+      value: digitalScores?.bonus ? '+0.1' : 'OFF',
+    });
+  }
+
+  lowerCells.push({
+    label: '決定点',
+    value: formatScore(finalVal, FINAL_SCORE_DECIMALS),
+    missing: typeof finalVal !== 'number',
+    strong: true,
+  });
+
+  drawScoreRow(c, lowerCells, 0, lowerTop, w, lowerH);
+  c.restore();
 }
 
 /**
  * オフスクリーン Canvas に、JudgeSheet と同じテンプレート＋ストロークを描画して返す。
- * 返される Canvas は CSS ピクセルサイズ (w × h) で描画済み。
+ * 返される Canvas は CSS ピクセルサイズ (w × (h + スコアバー高)) で描画済み。
  */
 export function renderSheetCanvas(opts: RenderOptions): HTMLCanvasElement {
-  const { w, h, apparatus, eJudgeCount, mode, athleteName, strokes, lines, vaultImg, digitalScores, digitalAthleteName } = opts;
+  const { w, h, apparatus, eJudgeCount, mode, athleteName, strokes, lines, vaultImg, digitalScores, digitalAthleteName, renderScale = 1 } = opts;
+  const outH = h + SHEET_SCORE_FOOTER_H;
   const canvas = document.createElement('canvas');
-  canvas.width = w;
-  canvas.height = h;
+  canvas.width = Math.ceil(w * renderScale);
+  canvas.height = Math.ceil(outH * renderScale);
   const c = canvas.getContext('2d')!;
+  c.scale(renderScale, renderScale);
 
   // 白背景
   c.fillStyle = '#ffffff';
-  c.fillRect(0, 0, w, h);
+  c.fillRect(0, 0, w, outH);
 
   const hasND = getNDChecklist(apparatus).length > 0;
   const ndItems = getNDChecklist(apparatus);
@@ -72,8 +211,8 @@ export function renderSheetCanvas(opts: RenderOptions): HTMLCanvasElement {
 
   const ndW = hasND ? Math.floor(w * ND_WIDTH_RATIO) : 0;
   const mainW = w - ndW;
-  // スコアフッター用の下端領域。デジタルスコアがあれば焼き込む。
-  const scoreRowTop = h - SCORE_FOOTER_H;
+  // 保存済みCanvas本体の下に、共有画像用のスコアバーを追加する。
+  const scoreRowTop = h;
 
   c.save();
 
@@ -171,63 +310,6 @@ export function renderSheetCanvas(opts: RenderOptions): HTMLCanvasElement {
     c.fillText('CV：', 6, cvTop + 18);
   }
 
-  // --- デジタルスコアフッター ---
-  c.strokeStyle = '#222';
-  c.lineWidth = 2;
-  c.beginPath();
-  c.moveTo(0, scoreRowTop);
-  c.lineTo(w, scoreRowTop);
-  c.stroke();
-
-  // E配列を eJudgeCount 長に正規化
-  const eArr: (number | undefined)[] = (() => {
-    const src = digitalScores?.e ?? [];
-    const arr = src.slice(0, eJudgeCount);
-    while (arr.length < eJudgeCount) arr.push(undefined);
-    return arr;
-  })();
-  const eFinalVal = digitalScores ? getEFinal(digitalScores) : undefined;
-  const finalVal = digitalScores ? calcFinal(digitalScores, apparatus) : undefined;
-
-  const parts: Array<{ label: string; value: string; bold?: boolean }> = [
-    { label: 'D', value: formatScore(digitalScores?.d, 1) },
-  ];
-  for (let i = 0; i < eJudgeCount; i++) {
-    parts.push({ label: `E${i + 1}`, value: formatNatural(eArr[i], 3) });
-  }
-  const decimals = eFinalDecimals(eArr);
-  parts.push({ label: 'E決定', value: formatScore(eFinalVal, decimals) });
-  parts.push({ label: 'ND', value: formatScore(digitalScores?.nd, 1) });
-  if (digitalScores?.bonus) parts.push({ label: '加点', value: '+0.1' });
-  parts.push({ label: '決定点', value: formatScore(finalVal, FINAL_SCORE_DECIMALS), bold: true });
-
-  // 大会モードではデジタル選手名を左端に。
-  const namePrefix = (mode === 'competition' && digitalAthleteName) ? `${digitalAthleteName}：` : '';
-
-  c.fillStyle = '#222';
-  c.font = '11px "Noto Sans JP", sans-serif';
-  let textX = 8;
-  const textY = scoreRowTop + SCORE_FOOTER_H / 2 + 4;
-  if (namePrefix) {
-    c.fillStyle = '#1B4F72';
-    c.font = 'bold 13px "Noto Sans JP", sans-serif';
-    c.fillText(namePrefix, textX, textY);
-    textX += c.measureText(namePrefix).width + 4;
-  }
-  for (const p of parts) {
-    c.fillStyle = '#888';
-    c.font = '10px "Noto Sans JP", sans-serif';
-    c.fillText(p.label, textX, textY - 8);
-    c.fillStyle = p.bold ? '#1B4F72' : '#222';
-    c.font = p.bold ? 'bold 14px "Noto Sans JP", sans-serif' : '13px "Noto Sans JP", sans-serif';
-    const valText = p.value || '―';
-    c.fillText(valText, textX, textY + 6);
-    const labelW = c.measureText(p.label).width;
-    const valW = c.measureText(valText).width;
-    textX += Math.max(labelW, valW) + 14;
-    if (textX > w - 20) break;
-  }
-
   c.restore();
 
   // --- ストローク描画（ベジェ曲線 — JudgeSheet と同一） ---
@@ -259,6 +341,14 @@ export function renderSheetCanvas(opts: RenderOptions): HTMLCanvasElement {
     }
     c.stroke();
   }
+
+  drawScoreFooter(c, {
+    w,
+    scoreRowTop,
+    apparatus,
+    eJudgeCount,
+    digitalScores,
+  });
 
   return canvas;
 }

@@ -2,7 +2,7 @@ import { db } from '../db/database';
 import type { MemoRecord } from '../db/database';
 import type { Apparatus } from '../types';
 import { APPARATUS_MAP } from '../constants/apparatus';
-import { renderSheetCanvas, loadVaultImage } from './renderSheet';
+import { renderSheetCanvas, loadVaultImage, SHEET_SCORE_FOOTER_H } from './renderSheet';
 
 // ---------- 6種目シート用定数 ----------
 const CELL_GAP = 4;
@@ -10,11 +10,11 @@ const HEADER_H = 80;
 
 // エクスポートセルサイズ
 const CELL_W = 500;
-const CELL_H = Math.round(CELL_W * 700 / 1024); // iPad landscape のアスペクト比
+const CELL_H = Math.round(CELL_W * (700 + SHEET_SCORE_FOOTER_H) / 1024); // iPad landscape + スコアバー
 
 // 出力PNGのピクセル倍率。レイアウト座標は据え置きで、Canvas実ピクセルだけ拡大する。
-// SNS共有時にペン書きストロークがボケて見える対策。
-const EXPORT_SCALE = 2;
+// 元シートも同倍率で描画し、SNS共有時の細いペン線とスコア文字のボケを抑える。
+const EXPORT_SCALE = 3;
 
 const APPARATUS_ORDER: Apparatus[] = ['FX', 'PH', 'SR', 'VT', 'PB', 'HB'];
 
@@ -185,6 +185,7 @@ export async function exportAthleteSheet(
       vaultImg: apparatus === 'VT' ? vaultImg : null,
       digitalScores: record?.digitalScores,
       digitalAthleteName: record?.digitalAthleteName,
+      renderScale: EXPORT_SCALE,
     });
 
     // 縮小してセルに配置
@@ -256,6 +257,7 @@ export async function exportSingleSheet(
     vaultImg,
     digitalScores: record?.digitalScores,
     digitalAthleteName: record?.digitalAthleteName,
+    renderScale: EXPORT_SCALE,
   });
 
   c.drawImage(sheet, 0, HEADER, SINGLE_W, SINGLE_H - HEADER);

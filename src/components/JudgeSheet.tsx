@@ -1439,7 +1439,16 @@ export default function JudgeSheet({
         <div className="p-3 flex items-center gap-3">
           <div className="flex items-center gap-1.5">
             {COLORS.map((c) => (
-              <button key={c.value} onClick={() => { pickColor(c.value); }}
+              <button key={c.value}
+                onPointerDown={(e) => {
+                  e.preventDefault();
+                  pickColor(c.value);
+                  setShowPenPopover(false);
+                }}
+                onClick={() => {
+                  pickColor(c.value);
+                  setShowPenPopover(false);
+                }}
                 className={`w-8 h-8 rounded-full border-2 transition-transform shrink-0 ${
                   !eraserMode.current && colorRef.current === c.value
                     ? 'border-accent scale-110 ring-2 ring-accent/30'
