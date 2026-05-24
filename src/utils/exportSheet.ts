@@ -12,6 +12,10 @@ const HEADER_H = 80;
 const CELL_W = 500;
 const CELL_H = Math.round(CELL_W * 700 / 1024); // iPad landscape のアスペクト比
 
+// 出力PNGのピクセル倍率。レイアウト座標は据え置きで、Canvas実ピクセルだけ拡大する。
+// SNS共有時にペン書きストロークがボケて見える対策。
+const EXPORT_SCALE = 2;
+
 const APPARATUS_ORDER: Apparatus[] = ['FX', 'PH', 'SR', 'VT', 'PB', 'HB'];
 
 // 採点済み種目数に応じたグリッドレイアウト
@@ -131,9 +135,10 @@ export async function exportAthleteSheet(
   const vaultImg = scored.includes('VT') ? await loadVaultImage() : null;
 
   const canvas = document.createElement('canvas');
-  canvas.width = exportW;
-  canvas.height = exportH;
+  canvas.width = exportW * EXPORT_SCALE;
+  canvas.height = exportH * EXPORT_SCALE;
   const c = canvas.getContext('2d')!;
+  c.scale(EXPORT_SCALE, EXPORT_SCALE);
 
   // 背景
   c.fillStyle = '#ffffff';
@@ -216,9 +221,10 @@ export async function exportSingleSheet(
   const src = getCanvasSize(record);
 
   const canvas = document.createElement('canvas');
-  canvas.width = SINGLE_W;
-  canvas.height = SINGLE_H;
+  canvas.width = SINGLE_W * EXPORT_SCALE;
+  canvas.height = SINGLE_H * EXPORT_SCALE;
   const c = canvas.getContext('2d')!;
+  c.scale(EXPORT_SCALE, EXPORT_SCALE);
 
   // 背景
   c.fillStyle = '#ffffff';
