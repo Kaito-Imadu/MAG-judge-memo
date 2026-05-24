@@ -174,7 +174,7 @@ export default function RankingModal({ sessionId, sessionName, sessionDate, mode
             <td className="px-3 py-2 text-sm text-gray-800 dark:text-gray-200">{name}</td>
             <td className="px-3 py-2 text-sm font-mono text-right">{formatScore(e.d, 1)}</td>
             <td className="px-3 py-2 text-sm font-mono text-right">{formatScore(e.eFinal, decimals)}</td>
-            <td className="px-3 py-2 text-sm font-mono text-right">{formatScore(e.nd, 1)}</td>
+            <td className="px-3 py-2 text-sm font-mono text-right">{formatScore(e.nd ?? 0, 1)}</td>
             <td className="px-3 py-2 text-sm font-mono text-right">{e.bonus ? '+0.1' : ''}</td>
             <td className={`px-3 py-2 text-sm font-mono text-right font-bold ${typeof r.score === 'number' ? 'text-primary dark:text-accent' : 'text-gray-300'}`}>
               {formatScore(r.score, FINAL_SCORE_DECIMALS) || '-'}
@@ -200,7 +200,7 @@ export default function RankingModal({ sessionId, sessionName, sessionDate, mode
           <td className="px-3 py-2 text-sm text-gray-800 dark:text-gray-200">{r.item.name}</td>
           <td className="px-3 py-2 text-sm font-mono text-right">{r.item.e ? formatScore(r.item.e.d, 1) : ''}</td>
           <td className="px-3 py-2 text-sm font-mono text-right">{r.item.e ? formatScore(r.item.e.eFinal, decimals) : ''}</td>
-          <td className="px-3 py-2 text-sm font-mono text-right">{r.item.e ? formatScore(r.item.e.nd, 1) : ''}</td>
+          <td className="px-3 py-2 text-sm font-mono text-right">{r.item.e ? formatScore(r.item.e.nd ?? 0, 1) : ''}</td>
           <td className="px-3 py-2 text-sm font-mono text-right">{r.item.e?.bonus ? '+0.1' : ''}</td>
           <td className={`px-3 py-2 text-sm font-mono text-right font-bold ${typeof r.score === 'number' ? 'text-primary dark:text-accent' : 'text-gray-300'}`}>
             {formatScore(r.score, FINAL_SCORE_DECIMALS) || '-'}

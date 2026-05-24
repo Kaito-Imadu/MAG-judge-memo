@@ -140,7 +140,7 @@ function ThumbCard({ rec, apparatus, eJudgeCount, vaultImg, isActive, onClick, o
         <div className="flex items-center gap-2 w-full px-1 text-[10px] font-mono text-gray-600 dark:text-gray-400">
           <span>D <span className="font-bold text-gray-800 dark:text-gray-200">{formatScore(ds.d, 1) || '-'}</span></span>
           <span>E <span className="font-bold text-gray-800 dark:text-gray-200">{formatScore(eFinalVal, decimals) || '-'}</span></span>
-          <span>ND <span className="font-bold text-gray-800 dark:text-gray-200">{formatScore(ds.nd, 1) || '-'}</span></span>
+          <span>ND <span className="font-bold text-gray-800 dark:text-gray-200">{formatScore(ds.nd ?? 0, 1)}</span></span>
           {ds.bonus && <span className="text-success font-bold">+0.1</span>}
           <span className="ml-auto text-primary dark:text-accent font-bold">{formatScore(finalVal, FINAL_SCORE_DECIMALS) || '-'}</span>
         </div>

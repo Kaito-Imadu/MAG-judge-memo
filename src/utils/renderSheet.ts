@@ -164,8 +164,7 @@ function drawScoreFooter(
     },
     {
       label: 'ND',
-      value: formatScore(digitalScores?.nd, 1),
-      missing: typeof digitalScores?.nd !== 'number',
+      value: formatScore(digitalScores?.nd ?? 0, 1),
     },
   ];
 

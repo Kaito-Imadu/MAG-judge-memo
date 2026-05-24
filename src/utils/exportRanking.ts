@@ -247,7 +247,7 @@ function drawAACard(
     c.fillText(eStr, cx + AA_COLS[2].w - 12, rowY + 21);
     cx += AA_COLS[2].w;
 
-    const ndStr = e ? formatScore(e.nd, 1) : '';
+    const ndStr = e ? formatScore(e.nd ?? 0, 1) : '';
     c.fillText(ndStr, cx + AA_COLS[3].w - 12, rowY + 21);
     cx += AA_COLS[3].w;
 
@@ -447,7 +447,7 @@ async function renderApparatusPage(opts: {
         c.font = FONT_MONO(14);
         c.fillStyle = TEXT;
         c.textAlign = 'right';
-        c.fillText(formatScore(item.nd, 1), cx + col.w - 14, cellY);
+        c.fillText(formatScore(item.nd ?? 0, 1), cx + col.w - 14, cellY);
       } else if (col.key === 'bonus') {
         c.font = FONT_MONO_BOLD(14);
         c.fillStyle = item.bonus ? SUCCESS : TEXT;

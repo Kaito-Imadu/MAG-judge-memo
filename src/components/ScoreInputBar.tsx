@@ -144,9 +144,7 @@ export default function ScoreInputBar({ value, eJudgeCount, apparatus, onChange 
           )}
           {renderInputCell(
             { kind: 'nd' },
-            normalized.nd !== undefined
-              ? <span className={valueClass}>{formatScore(normalized.nd, 1)}</span>
-              : <span className={placeholderClass}>―</span>,
+            <span className={valueClass}>{formatScore(normalized.nd ?? 0, 1)}</span>,
             bonusDisabled ? 'w-[16%]' : 'w-[12%]',
           )}
           {/* 加点トグル（あん馬では非表示） */}
