@@ -349,11 +349,20 @@ export default function CompetitionPage() {
   const goPrev = () => { if (currentPage > 1) setCurrentPage(p => p - 1); };
   const goNext = () => { if (currentPage < totalPages) setCurrentPage(p => p + 1); };
 
+  // ページ → ローテーション解決（rotationId直接 / 無ければ startPage 範囲でフォールバック）
+  const resolveRotation = (record: MemoRecord | undefined, pageNo: number): Rotation | undefined => {
+    if (record?.rotationId) {
+      const direct = rotations.find(r => r.id === record.rotationId);
+      if (direct) return direct;
+    }
+    return rotations.find(r =>
+      pageNo >= r.startPage && pageNo < r.startPage + r.athletes.length,
+    );
+  };
+
   // 現在ページのローテーション（団体名表示用）
   const currentRecord = pageRecords.find(r => r.pageNumber === currentPage);
-  const currentRotation = currentRecord?.rotationId
-    ? rotations.find(r => r.id === currentRecord.rotationId)
-    : undefined;
+  const currentRotation = resolveRotation(currentRecord, currentPage);
   const currentTeamName = currentRotation?.teamName;
 
   const onDigitalNameChange = (v: string) => {
@@ -458,6 +467,7 @@ export default function CompetitionPage() {
         digitalAthleteName={digitalNameDraft}
         headerOverlay={headerOverlay}
         suppressSave={isDeleting}
+        rotationId={currentRotation?.id}
       />
 
       {showRanking && (
@@ -518,16 +528,26 @@ export default function CompetitionPage() {
             <div className="flex-1 overflow-y-auto p-3 space-y-4">
               {(() => {
                 // ローテーションごとにページをグルーピング
-                // 各ページのrotationIdを取得し、ローテ別に分ける（未所属は最後にまとめる）
+                // rotationId 直接マッチ → なければ startPage 範囲でフォールバック
                 const groups: { rotation: Rotation | null; pages: number[] }[] = [];
-                const pageToRot = new Map<number, string | undefined>();
-                pageRecords.forEach(r => pageToRot.set(r.pageNumber, r.rotationId));
+                const recByPage = new Map<number, MemoRecord>();
+                pageRecords.forEach(r => recByPage.set(r.pageNumber, r));
 
                 const allPages = Array.from({ length: totalPages }, (_, i) => i + 1);
                 const sortedRots = [...rotations].sort((a, b) => a.startPage - b.startPage);
                 const usedPages = new Set<number>();
                 for (const rot of sortedRots) {
-                  const pages = allPages.filter(p => pageToRot.get(p) === rot.id);
+                  const pages = allPages.filter(p => {
+                    if (usedPages.has(p)) return false;
+                    const rec = recByPage.get(p);
+                    if (rec?.rotationId === rot.id) return true;
+                    // フォールバック: rotationId 不明だが startPage 範囲内
+                    if (!rec?.rotationId &&
+                        p >= rot.startPage && p < rot.startPage + rot.athletes.length) {
+                      return true;
+                    }
+                    return false;
+                  });
                   if (pages.length > 0) {
                     groups.push({ rotation: rot, pages });
                     pages.forEach(p => usedPages.add(p));

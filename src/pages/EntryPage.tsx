@@ -34,7 +34,7 @@ export default function EntryPage() {
       date: new Date(),
       mode: showModal!,
       judgeMode: showModal === 'individual' ? 'D/E' : judgeMode,
-      eJudgeCount: (showModal === 'individual' || judgeMode === 'E' || judgeMode === 'D/E') ? eJudgeCount : 1,
+      eJudgeCount: eJudgeCount,
       apparatus: showModal === 'competition' ? selectedApparatus : undefined,
       athletes: [],
       teamScoring: showModal === 'competition' ? { topN: teamTopN } : undefined,
@@ -252,17 +252,18 @@ export default function EntryPage() {
                     }`}>D/E</button>
                 </div>
 
-                {(judgeMode === 'E' || judgeMode === 'D/E') && (
-                  <div className="flex items-center gap-2 mb-4">
-                    <span className="text-sm text-gray-600 dark:text-gray-300">E審判人数:</span>
-                    {[1, 2, 3, 4, 5, 6].map(n => (
-                      <button key={n} onClick={() => setEJudgeCount(n)}
-                        className={`w-9 h-9 rounded-lg text-sm font-bold ${
-                          eJudgeCount === n ? 'bg-primary text-white' : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300'
-                        }`}>{n}</button>
-                    ))}
-                  </div>
-                )}
+                <div className="flex items-center gap-2 mb-4">
+                  <span className="text-sm text-gray-600 dark:text-gray-300">E審判人数:</span>
+                  {[1, 2, 3, 4, 5, 6].map(n => (
+                    <button key={n} onClick={() => setEJudgeCount(n)}
+                      className={`w-9 h-9 rounded-lg text-sm font-bold ${
+                        eJudgeCount === n ? 'bg-primary text-white' : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300'
+                      }`}>{n}</button>
+                  ))}
+                  {judgeMode === 'D' && (
+                    <span className="text-xs text-gray-400 ml-1">（決定点の桁数や集計に使用）</span>
+                  )}
+                </div>
               </>
             )}
 
@@ -292,12 +293,17 @@ export default function EntryPage() {
                   </div>
                   <div className="flex items-center gap-2">
                     <span className="text-sm text-gray-600 dark:text-gray-300">採用人数 N:</span>
-                    {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(n => (
-                      <button key={n} onClick={() => setTeamTopN(n)}
-                        className={`w-9 h-9 rounded-lg text-sm font-bold ${
-                          teamTopN === n ? 'bg-primary text-white' : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300'
-                        }`}>{n}</button>
-                    ))}
+                    <select
+                      value={teamTopN}
+                      onChange={e => setTeamTopN(parseInt(e.target.value, 10))}
+                      className="px-3 py-2 min-h-[40px] rounded-lg border border-gray-300 dark:border-gray-600
+                                 bg-white dark:bg-gray-700 dark:text-gray-100 text-sm font-bold text-center
+                                 focus:outline-none focus:border-accent"
+                    >
+                      {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(n => (
+                        <option key={n} value={n}>{n} 人</option>
+                      ))}
+                    </select>
                   </div>
                 </div>
 

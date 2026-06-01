@@ -88,12 +88,20 @@ export function computeTeamScores(
   const result: TeamScored[] = [];
   for (const rot of data.rotations) {
     if (!rot.teamName) continue; // 団体登録されていないローテはスキップ
-    const members = rot.athletes.map(name => {
-      // ローテに属するレコードのうち、その選手のものを取得（同名複数なら最初の1件）
-      const entry = data.scored.find(s =>
+    const members = rot.athletes.map((name, idx) => {
+      // 第一候補: rotationId が一致しているレコード
+      let entry = data.scored.find(s =>
         s.record.rotationId === rot.id &&
         (s.record.digitalAthleteName ?? '').trim() === name,
       );
+      // フォールバック: rotationId が無いが startPage 範囲内のレコード（救済）
+      if (!entry) {
+        const expectedPage = rot.startPage + idx;
+        entry = data.scored.find(s =>
+          !s.record.rotationId &&
+          s.record.pageNumber === expectedPage,
+        );
+      }
       const metricValue = getMetricValue(entry, metric);
       return { name, entry, metricValue };
     });

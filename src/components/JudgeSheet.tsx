@@ -42,6 +42,8 @@ interface Props {
   suppressSave?: boolean;
   // 共有PNG用のセッション名（省略時は sessionId を使用）
   sessionName?: string;
+  // 大会モードのローテーション紐付け（保存時に保持する）
+  rotationId?: string;
 }
 
 const COLORS = [
@@ -275,7 +277,11 @@ export default function JudgeSheet({
   headerOverlay,
   suppressSave = false,
   sessionName,
+  rotationId,
 }: Props) {
+  // 保存時に rotationId を保持（最新値を ref で参照）
+  const rotationIdRef = useRef(rotationId);
+  useEffect(() => { rotationIdRef.current = rotationId; }, [rotationId]);
   // === Refs ===
   const staticCanvasRef = useRef<HTMLCanvasElement>(null);
   const activeCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -401,6 +407,7 @@ export default function JudgeSheet({
       canvasH: h || undefined,
       digitalScores: hasAnyScore(scoresToSave) ? scoresToSave : undefined,
       digitalAthleteName: saveDigitalAthleteName,
+      rotationId: rotationIdRef.current,
       updatedAt: new Date(),
     });
   }, [sessionId]);
@@ -704,6 +711,7 @@ export default function JudgeSheet({
           canvasH: h || undefined,
           digitalScores: hasAnyScore(scores) ? scores : undefined,
           digitalAthleteName: dn,
+          rotationId: rotationIdRef.current,
           updatedAt: new Date(),
         });
       }
