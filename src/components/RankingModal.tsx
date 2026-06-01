@@ -1,14 +1,17 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, Fragment } from 'react';
 import type { Apparatus } from '../types';
 import { APPARATUS_LIST } from '../constants/apparatus';
-import { useSessionScores, rankBy } from '../hooks/useSessionScores';
-import type { ScoredEntry } from '../hooks/useSessionScores';
+import { useSessionScores, rankBy, computeTeamScores } from '../hooks/useSessionScores';
+import type { ScoredEntry, TeamMetric } from '../hooks/useSessionScores';
+import type { TeamScoring } from '../db/database';
 import { formatScore, FINAL_SCORE_DECIMALS } from '../utils/scoreCalc';
 import {
   exportAARanking,
   exportApparatusRanking,
+  exportTeamRanking,
   type AAItem,
   type ApparatusItem,
+  type TeamRankItem,
 } from '../utils/exportRanking';
 import StatsModal from './StatsModal';
 
@@ -20,6 +23,7 @@ interface Props {
   apparatus?: Apparatus;
   athletes?: string[];
   eJudgeCount: number;     // E決定・決定点の表示桁数決定に使う
+  teamScoring?: TeamScoring; // 大会モードのみ
   onClose: () => void;
 }
 
@@ -31,7 +35,14 @@ const SORT_LABELS: Record<SortKey, string> = {
   eFinal: 'E決定',
 };
 
-export default function RankingModal({ sessionId, sessionName, sessionDate, mode, apparatus, athletes = [], eJudgeCount, onClose }: Props) {
+const TEAM_METRIC_LABELS: Record<TeamMetric, string> = {
+  final: '決定点',
+  d: 'D',
+  eFinal: 'E決定',
+  mean: '平均',
+};
+
+export default function RankingModal({ sessionId, sessionName, sessionDate, mode, apparatus, athletes = [], eJudgeCount, teamScoring, onClose }: Props) {
   // セッション全体の eJudgeCount に基づき、E決定/決定点の桁数を決定（1〜3=2桁、4以上=3桁）
   const decimals = eJudgeCount <= 3 ? 2 : 3;
   const data = useSessionScores(sessionId);
@@ -44,13 +55,64 @@ export default function RankingModal({ sessionId, sessionName, sessionDate, mode
   const [sharing, setSharing] = useState(false);
   // ランキング / 統計 のビュー切替
   const [view, setView] = useState<'ranking' | 'stats'>('ranking');
+  // 大会モード: 個人 / 団体 タブ
+  const [compTab, setCompTab] = useState<'individual' | 'team'>('individual');
+  // 団体タブのメトリック
+  const [teamMetric, setTeamMetric] = useState<TeamMetric>('final');
+
+  // 団体ローテーションが1つ以上あれば団体タブを表示
+  const hasTeams = useMemo(() => {
+    if (!data) return false;
+    return data.rotations.some(r => !!r.teamName);
+  }, [data]);
+
+  // 団体ランキング集計（大会モードのみ）
+  const topN = teamScoring?.topN ?? 3;
+  const teamScored = useMemo(() => {
+    if (!data || mode !== 'competition' || !hasTeams) return [];
+    return computeTeamScores(data, topN, teamMetric);
+  }, [data, mode, hasTeams, topN, teamMetric]);
+  const teamRanked = useMemo(() => {
+    // 採用人数を満たす団体だけランク付け、不足は参考表示
+    const qualified = teamScored.filter(t => t.qualified);
+    const ranked = rankBy(qualified, t => t.total);
+    const unqualified = teamScored.filter(t => !t.qualified);
+    return { ranked, unqualified };
+  }, [teamScored]);
 
   const handleShare = async () => {
     if (!data || sharing) return;
     setSharing(true);
     try {
       let result: { shared: number } = { shared: 0 };
-      if (mode === 'competition' && apparatus) {
+      if (mode === 'competition' && apparatus && compTab === 'team') {
+        // 大会モード 団体タブ
+        const items: TeamRankItem[] = teamRanked.ranked.map(r => ({
+          rank: r.rank,
+          teamName: r.item.rotation.teamName ?? '',
+          memberCount: r.item.members.length,
+          total: r.item.total,
+          pickedValues: r.item.pickedValues,
+          benchValues: r.item.benchValues,
+        }));
+        const refs: TeamRankItem[] = teamRanked.unqualified.map(t => ({
+          rank: undefined,
+          teamName: t.rotation.teamName ?? '',
+          memberCount: t.members.length,
+          total: t.total,
+          pickedValues: t.pickedValues,
+          benchValues: t.benchValues,
+        }));
+        result = await exportTeamRanking({
+          sessionName,
+          sessionDate,
+          apparatus,
+          eJudgeCount,
+          topN,
+          metricLabel: TEAM_METRIC_LABELS[teamMetric],
+          items: [...items, ...refs],
+        });
+      } else if (mode === 'competition' && apparatus) {
         // 大会モード: ページ単位の中間表
         const entries = data.scored.filter((e) => e.record.apparatus === apparatus);
         const ranked = rankBy(entries, (e) => entryScore(e, sortKey));
@@ -316,6 +378,32 @@ export default function RankingModal({ sessionId, sessionName, sessionDate, mode
         <>
         {/* タブ・ソート切替 */}
         <div className="px-4 py-2 border-b border-gray-200 dark:border-gray-700 flex flex-wrap items-center gap-2 shrink-0">
+          {mode === 'competition' && hasTeams && (
+            <div className="flex rounded-lg overflow-hidden border border-gray-300 dark:border-gray-600">
+              <button onClick={() => setCompTab('individual')}
+                className={`px-3 py-1.5 text-sm font-bold ${compTab === 'individual' ? 'bg-accent text-white' : 'bg-white dark:bg-gray-700 text-gray-600'}`}>
+                個人
+              </button>
+              <button onClick={() => setCompTab('team')}
+                className={`px-3 py-1.5 text-sm font-bold ${compTab === 'team' ? 'bg-accent text-white' : 'bg-white dark:bg-gray-700 text-gray-600'}`}>
+                団体
+              </button>
+            </div>
+          )}
+          {mode === 'competition' && compTab === 'team' && (
+            <>
+              <span className="text-xs text-gray-500">集計: 上位 {topN} 合計</span>
+              <div className="flex items-center gap-1 ml-auto">
+                <span className="text-xs text-gray-500">指標:</span>
+                {(['final', 'd', 'eFinal', 'mean'] as TeamMetric[]).map(m => (
+                  <button key={m} onClick={() => setTeamMetric(m)}
+                    className={`px-2 py-1 rounded text-xs font-bold ${teamMetric === m ? 'bg-accent text-white' : 'bg-gray-100 dark:bg-gray-700 text-gray-600'}`}>
+                    {TEAM_METRIC_LABELS[m]}
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
           {mode === 'trial' && (
             <>
               <div className="flex rounded-lg overflow-hidden border border-gray-300 dark:border-gray-600">
@@ -355,6 +443,16 @@ export default function RankingModal({ sessionId, sessionName, sessionDate, mode
         </div>
 
         <div className="flex-1 overflow-auto">
+          {mode === 'competition' && compTab === 'team' ? (
+            <TeamRankingTable
+              ranked={teamRanked.ranked}
+              unqualified={teamRanked.unqualified}
+              topN={topN}
+              metricLabel={TEAM_METRIC_LABELS[teamMetric]}
+              decimals={teamMetric === 'd' ? 1 : decimals}
+            />
+          ) : (
+          <>
           <table className="w-full">
             <thead className="bg-gray-50 dark:bg-gray-900 sticky top-0">
               {mode === 'trial' && trialTab === 'aa' ? (
@@ -387,6 +485,8 @@ export default function RankingModal({ sessionId, sessionName, sessionDate, mode
               まだスコアが入力されていません
             </div>
           )}
+          </>
+          )}
         </div>
         </>
         )}
@@ -399,4 +499,140 @@ function entryScore(e: ScoredEntry, k: SortKey): number | undefined {
   if (k === 'final') return e.final;
   if (k === 'd') return e.d;
   return e.eFinal;
+}
+
+// ===== 団体ランキング表 =====
+interface TeamRankingTableProps {
+  ranked: Array<{ item: ReturnType<typeof computeTeamScores>[number]; rank: number | undefined; score: number | undefined }>;
+  unqualified: ReturnType<typeof computeTeamScores>;
+  topN: number;
+  metricLabel: string;
+  decimals: number;
+}
+
+function TeamRankingTable({ ranked, unqualified, topN, metricLabel, decimals }: TeamRankingTableProps) {
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const toggle = (id: string) => {
+    setExpanded(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const top1Total = ranked.length > 0 ? ranked[0].score : undefined;
+
+  if (ranked.length === 0 && unqualified.length === 0) {
+    return (
+      <div className="p-8 text-center text-gray-400 text-sm">
+        団体ローテーションがまだ登録されていません
+      </div>
+    );
+  }
+
+  return (
+    <table className="w-full">
+      <thead className="bg-gray-50 dark:bg-gray-900 sticky top-0">
+        <tr>
+          <th className="px-3 py-2 text-xs font-bold text-gray-500 text-left w-12">順位</th>
+          <th className="px-3 py-2 text-xs font-bold text-gray-500 text-left">団体</th>
+          <th className="px-3 py-2 text-xs font-bold text-gray-500 text-right">人数</th>
+          <th className="px-3 py-2 text-xs font-bold text-gray-500 text-right">団体 {metricLabel}</th>
+          <th className="px-3 py-2 text-xs font-bold text-gray-500 text-right">採用 {topN} 名</th>
+          <th className="px-3 py-2 text-xs font-bold text-gray-500 text-right">差</th>
+        </tr>
+      </thead>
+      <tbody>
+        {ranked.map(r => {
+          const t = r.item;
+          const id = t.rotation.id;
+          const isOpen = expanded.has(id);
+          const diff = top1Total !== undefined && r.score !== undefined && r.rank !== 1
+            ? r.score - top1Total
+            : undefined;
+          return (
+            <Fragment key={id}>
+              <tr className="border-b border-gray-100 dark:border-gray-700">
+                <td className="px-3 py-2 text-sm font-bold text-gray-700 dark:text-gray-300">{r.rank ?? '-'}</td>
+                <td className="px-3 py-2 text-sm">
+                  <button onClick={() => toggle(id)} className="text-left flex items-center gap-1.5">
+                    <span className="text-xs text-gray-400">{isOpen ? '▼' : '▶'}</span>
+                    <span className="font-bold text-gray-800 dark:text-gray-200">{t.rotation.teamName}</span>
+                  </button>
+                </td>
+                <td className="px-3 py-2 text-sm font-mono text-right text-gray-600">{t.members.length}</td>
+                <td className={`px-3 py-2 text-sm font-mono text-right font-bold ${typeof r.score === 'number' ? 'text-primary dark:text-accent' : 'text-gray-300'}`}>
+                  {formatScore(r.score, decimals) || '-'}
+                </td>
+                <td className="px-3 py-2 text-xs font-mono text-right text-gray-600">
+                  {t.pickedValues.map(v => formatScore(v, decimals)).join(' + ') || '-'}
+                </td>
+                <td className="px-3 py-2 text-xs font-mono text-right text-danger">
+                  {typeof diff === 'number' ? formatScore(diff, decimals) : '-'}
+                </td>
+              </tr>
+              {isOpen && (
+                <tr className="bg-gray-50/60 dark:bg-gray-900/30">
+                  <td></td>
+                  <td colSpan={5} className="px-3 py-2">
+                    <div className="grid gap-2" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))' }}>
+                      {(() => {
+                        // 採用フラグを左から順番に消費する（同値が複数ある場合も正しく扱う）
+                        const remaining = [...t.pickedValues];
+                        return t.members.map((m, mi) => {
+                          const v = m.metricValue;
+                          let isPicked = false;
+                          if (typeof v === 'number') {
+                            const idx = remaining.indexOf(v);
+                            if (idx >= 0) { remaining.splice(idx, 1); isPicked = true; }
+                          }
+                          return (
+                            <div key={mi}
+                              className={`px-2 py-1.5 rounded bg-white dark:bg-gray-800 border-l-2 ${
+                                isPicked ? 'border-success' : 'border-gray-300 opacity-60'
+                              }`}>
+                              <div className="text-[10px] text-gray-500">{isPicked ? '採用' : '控え'}</div>
+                              <div className="text-sm font-bold text-gray-800 dark:text-gray-200 truncate">{m.name}</div>
+                              <div className={`text-sm font-mono ${isPicked ? 'text-success' : 'text-gray-400'}`}>
+                                {formatScore(v, decimals) || '未入力'}
+                              </div>
+                            </div>
+                          );
+                        });
+                      })()}
+                    </div>
+                  </td>
+                </tr>
+              )}
+            </Fragment>
+          );
+        })}
+        {unqualified.length > 0 && (
+          <Fragment>
+            <tr>
+              <td colSpan={6} className="px-3 pt-4 pb-1 text-xs text-gray-400 italic">
+                参考表示（メンバー人数 &lt; {topN}）
+              </td>
+            </tr>
+            {unqualified.map(t => (
+              <tr key={t.rotation.id} className="border-b border-gray-100 dark:border-gray-700 opacity-70">
+                <td className="px-3 py-2 text-xs text-gray-400 italic">参考</td>
+                <td className="px-3 py-2 text-sm">
+                  <span className="font-bold text-gray-600 dark:text-gray-400">{t.rotation.teamName}</span>
+                  <span className="text-xs text-gray-500 ml-1">({t.members.length}名のみ)</span>
+                </td>
+                <td className="px-3 py-2 text-sm font-mono text-right text-gray-500">{t.members.length}</td>
+                <td className="px-3 py-2 text-sm font-mono text-right text-gray-500">{formatScore(t.total, decimals) || '-'}</td>
+                <td className="px-3 py-2 text-xs font-mono text-right text-gray-500">
+                  {t.pickedValues.map(v => formatScore(v, decimals)).join(' + ') || '-'}
+                </td>
+                <td className="px-3 py-2 text-xs text-gray-300 text-right">—</td>
+              </tr>
+            ))}
+          </Fragment>
+        )}
+      </tbody>
+    </table>
+  );
 }

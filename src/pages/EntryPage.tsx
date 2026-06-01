@@ -16,6 +16,7 @@ export default function EntryPage() {
   const [judgeMode, setJudgeMode] = useState<'D' | 'E' | 'D/E'>('E');
   const [eJudgeCount, setEJudgeCount] = useState(4);
   const [selectedApparatus, setSelectedApparatus] = useState<Apparatus>('FX');
+  const [teamTopN, setTeamTopN] = useState(3); // 大会モード: 団体スコア用 採用人数N
   // セッション名インライン編集
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingName, setEditingName] = useState('');
@@ -36,6 +37,7 @@ export default function EntryPage() {
       eJudgeCount: (showModal === 'individual' || judgeMode === 'E' || judgeMode === 'D/E') ? eJudgeCount : 1,
       apparatus: showModal === 'competition' ? selectedApparatus : undefined,
       athletes: [],
+      teamScoring: showModal === 'competition' ? { topN: teamTopN } : undefined,
     };
     await db.sessions.add(session);
     setShowModal(null);
@@ -45,7 +47,8 @@ export default function EntryPage() {
     } else if (session.mode === 'individual') {
       navigate(`/individual/${session.id}`);
     } else {
-      navigate(`/competition/${session.id}`);
+      // 大会モード: 作成直後に自動でローテ追加モーダルを開くフラグ
+      navigate(`/competition/${session.id}?new=1`);
     }
   };
 
@@ -264,21 +267,47 @@ export default function EntryPage() {
             )}
 
             {showModal === 'competition' && (
-              <div className="mb-4">
-                <span className="text-sm text-gray-600 dark:text-gray-300 block mb-2">種目:</span>
-                <div className="grid grid-cols-3 gap-2">
-                  {APPARATUS_LIST.map(a => (
-                    <button key={a.code} onClick={() => setSelectedApparatus(a.code)}
-                      className={`px-3 py-2 rounded-lg text-sm font-bold ${
-                        selectedApparatus === a.code
-                          ? 'bg-primary text-white'
-                          : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300'
-                      }`}>
-                      {a.code} {a.name}
-                    </button>
-                  ))}
+              <>
+                <div className="mb-4">
+                  <span className="text-sm text-gray-600 dark:text-gray-300 block mb-2">種目:</span>
+                  <div className="grid grid-cols-3 gap-2">
+                    {APPARATUS_LIST.map(a => (
+                      <button key={a.code} onClick={() => setSelectedApparatus(a.code)}
+                        className={`px-3 py-2 rounded-lg text-sm font-bold ${
+                          selectedApparatus === a.code
+                            ? 'bg-primary text-white'
+                            : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300'
+                        }`}>
+                        {a.code} {a.name}
+                      </button>
+                    ))}
+                  </div>
                 </div>
-              </div>
+
+                <div className="mb-4 p-3 rounded-lg border border-accent/30 bg-accent/5">
+                  <div className="text-sm font-bold text-primary dark:text-accent mb-1">団体スコア設定</div>
+                  <div className="text-xs text-gray-500 dark:text-gray-400 mb-2 leading-relaxed">
+                    団体ランキング = 各団体の<u>上位N人の決定点合計</u>。<br />
+                    試合中に「団体として登録」したローテのみが対象。
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm text-gray-600 dark:text-gray-300">採用人数 N:</span>
+                    {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(n => (
+                      <button key={n} onClick={() => setTeamTopN(n)}
+                        className={`w-9 h-9 rounded-lg text-sm font-bold ${
+                          teamTopN === n ? 'bg-primary text-white' : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300'
+                        }`}>{n}</button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="mb-4 p-3 rounded-lg bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800">
+                  <div className="text-xs text-blue-900 dark:text-blue-200 leading-relaxed">
+                    💡 選手の登録は<b>セッション開始後</b>に「+ ローテ追加」で行います。<br />
+                    作成すると自動でローテ追加モーダルが開きます。
+                  </div>
+                </div>
+              </>
             )}
 
             <div className="flex gap-3 mt-4">

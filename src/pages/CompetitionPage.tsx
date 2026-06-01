@@ -1,12 +1,13 @@
 import { useState, useEffect, useRef } from 'react';
 import { flushSync } from 'react-dom';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { db } from '../db/database';
-import type { Session, MemoRecord } from '../db/database';
+import type { Session, MemoRecord, Rotation } from '../db/database';
 import type { Apparatus } from '../types';
 import JudgeSheet from '../components/JudgeSheet';
 import { renderSheetCanvas, loadVaultImage } from '../utils/renderSheet';
 import RankingModal from '../components/RankingModal';
+import AddRotationModal from '../components/AddRotationModal';
 import { calcFinal, getEFinal, formatScore, eFinalDecimals, FINAL_SCORE_DECIMALS } from '../utils/scoreCalc';
 
 // サムネイル描画用定数（内部解像度。表示は列幅にフィット）
@@ -151,15 +152,19 @@ function ThumbCard({ rec, apparatus, eJudgeCount, vaultImg, isActive, onClick, o
 
 export default function CompetitionPage() {
   const { sessionId } = useParams<{ sessionId: string }>();
+  const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
   const [session, setSession] = useState<Session | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [showPageList, setShowPageList] = useState(false);
   const [pageRecords, setPageRecords] = useState<MemoRecord[]>([]);
+  const [rotations, setRotations] = useState<Rotation[]>([]);
   const [vaultImg, setVaultImg] = useState<HTMLImageElement | null>(null);
   const [deletedPage, setDeletedPage] = useState<DeletedPageSnapshot | null>(null);
   const [showRanking, setShowRanking] = useState(false);
+  const [showAddRotation, setShowAddRotation] = useState(false);
+  const [isFirstRotation, setIsFirstRotation] = useState(false);
   const [digitalNameDraft, setDigitalNameDraft] = useState('');
   const [isDeleting, setIsDeleting] = useState(false);
   const digitalNameSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -175,27 +180,72 @@ export default function CompetitionPage() {
       if (cancelled) return;
       recs.sort((a, b) => a.pageNumber - b.pageNumber);
       setPageRecords(recs);
+      const rots = await db.rotations.where('sessionId').equals(sessionId).toArray();
+      if (cancelled) return;
+      rots.sort((a, b) => a.order - b.order);
+      setRotations(rots);
       const maxPage = recs.length > 0 ? Math.max(...recs.map(r => r.pageNumber)) : 0;
-      const total = Math.max(1, maxPage);
+      const total = Math.max(0, maxPage);
       setTotalPages(total);
-      setCurrentPage(total);
+      setCurrentPage(Math.max(1, total));
       // VT 種目なら跳馬画像をプリロード（サムネイル背景用）
       if (s?.apparatus === 'VT') {
         const img = await loadVaultImage();
         if (!cancelled) setVaultImg(img);
       }
+      // セッション作成直後 (?new=1) はローテ追加モーダルを自動表示
+      if (searchParams.get('new') === '1' && recs.length === 0) {
+        setIsFirstRotation(true);
+        setShowAddRotation(true);
+        // クエリパラメータをクリア
+        const next = new URLSearchParams(searchParams);
+        next.delete('new');
+        setSearchParams(next, { replace: true });
+      } else if (recs.length === 0) {
+        // ページが1枚もない既存セッション（あり得る）も初回ローテとして表示
+        setIsFirstRotation(true);
+        setShowAddRotation(true);
+      }
     })();
     return () => { cancelled = true; };
-  }, [sessionId]);
+  }, [sessionId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const openPageList = async () => {
     if (!sessionId) return;
     const recs = await db.memoRecords.where('sessionId').equals(sessionId).toArray();
     recs.sort((a, b) => a.pageNumber - b.pageNumber);
     setPageRecords(recs);
+    const rots = await db.rotations.where('sessionId').equals(sessionId).toArray();
+    rots.sort((a, b) => a.order - b.order);
+    setRotations(rots);
     const maxPage = recs.length > 0 ? Math.max(...recs.map(r => r.pageNumber)) : 0;
     setTotalPages(Math.max(totalPages, maxPage));
     setShowPageList(true);
+  };
+
+  const handleRotationCreated = async (firstPage: number) => {
+    if (!sessionId) return;
+    setShowAddRotation(false);
+    setIsFirstRotation(false);
+    // 再読込
+    const recs = await db.memoRecords.where('sessionId').equals(sessionId).toArray();
+    recs.sort((a, b) => a.pageNumber - b.pageNumber);
+    setPageRecords(recs);
+    const rots = await db.rotations.where('sessionId').equals(sessionId).toArray();
+    rots.sort((a, b) => a.order - b.order);
+    setRotations(rots);
+    const maxPage = recs.length > 0 ? Math.max(...recs.map(r => r.pageNumber)) : 0;
+    setTotalPages(maxPage);
+    setCurrentPage(firstPage);
+  };
+
+  const cancelAddRotation = () => {
+    // 初回（セッション作成直後で空）でキャンセルされた場合 → ホームに戻す
+    if (isFirstRotation && totalPages === 0) {
+      navigate('/');
+      return;
+    }
+    setShowAddRotation(false);
   };
 
   const jumpToPage = (page: number) => {
@@ -298,12 +348,13 @@ export default function CompetitionPage() {
 
   const goPrev = () => { if (currentPage > 1) setCurrentPage(p => p - 1); };
   const goNext = () => { if (currentPage < totalPages) setCurrentPage(p => p + 1); };
-  const addPage = () => {
-    const newPage = totalPages + 1;
-    setTotalPages(newPage);
-    setCurrentPage(newPage);
-    setShowPageList(false);
-  };
+
+  // 現在ページのローテーション（団体名表示用）
+  const currentRecord = pageRecords.find(r => r.pageNumber === currentPage);
+  const currentRotation = currentRecord?.rotationId
+    ? rotations.find(r => r.id === currentRecord.rotationId)
+    : undefined;
+  const currentTeamName = currentRotation?.teamName;
 
   const onDigitalNameChange = (v: string) => {
     setDigitalNameDraft(v);
@@ -330,10 +381,19 @@ export default function CompetitionPage() {
     }, 800);
   };
 
-  // Canvas ヘッダーに重ねる「選手名」直接入力欄
+  // Canvas ヘッダーに重ねる「選手名」直接入力欄 + 団体名バッジ
   // 「FX ゆか」ラベル(おおよそ x=10 + 80px)の右側に配置するため左パディングを取る
   const headerOverlay = (
     <div className="flex items-center gap-2 pl-32 pr-3 h-full">
+      {currentTeamName && (
+        <span
+          className="px-2 py-1 rounded-md border border-gray-400 dark:border-gray-500
+                     bg-white/90 dark:bg-gray-800/80 text-gray-700 dark:text-gray-200
+                     text-xs font-bold whitespace-nowrap min-h-[28px] flex items-center"
+        >
+          {currentTeamName}
+        </span>
+      )}
       <input
         type="text"
         value={digitalNameDraft}
@@ -373,9 +433,9 @@ export default function CompetitionPage() {
                    hover:bg-gray-200 dark:hover:bg-gray-600">
         一覧
       </button>
-      <button onClick={addPage}
-        className="px-3 py-1.5 rounded-lg text-sm bg-accent text-white font-bold min-h-[40px] hover:bg-accent/90">
-        + 次の選手
+      <button onClick={() => setShowAddRotation(true)}
+        className="px-3 py-1.5 rounded-lg text-sm bg-accent text-white font-bold min-h-[40px] hover:bg-accent/90 whitespace-nowrap">
+        + ローテ追加
       </button>
     </>
   );
@@ -408,7 +468,18 @@ export default function CompetitionPage() {
           mode="competition"
           apparatus={session.apparatus}
           eJudgeCount={session.eJudgeCount}
+          teamScoring={session.teamScoring}
           onClose={() => setShowRanking(false)}
+        />
+      )}
+
+      {showAddRotation && (
+        <AddRotationModal
+          session={session}
+          startAfterPage={totalPages}
+          required={isFirstRotation && totalPages === 0}
+          onClose={cancelAddRotation}
+          onCreated={handleRotationCreated}
         />
       )}
 
@@ -426,9 +497,9 @@ export default function CompetitionPage() {
                 選手一覧 — {session.apparatus}
               </h3>
               <div className="flex items-center gap-2">
-                <button onClick={addPage}
-                  className="px-3 py-1.5 min-h-[36px] rounded-lg bg-accent text-white font-bold text-sm">
-                  + 次の選手を追加
+                <button onClick={() => { setShowPageList(false); setShowAddRotation(true); }}
+                  className="px-3 py-1.5 min-h-[36px] rounded-lg bg-accent text-white font-bold text-sm whitespace-nowrap">
+                  + ローテ追加
                 </button>
                 {deletedPage && (
                   <button onClick={undoDeletePage}
@@ -444,25 +515,71 @@ export default function CompetitionPage() {
               </div>
             </div>
 
-            <div className="flex-1 overflow-y-auto p-3">
-              <div className="grid gap-2"
-                style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${THUMB_W + 12}px, 1fr))` }}>
-                {Array.from({ length: totalPages }, (_, i) => i + 1).map(page => {
-                  const rec = pageRecords.find(r => r.pageNumber === page);
-                  return (
-                    <ThumbCard
-                      key={page}
-                      rec={rec}
-                      apparatus={session.apparatus!}
-                      eJudgeCount={session.eJudgeCount}
-                      vaultImg={vaultImg}
-                      isActive={page === currentPage}
-                      onClick={() => jumpToPage(page)}
-                      onDelete={() => deletePage(page)}
-                    />
-                  );
-                })}
-              </div>
+            <div className="flex-1 overflow-y-auto p-3 space-y-4">
+              {(() => {
+                // ローテーションごとにページをグルーピング
+                // 各ページのrotationIdを取得し、ローテ別に分ける（未所属は最後にまとめる）
+                const groups: { rotation: Rotation | null; pages: number[] }[] = [];
+                const pageToRot = new Map<number, string | undefined>();
+                pageRecords.forEach(r => pageToRot.set(r.pageNumber, r.rotationId));
+
+                const allPages = Array.from({ length: totalPages }, (_, i) => i + 1);
+                const sortedRots = [...rotations].sort((a, b) => a.startPage - b.startPage);
+                const usedPages = new Set<number>();
+                for (const rot of sortedRots) {
+                  const pages = allPages.filter(p => pageToRot.get(p) === rot.id);
+                  if (pages.length > 0) {
+                    groups.push({ rotation: rot, pages });
+                    pages.forEach(p => usedPages.add(p));
+                  }
+                }
+                const orphan = allPages.filter(p => !usedPages.has(p));
+                if (orphan.length > 0) groups.push({ rotation: null, pages: orphan });
+
+                return groups.map((g, gi) => (
+                  <div key={g.rotation?.id ?? `orphan-${gi}`}>
+                    <div className="flex items-center gap-2 mb-2 px-1">
+                      {g.rotation?.teamName ? (
+                        <span className="px-2 py-1 rounded-md border border-gray-400 dark:border-gray-500
+                                         text-gray-700 dark:text-gray-200 text-xs font-bold">
+                          {g.rotation.teamName}
+                        </span>
+                      ) : g.rotation ? (
+                        <span className="px-2 py-1 rounded-md border border-gray-300 border-dashed
+                                         text-gray-500 text-xs font-bold">
+                          個人エントリー
+                        </span>
+                      ) : (
+                        <span className="px-2 py-1 rounded-md border border-gray-300 border-dashed
+                                         text-gray-400 text-xs font-bold">
+                          ローテ未登録
+                        </span>
+                      )}
+                      <span className="text-xs text-gray-500">
+                        {g.pages.length}選手 / Page {g.pages[0]}-{g.pages[g.pages.length - 1]}
+                      </span>
+                    </div>
+                    <div className="grid gap-2"
+                      style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${THUMB_W + 12}px, 1fr))` }}>
+                      {g.pages.map(page => {
+                        const rec = pageRecords.find(r => r.pageNumber === page);
+                        return (
+                          <ThumbCard
+                            key={page}
+                            rec={rec}
+                            apparatus={session.apparatus!}
+                            eJudgeCount={session.eJudgeCount}
+                            vaultImg={vaultImg}
+                            isActive={page === currentPage}
+                            onClick={() => jumpToPage(page)}
+                            onDelete={() => deletePage(page)}
+                          />
+                        );
+                      })}
+                    </div>
+                  </div>
+                ));
+              })()}
             </div>
           </div>
         </div>

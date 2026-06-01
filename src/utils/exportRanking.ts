@@ -591,3 +591,187 @@ export async function exportApparatusRanking(opts: {
   );
   return { shared: files.length };
 }
+
+// ===== 団体ランキング =====
+export interface TeamRankItem {
+  rank: number | undefined;       // undefined = 参考表示
+  teamName: string;
+  memberCount: number;
+  total: number | undefined;
+  pickedValues: number[];
+  benchValues: number[];
+}
+
+const TEAM_TABLE_HEADER_H = 36;
+const TEAM_ROW_H = 38;
+const TEAM_PER_PAGE = 12;
+
+const TEAM_COLS = [
+  { key: 'rank' as const, label: '順位', w: 90, align: 'left' as const },
+  { key: 'name' as const, label: '団体', w: 360, align: 'left' as const },
+  { key: 'members' as const, label: '人数', w: 100, align: 'right' as const },
+  { key: 'picked' as const, label: '採用構成', w: 280, align: 'right' as const },
+  { key: 'total' as const, label: '団体得点', w: 202, align: 'right' as const },
+];
+
+function teamPageHeight(itemCount: number): number {
+  return HEADER_H + PADDING + TEAM_TABLE_HEADER_H + TEAM_ROW_H * itemCount + PADDING + FOOTER_H;
+}
+
+async function renderTeamPage(opts: {
+  pageItems: TeamRankItem[];
+  pageIndex: number;
+  totalPages: number;
+  sessionName: string;
+  sessionDate: Date;
+  apparatus: Apparatus;
+  eJudgeCount: number;
+  topN: number;
+  metricLabel: string;
+}): Promise<Blob> {
+  const decimals = opts.eJudgeCount <= 3 ? 2 : 3;
+  const h = teamPageHeight(opts.pageItems.length);
+  const { canvas, c } = setupCanvas(CANVAS_W, h);
+
+  const pageInfo = opts.totalPages > 1 ? ` (${opts.pageIndex + 1}/${opts.totalPages})` : '';
+  const apparatusName = APPARATUS_MAP[opts.apparatus].name;
+  drawHeader(
+    c,
+    CANVAS_W,
+    `🏆 ${opts.apparatus} ${apparatusName} 団体ランキング${pageInfo}`,
+    `${opts.sessionName}  /  ${formatJaDate(opts.sessionDate)}  /  上位${opts.topN}合計 (${opts.metricLabel})`,
+  );
+
+  const tableX = PADDING;
+  const tableY = HEADER_H + PADDING;
+  const tableW = CANVAS_W - PADDING * 2;
+
+  // ヘッダー
+  c.fillStyle = ALT_ROW;
+  c.fillRect(tableX, tableY, tableW, TEAM_TABLE_HEADER_H);
+  c.font = FONT_BOLD(13);
+  c.fillStyle = TEXT_MUTED;
+  let cx = tableX;
+  for (const col of TEAM_COLS) {
+    if (col.align === 'left') {
+      c.textAlign = 'left';
+      c.fillText(col.label, cx + 14, tableY + 26);
+    } else {
+      c.textAlign = 'right';
+      c.fillText(col.label, cx + col.w - 14, tableY + 26);
+    }
+    cx += col.w;
+  }
+  c.strokeStyle = BORDER;
+  c.beginPath();
+  c.moveTo(tableX, tableY + TEAM_TABLE_HEADER_H + 0.5);
+  c.lineTo(tableX + tableW, tableY + TEAM_TABLE_HEADER_H + 0.5);
+  c.stroke();
+
+  // 行
+  for (let i = 0; i < opts.pageItems.length; i++) {
+    const item = opts.pageItems[i];
+    const isRef = item.rank === undefined;
+    const rowY = tableY + TEAM_TABLE_HEADER_H + TEAM_ROW_H * i;
+
+    if (i % 2 === 1) {
+      c.fillStyle = ALT_ROW;
+      c.fillRect(tableX, rowY, tableW, TEAM_ROW_H);
+    }
+    if (isRef) {
+      c.fillStyle = '#f3f4f6cc';
+      c.fillRect(tableX, rowY, tableW, TEAM_ROW_H);
+    }
+
+    cx = tableX;
+    for (const col of TEAM_COLS) {
+      const cellY = rowY + 26;
+      if (col.key === 'rank') {
+        const rankText = isRef ? '参考' : rankLabel(item.rank);
+        const isMedal = !isRef && item.rank !== undefined && item.rank <= 3;
+        c.font = isMedal ? FONT_REG(22) : FONT_BOLD(15);
+        c.fillStyle = isRef ? TEXT_MUTED : TEXT;
+        c.textAlign = 'left';
+        c.fillText(rankText, cx + 14, cellY);
+      } else if (col.key === 'name') {
+        c.font = FONT_BOLD(17);
+        c.fillStyle = isRef ? TEXT_MUTED : TEXT;
+        c.textAlign = 'left';
+        c.fillText(item.teamName, cx + 14, cellY);
+        if (isRef) {
+          c.font = FONT_REG(11);
+          c.fillStyle = '#9CA3AF';
+          c.fillText(`(${item.memberCount}名のみ)`, cx + 14 + c.measureText(item.teamName).width + 8, cellY);
+        }
+      } else if (col.key === 'members') {
+        c.font = FONT_MONO(14);
+        c.fillStyle = TEXT_MUTED;
+        c.textAlign = 'right';
+        c.fillText(String(item.memberCount), cx + col.w - 14, cellY);
+      } else if (col.key === 'picked') {
+        c.font = FONT_MONO(12);
+        c.fillStyle = TEXT_MUTED;
+        c.textAlign = 'right';
+        const txt = item.pickedValues.map(v => formatScore(v, decimals)).join(' + ') || '-';
+        c.fillText(txt, cx + col.w - 14, cellY);
+      } else if (col.key === 'total') {
+        c.font = FONT_MONO_BOLD(18);
+        c.fillStyle = isRef ? TEXT_MUTED : ACCENT;
+        c.textAlign = 'right';
+        c.fillText(formatScore(item.total, decimals), cx + col.w - 14, cellY);
+      }
+      cx += col.w;
+    }
+  }
+  c.textAlign = 'left';
+
+  c.strokeStyle = BORDER;
+  c.lineWidth = 1;
+  c.strokeRect(
+    tableX + 0.5,
+    tableY + 0.5,
+    tableW - 1,
+    TEAM_TABLE_HEADER_H + TEAM_ROW_H * opts.pageItems.length - 1,
+  );
+
+  drawFooter(c, CANVAS_W, h, `E審判 ${opts.eJudgeCount}名 / 集計: 上位${opts.topN}合計`);
+  return canvasToBlob(canvas);
+}
+
+// ----- 公開 API: 団体ランキング共有 -----
+export async function exportTeamRanking(opts: {
+  sessionName: string;
+  sessionDate: Date;
+  apparatus: Apparatus;
+  eJudgeCount: number;
+  topN: number;
+  metricLabel: string;
+  items: TeamRankItem[];
+}): Promise<{ shared: number }> {
+  if (opts.items.length === 0) return { shared: 0 };
+
+  const pages = chunk(opts.items, TEAM_PER_PAGE);
+  const apparatusName = APPARATUS_MAP[opts.apparatus].name;
+  const dateStr = formatJaDate(opts.sessionDate);
+  const baseName = `${sanitizeFilename(opts.sessionName)}_${opts.apparatus}_団体_${dateStr}`;
+
+  const files: File[] = [];
+  for (let i = 0; i < pages.length; i++) {
+    const blob = await renderTeamPage({
+      pageItems: pages[i],
+      pageIndex: i,
+      totalPages: pages.length,
+      sessionName: opts.sessionName,
+      sessionDate: opts.sessionDate,
+      apparatus: opts.apparatus,
+      eJudgeCount: opts.eJudgeCount,
+      topN: opts.topN,
+      metricLabel: opts.metricLabel,
+    });
+    const name = pages.length === 1 ? `${baseName}.png` : `${baseName}_p${i + 1}.png`;
+    files.push(new File([blob], name, { type: 'image/png' }));
+  }
+
+  await shareOrDownloadFiles(files, `${opts.sessionName} ${opts.apparatus}(${apparatusName}) 団体ランキング`);
+  return { shared: files.length };
+}
