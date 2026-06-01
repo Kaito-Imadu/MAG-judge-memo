@@ -56,7 +56,7 @@ iPad + Apple Pencil での利用に最適化した PWA。完全オフライン�
 | **大会モード** | 公式大会 | 種目を1つ固定し、ページ制で選手を次々と採点 |
 | **個別モード** | 単発の採点 | セッション内で種目を自由に切替、ページ制で柔軟に採点 |
 
-セッション作成時に「審判（D / E / D/E）」と「E審判人数（1〜5人）」を設定可能（個別モードは自動で D/E 固定）。
+セッション作成時に「審判（D / E / D/E）」と「E審判人数（1〜6人）」を設定可能（個別モードは自動で D/E 固定）。D審判モードでも E審判人数を設定でき、決定点の桁数や団体集計に使用されます。
 
 #### 試技会モード
 
@@ -72,14 +72,19 @@ iPad + Apple Pencil での利用に最適化した PWA。完全オフライン�
 
 #### 大会モード
 
-- セッション作成時に種目を1つ選択（例: FX）
+- セッション作成時に種目を1つ選択（例: FX）+ 団体スコア用の **採用人数 N（1〜10）** を設定
 - 画面上部に種目名と選手名 / 番号の手書き記入枠を表示
 - **デジタル選手名フィールド**: ツールバーに選手名のテキスト入力欄。ランキングや集計に使用（手書き枠とは独立して保存）
-- **🏆 順位ボタン**: ツールバーから決定点 / D / E決定でソートしたページ別ランキングを開ける
-- ツールバーの **「＋ 次の選手」** ボタンで新規ページを追加
-- **「一覧」** ボタンで全ページのサムネイルプレビューをモーダルでグリッド表示
+- **🏆 順位ボタン**: ツールバーから決定点 / D / E決定でソートした個人ランキング、団体ローテが1つでもあれば「個人 / 団体」タブ切替
+- **ページ追加の2つの方法**:
+  - **「+ 次の選手」**: 空ページを1枚追加（ローテ未登録扱い）
+  - **「+ ローテ追加」**: 4〜10名を改行区切りで一括入力 → N枚のページを自動生成。同モーダルで **団体として登録** トグルをONにすると団体名を付与でき、団体ランキング集計の対象になる（同名団体は別扱い）
+- セッション作成直後は自動でローテ追加モーダルが立ち上がる（×ボタンで閉じることも可）
+- **「一覧」** ボタンで全ページのサムネイルプレビューをローテーション単位でグルーピング表示
   - 各ページの手書きメモを実データから縮小描画。採点状況を一目で確認
+  - 団体名バッジ / 個人エントリー / ローテ未登録 でセクション分け
   - タップで任意のページにジャンプ
+- **団体ランキング**: セッション設定の N で「上位N人の決定点合計」を計算。決定点 / D / E決定 / 平均 のメトリクス切替に対応、メンバー数 < N の団体は参考表示（順位なし）。展開行で採用/控えメンバーの内訳を可視化。専用PNGで共有可能
 
 #### 個別モード
 
@@ -122,8 +127,8 @@ iPad + Apple Pencil での利用に最適化した PWA。完全オフライン�
 
 ### 審判モードと E 審判人数
 
-- **D 審判**: D スコア欄のみ
-- **E 審判**: E1〜En（1〜5人）+ E決定（自動計算 or 手動上書き）
+- **D 審判**: D スコア欄のみ（E審判人数は決定点桁数・団体集計に使用するため設定可能）
+- **E 審判**: E1〜En（1〜6人）+ E決定（自動計算 or 手動上書き）
 - **D/E 両方**: 両方のスコア欄を表示
 
 ### 全体設定（SettingsModal）
@@ -205,7 +210,7 @@ E 審判の減点区分（参考）:
 /individual/:sessionId                             IndividualPage（個別モード・ページ制）
 ```
 
-### IndexedDB スキーマ（Dexie v4）
+### IndexedDB スキーマ（Dexie v5）
 
 ```ts
 sessions: 'id, date, mode'
@@ -213,9 +218,10 @@ sessions: 'id, date, mode'
 //   id, name, date,
 //   mode: 'trial' | 'competition' | 'individual',
 //   judgeMode: 'D' | 'E' | 'D/E',
-//   eJudgeCount: number,           // 1..5
+//   eJudgeCount: number,           // 1..6
 //   apparatus?: Apparatus,          // competition モード時のみ
 //   athletes: string[],
+//   teamScoring?: TeamScoring,     // v5: 大会モードの団体スコア設定
 // }
 
 memoRecords: 'id, sessionId, apparatus, [sessionId+apparatus], [sessionId+pageNumber]'
@@ -226,9 +232,21 @@ memoRecords: 'id, sessionId, apparatus, [sessionId+apparatus], [sessionId+pageNu
 //   canvasW?, canvasH?,              // エクスポート座標系復元用
 //   digitalScores?: DigitalScores,   // v4: D / E1..EN / ND / 加点 / E決定/決定点 の手動上書き
 //   digitalAthleteName?: string,     // v4: 大会モード用デジタル選手名
+//   rotationId?: string,             // v5: 紐付くローテーション
 //   updatedAt,
 // }
 
+rotations: 'id, sessionId, [sessionId+order]'
+// Rotation = {
+//   id, sessionId,
+//   order: number,                   // セッション内の追加順
+//   athletes: string[],              // 1〜10名
+//   teamName?: string,               // 団体登録ON時のみ
+//   startPage: number,               // 先頭ページ番号
+//   createdAt,
+// }
+
+// TeamScoring = { topN: number }    // 上位N合計 (1〜10)
 // DigitalScores = {
 //   d?: number; e: (number|undefined)[]; nd?: number;
 //   bonus: boolean; eFinalManual?: number; finalManual?: number;
@@ -295,12 +313,13 @@ src/
 │   ├── JudgeSheet.tsx          # メイン採点コンポーネント（2層 Canvas + ツールバー + ScoreInputBar）
 │   ├── ScoreInputBar.tsx       # Canvas下部の薄型2段デジタルスコア入力バー
 │   ├── ScoreNumpad.tsx         # セルタップ時に表示される専用テンキー
-│   ├── RankingModal.tsx        # 試技会(AA/種目別)・大会のランキングモーダル
+│   ├── RankingModal.tsx        # 試技会(AA/種目別)・大会(個人/団体)のランキングモーダル
+│   ├── AddRotationModal.tsx    # 大会モードのローテーション一括登録モーダル
 │   └── SettingsModal.tsx       # 全体設定（ペン太さ・自動横線・ゆかの初期横線本数 など）
 ├── hooks/
-│   └── useSessionScores.ts     # Dexie Live Query でセッション内全スコア取得＋順位付け
+│   └── useSessionScores.ts     # Dexie Live Query でセッション内全スコア取得＋順位付け + 団体集計
 ├── db/
-│   └── database.ts             # Dexie DB 定義（sessions, memoRecords）— v4 でデジタルスコア対応
+│   └── database.ts             # Dexie DB 定義（sessions, memoRecords, rotations）— v5 で団体機能対応
 ├── types/
 │   └── index.ts                # 全型定義（DigitalScores 含む）
 ├── constants/
@@ -310,7 +329,8 @@ src/
     ├── scoreCalc.ts            # E決定 / 決定点の計算ロジック
     ├── settings.ts             # 全体設定の load/save (localStorage)
     ├── renderSheet.ts          # テンプレート描画の共通ロジック（画面とエクスポートで共有）
-    └── exportSheet.ts          # PNG 画像エクスポート（6種目合成 + 単種目）+ Web Share API 共有
+    ├── exportSheet.ts          # PNG 画像エクスポート（6種目合成 + 単種目）+ Web Share API 共有
+    └── exportRanking.ts        # ランキング PNG エクスポート（AA / 種目別 / 団体）
 ```
 
 ---

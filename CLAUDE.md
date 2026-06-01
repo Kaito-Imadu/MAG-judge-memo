@@ -30,10 +30,11 @@ node scripts/generate-icons.mjs  # PWAアイコン再生成
 
 ## アーキテクチャ
 - **サーバーレス**: バックエンド・外部APIは一切不要
-- **全データはIndexedDB**: セッション・採点メモ（ストロークデータ）すべてローカル保存
+- **全データはIndexedDB**: セッション・採点メモ（ストロークデータ）・ローテーション すべてローカル保存
 - **PWA**: vite-plugin-pwa (Workbox) で静的アセットを precache、Google Fonts を CacheFirst キャッシュ
 - **ルーティング**: HashRouter（GitHub Pages の SPA 制約に対応）
-- **セッションベース**: 試技会モード（選手×種目）と大会モード（種目固定×ページ制）の2モード
+- **セッションベース**: 試技会モード（選手×種目）・大会モード（種目固定×ローテーション×ページ制）・個別モード（種目×ページ）の3モード
+- **大会モードの団体機能**: ローテーション単位で選手を一括登録し、団体名を付与すると団体ランキング集計の対象になる
 
 ## ディレクトリ構成
 ```
@@ -45,18 +46,19 @@ src/
 │   ├── EntryPage.tsx     # モード選択・セッション作成・過去セッション一覧
 │   ├── TrialPage.tsx     # 試技会モード（選手一覧 + 順位バッジ + 種目ダッシュボード + SNS共有）
 │   ├── TrialJudgePage.tsx # 試技会 採点画面ラッパー
-│   ├── CompetitionPage.tsx # 大会モード（ページナビ + デジタル選手名 + 選手一覧パネル）
+│   ├── CompetitionPage.tsx # 大会モード（ローテ単位選手登録 + 団体バッジ + サムネ一覧）
 │   └── IndividualPage.tsx # 個別モード（種目タブ + ページナビ）
 ├── components/
 │   ├── JudgeSheet.tsx    # メイン採点コンポーネント（2層Canvas + ツールバー + ScoreInputBar）
 │   ├── ScoreInputBar.tsx # Canvas下部の薄型2段デジタルスコア入力バー
 │   ├── ScoreNumpad.tsx   # セルタップ時の専用テンキーポップアップ
-│   ├── RankingModal.tsx  # 試技会(AA/種目別)・大会のランキングモーダル
+│   ├── RankingModal.tsx  # 試技会(AA/種目別)・大会(個人/団体)のランキングモーダル
+│   ├── AddRotationModal.tsx # 大会モードのローテ一括登録（選手名+団体トグル）
 │   └── SettingsModal.tsx # 全体設定モーダル
 ├── hooks/
-│   └── useSessionScores.ts # Dexie useLiveQuery でセッション内全スコア取得＋順位付け
+│   └── useSessionScores.ts # Dexie useLiveQuery でセッション内全スコア取得＋順位付け＋団体集計
 ├── db/
-│   └── database.ts       # Dexie DB定義 (sessions, memoRecords)
+│   └── database.ts       # Dexie DB定義 (sessions, memoRecords, rotations)
 ├── types/
 │   └── index.ts          # 全型定義 (DigitalScores 含む)
 ├── constants/
@@ -66,14 +68,17 @@ src/
     ├── scoreCalc.ts      # E決定 / 決定点 の計算ロジック
     ├── settings.ts       # 全体設定 (penWidth, autoHorizontalLine, fxDefaultHorizontalLines 等)
     ├── renderSheet.ts    # テンプレート描画の共通ロジック（画面とエクスポートで共有）
-    └── exportSheet.ts    # PNG画像エクスポート（6種目合成）+ Web Share API 共有
+    ├── exportSheet.ts    # PNG画像エクスポート（6種目合成）+ Web Share API 共有
+    └── exportRanking.ts  # ランキングPNGエクスポート（AA / 種目別 / 団体）
 ```
 
-## DB スキーマ (Dexie v4)
+## DB スキーマ (Dexie v5)
 ```typescript
 sessions: 'id, date, mode'
 // Session: { id, name, date, mode('trial'|'competition'|'individual'),
-//            judgeMode('D'|'E'|'D/E'), eJudgeCount(1..5), apparatus?, athletes[] }
+//            judgeMode('D'|'E'|'D/E'), eJudgeCount(1..6), apparatus?, athletes[],
+//            teamScoring?: TeamScoring }  // v5: 大会モード団体スコア設定
+// TeamScoring: { topN: number }            // 上位N合計 (1〜10)
 
 memoRecords: 'id, sessionId, apparatus, [sessionId+apparatus], [sessionId+pageNumber]'
 // MemoRecord: {
@@ -82,7 +87,18 @@ memoRecords: 'id, sessionId, apparatus, [sessionId+apparatus], [sessionId+pageNu
 //   canvasW?, canvasH?,
 //   digitalScores?: DigitalScores,    // v4 新規
 //   digitalAthleteName?: string,      // v4 新規（大会モード用）
+//   rotationId?: string,              // v5 新規（紐付くローテーション）
 //   updatedAt,
+// }
+
+rotations: 'id, sessionId, [sessionId+order]'  // v5 新規
+// Rotation: {
+//   id, sessionId,
+//   order: number,                    // セッション内の追加順
+//   athletes: string[],               // 1〜10名
+//   teamName?: string,                // 団体登録ONのときのみ
+//   startPage: number,                // このローテの先頭ページ番号
+//   createdAt: Date,
 // }
 
 // DigitalScores: {
@@ -128,6 +144,17 @@ memoRecords: 'id, sessionId, apparatus, [sessionId+apparatus], [sessionId+pageNu
 | 中欠点 | -0.3 |
 | 大欠点 | -0.5 |
 | 転倒 / 落下 | -1.0 |
+
+## 大会モードのローテーション / 団体機能
+- **ローテーション**: 試合で回ってくる選手グループ（1〜10名）を1単位として登録。`Rotation` テーブル
+- **作成手段**:
+  - `+ ローテ追加`: 改行区切りで複数名を一括入力 → N枚のメモページを自動生成
+  - `+ 次の選手`: 空ページを1枚追加（ローテ未登録扱い）
+- **団体登録**: ローテ追加モーダル内のトグルでON。団体名をセットすると、そのローテのメンバーが団体ランキング集計対象になる
+- **団体スコア計算**: セッション作成時に「採用人数 N (1〜10)」を指定。各団体の **上位N人の決定点合計** （メトリック切替で D / E決定 / 平均 にも対応）
+- **同名団体**: 別ローテで同名を入れても別エントリとして集計
+- **人数不足**: メンバー数 < N の団体は参考表示（順位なし）
+- **rotationId 保持**: `JudgeSheet` の自動保存は `db.memoRecords.put()` で全フィールド上書きするため、`rotationId` を props で受け取り保存時に保持する必要がある。フォールバックとして `Rotation.startPage` 範囲でも紐付け解決する
 
 ## UI/UX 原則
 1. iPad Landscape（横向き）メインレイアウト
