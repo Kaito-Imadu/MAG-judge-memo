@@ -1,6 +1,6 @@
 import { db } from '../db/database';
-import type { MemoRecord } from '../db/database';
-import type { Apparatus } from '../types';
+import type { MemoRecord, StrokeData } from '../db/database';
+import type { Apparatus, DigitalScores } from '../types';
 import { APPARATUS_MAP } from '../constants/apparatus';
 import { renderSheetCanvas, loadVaultImage, SHEET_SCORE_FOOTER_H } from './renderSheet';
 
@@ -343,6 +343,69 @@ export async function generateBulkSheets(
     });
   }
   return { items, skipped };
+}
+
+// ---------- 現在画面の単一種目エクスポート（インメモリデータから直接生成） ----------
+export async function exportCurrentSheetBlob(params: {
+  apparatus: Apparatus;
+  eJudgeCount: number;
+  mode: 'trial' | 'competition' | 'individual';
+  athleteName: string;
+  sessionName: string;
+  strokes: StrokeData[];
+  lines?: { y: number; right: number }[];
+  canvasW: number;
+  canvasH: number;
+  digitalScores?: DigitalScores;
+  digitalAthleteName?: string;
+}): Promise<Blob> {
+  const SINGLE_W = 1200;
+  const SINGLE_H = 900;
+  const HEADER = 60;
+
+  const vaultImg = params.apparatus === 'VT' ? await loadVaultImage() : null;
+
+  const canvas = document.createElement('canvas');
+  canvas.width = SINGLE_W * EXPORT_SCALE;
+  canvas.height = SINGLE_H * EXPORT_SCALE;
+  const c = canvas.getContext('2d')!;
+  c.scale(EXPORT_SCALE, EXPORT_SCALE);
+
+  c.fillStyle = '#ffffff';
+  c.fillRect(0, 0, SINGLE_W, SINGLE_H);
+
+  c.fillStyle = '#1B4F72';
+  c.fillRect(0, 0, SINGLE_W, HEADER);
+  c.fillStyle = '#ffffff';
+  c.font = 'bold 20px "Noto Sans JP", sans-serif';
+  c.fillText(params.athleteName || '—', 16, 26);
+  c.font = '12px "Noto Sans JP", sans-serif';
+  c.fillStyle = '#ffffffcc';
+  c.fillText(`${params.sessionName}  /  ${new Date().toLocaleDateString('ja-JP')}`, 16, 46);
+  c.font = '10px "Noto Sans JP", sans-serif';
+  c.fillStyle = '#ffffff88';
+  c.fillText('MAG Judge Memo', SINGLE_W - 110, 46);
+
+  const sheet = renderSheetCanvas({
+    w: params.canvasW || 1024,
+    h: params.canvasH || 700,
+    apparatus: params.apparatus,
+    eJudgeCount: params.eJudgeCount,
+    mode: params.mode,
+    athleteName: params.athleteName,
+    strokes: params.strokes,
+    lines: params.lines,
+    vaultImg,
+    digitalScores: params.digitalScores,
+    digitalAthleteName: params.digitalAthleteName,
+    renderScale: EXPORT_SCALE,
+  });
+
+  c.drawImage(sheet, 0, HEADER, SINGLE_W, SINGLE_H - HEADER);
+
+  return new Promise((resolve) => {
+    canvas.toBlob((blob) => resolve(blob!), 'image/png');
+  });
 }
 
 /**

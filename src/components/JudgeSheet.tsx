@@ -3,13 +3,14 @@ import type { ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import type { Apparatus, DigitalScores } from '../types';
-import { APPARATUS_LIST } from '../constants/apparatus';
+import { APPARATUS_LIST, APPARATUS_MAP } from '../constants/apparatus';
 import { getNDChecklist } from '../constants/deductions';
 import { db } from '../db/database';
 import type { StrokeData } from '../db/database';
 import { loadJudgeSettings, updateJudgeSettings } from '../utils/settings';
 import ScoreInputBar from './ScoreInputBar';
 import { emptyScores, hasAnyScore } from '../utils/scoreCalc';
+import { exportCurrentSheetBlob, shareOrDownload } from '../utils/exportSheet';
 
 interface Point { x: number; y: number }
 interface Stroke { points: Point[]; color: string; width: number }
@@ -39,6 +40,8 @@ interface Props {
   headerOverlay?: ReactNode;
   // true の間は自動保存を抑止（ページ削除/リナンバリング中の保護用）
   suppressSave?: boolean;
+  // 共有PNG用のセッション名（省略時は sessionId を使用）
+  sessionName?: string;
 }
 
 const COLORS = [
@@ -271,6 +274,7 @@ export default function JudgeSheet({
   digitalAthleteName,
   headerOverlay,
   suppressSave = false,
+  sessionName,
 }: Props) {
   // === Refs ===
   const staticCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -331,8 +335,6 @@ export default function JudgeSheet({
   const moreButtonRef = useRef<HTMLButtonElement>(null);
   // 復旧ボタンから呼ぶための ref（useEffect 内で実体をセット）
   const resetStuckStateRef = useRef<() => void>(() => {});
-  // ペン入力の最終時刻（接続インジケータ用、ms）
-  const [penLastSeen, setPenLastSeen] = useState<number | null>(null);
 
   const ndItems = getNDChecklist(apparatus);
   const hasND = ndItems.length > 0;
@@ -669,18 +671,6 @@ export default function JudgeSheet({
 
   useEffect(() => { redrawStatic(); }, [redrawStatic]);
 
-  // === ペン接続インジケータ: 最後に pen 入力を受けた時刻を 1秒ごとに参照 ===
-  useEffect(() => {
-    const id = window.setInterval(() => {
-      setPenLastSeen(prev => {
-        // useEffect 内の lastPtrEventTime は閉じてしまうので、グローバル window 経由で取得
-        const t = (window as unknown as { __lastPenInputTime?: number }).__lastPenInputTime;
-        return typeof t === 'number' ? t : prev;
-      });
-    }, 1000);
-    return () => window.clearInterval(id);
-  }, []);
-
   // redrawStatic / clearActive を ref 化し、Pointer Events の useEffect 依存を安定化
   const redrawStaticRef = useRef(redrawStatic);
   useEffect(() => { redrawStaticRef.current = redrawStatic; }, [redrawStatic]);
@@ -812,10 +802,6 @@ export default function JudgeSheet({
       lastPtrEventTime = now;
 
       const isTouch = e.pointerType === 'touch';
-      // ペン入力の最終時刻を window に書いて、接続インジケータから参照可能にする
-      if (e.pointerType === 'pen') {
-        (window as unknown as { __lastPenInputTime?: number }).__lastPenInputTime = Date.now();
-      }
       const p = getPos(e);
       logPtr({ ev: 'down', pt: e.pointerType, pid: e.pointerId, x: p.x, y: p.y, pr: e.pressure, d: drawing.current, a: activePointerId.current, cap: safeHasCapture(e.pointerId) });
 
@@ -1211,14 +1197,36 @@ export default function JudgeSheet({
     setTick(t => t + 1);
   };
 
-  // 復旧ボタン: Apple Pencil 切断時等で描画ステートが詰まった場合の手動リセット
-  const [recovering, setRecovering] = useState(false);
-  const recoverNow = () => {
-    resetStuckStateRef.current();
-    redrawStaticRef.current();
-    setRecovering(true);
-    window.setTimeout(() => setRecovering(false), 700);
+  const [sharing, setSharing] = useState(false);
+  const handleShare = async () => {
+    if (sharing) return;
+    setSharing(true);
+    setShowMoreMenu(false);
+    try {
+      const { w, h } = sizeRef.current;
+      const displayName = digitalAthleteNameRef.current || athleteName || '—';
+      const blob = await exportCurrentSheetBlob({
+        apparatus,
+        eJudgeCount,
+        mode,
+        athleteName: displayName,
+        sessionName: sessionName || sessionId,
+        strokes: strokes.current.map(s => ({ points: s.points, color: s.color, width: s.width })),
+        lines: horizontalLines.current.length > 0 ? [...horizontalLines.current] : undefined,
+        canvasW: w,
+        canvasH: h,
+        digitalScores: hasAnyScore(digitalScoresRef.current) ? digitalScoresRef.current : undefined,
+        digitalAthleteName: digitalAthleteNameRef.current,
+      });
+      const apparatusShort = APPARATUS_MAP[apparatus].shortName;
+      const date = new Date().toISOString().slice(0, 10);
+      const filename = `${displayName}_${apparatusShort}_${sessionName || sessionId}_${date}.png`;
+      await shareOrDownload(blob, filename);
+    } finally {
+      setSharing(false);
+    }
   };
+
   const createDefaultHorizontalLine = (): HLine => {
     const { w, h } = sizeRef.current;
     const scoreRowTop = h - SCORE_ROW_H;
@@ -1473,16 +1481,18 @@ export default function JudgeSheet({
 
       <ToolbarPopover anchor={moreButtonRef.current} open={showMoreMenu} onClose={() => setShowMoreMenu(false)}>
         <div className="py-1 min-w-[180px] flex flex-col">
-          <button onClick={() => { recoverNow(); setShowMoreMenu(false); }}
+          <button onClick={handleShare} disabled={sharing}
             className={`flex items-center gap-2 px-3 py-2 text-sm text-left min-h-[40px] hover:bg-gray-100 dark:hover:bg-gray-700 ${
-              recovering ? 'text-success font-bold' : 'text-gray-700 dark:text-gray-200'
+              sharing ? 'text-gray-400' : 'text-gray-700 dark:text-gray-200'
             }`}>
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M21 12a9 9 0 1 1-3-6.7L21 8" />
-              <path d="M21 3v5h-5" />
+              <path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8" />
+              <polyline points="16 6 12 2 8 6" />
+              <line x1="12" y1="2" x2="12" y2="15" />
             </svg>
-            {recovering ? '復旧OK' : 'ペン復旧'}
+            {sharing ? '生成中…' : 'この画面を共有'}
           </button>
+          <div className="border-t border-gray-200 dark:border-gray-700 my-1" />
           {apparatus !== 'VT' && horizontalLines.current.length > 0 && (
             <button onClick={() => { removeLastHorizontalLine(); setShowMoreMenu(false); }}
               className="flex items-center gap-2 px-3 py-2 text-sm text-left text-gray-700 dark:text-gray-200 min-h-[40px] hover:bg-gray-100 dark:hover:bg-gray-700">
@@ -1522,22 +1532,6 @@ export default function JudgeSheet({
           </button>
         </div>
       </ToolbarPopover>
-
-      {/* ステータス帯（ペン検出など） */}
-      {(() => {
-        const now = Date.now();
-        const recentlyActive = penLastSeen !== null && now - penLastSeen < 60_000;
-        const dotColor = recentlyActive ? 'bg-success' : 'bg-gray-400';
-        const label = recentlyActive ? 'ペン検出中' : 'ペン未検出';
-        return (
-          <div className="flex items-center justify-end gap-2 px-3 py-0.5 bg-gray-50 dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 shrink-0">
-            <span className="flex items-center gap-1 text-[10px] text-gray-500 dark:text-gray-400 select-none">
-              <span className={`w-1.5 h-1.5 rounded-full ${dotColor}`} />
-              <span>{label}</span>
-            </span>
-          </div>
-        );
-      })()}
 
       {/* 2層Canvas: Static(下) + Active(上) を絶対配置で重ねる */}
       <div ref={wrapRef} className="flex-1 min-h-0 relative" style={{ touchAction: 'none' }}>
