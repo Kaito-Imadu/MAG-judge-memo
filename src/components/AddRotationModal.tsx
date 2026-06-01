@@ -9,14 +9,12 @@ interface Props {
   onClose: () => void;
   // ローテ作成後、新ローテの先頭ページ番号を返す
   onCreated: (firstPage: number) => void;
-  // 初回（セッション作成直後）はキャンセル不可にしたい場合などに使う
-  required?: boolean;
 }
 
 const MIN_ATHLETES = 1;
 const MAX_ATHLETES = 10;
 
-export default function AddRotationModal({ session, startAfterPage, onClose, onCreated, required }: Props) {
+export default function AddRotationModal({ session, startAfterPage, onClose, onCreated }: Props) {
   const [namesText, setNamesTextRaw] = useState('');
   const [isTeam, setIsTeamRaw] = useState(false);
   const [teamName, setTeamNameRaw] = useState('');
@@ -85,7 +83,7 @@ export default function AddRotationModal({ session, startAfterPage, onClose, onC
   return (
     <div
       className="fixed inset-0 z-[100] bg-black/50 flex items-center justify-center p-4"
-      onClick={() => { if (!required) onClose(); }}
+      onClick={onClose}
     >
       <div
         className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-md flex flex-col overflow-hidden"
@@ -93,12 +91,10 @@ export default function AddRotationModal({ session, startAfterPage, onClose, onC
       >
         <div className="px-5 py-3 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
           <h3 className="font-bold text-primary dark:text-accent text-lg">ローテーション追加</h3>
-          {!required && (
-            <button onClick={onClose}
-              className="text-gray-400 hover:text-gray-600 text-xl min-w-[44px] min-h-[44px] flex items-center justify-center">
-              ×
-            </button>
-          )}
+          <button onClick={onClose}
+            className="text-gray-400 hover:text-gray-600 text-xl min-w-[44px] min-h-[44px] flex items-center justify-center">
+            ×
+          </button>
         </div>
 
         <div className="px-5 py-4 space-y-4 max-h-[70vh] overflow-y-auto">
@@ -170,14 +166,12 @@ export default function AddRotationModal({ session, startAfterPage, onClose, onC
         </div>
 
         <div className="px-5 py-3 border-t border-gray-200 dark:border-gray-700 flex gap-2">
-          {!required && (
-            <button
-              onClick={onClose}
-              className="flex-1 py-2.5 min-h-[44px] rounded-xl bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 font-bold text-sm"
-            >
-              キャンセル
-            </button>
-          )}
+          <button
+            onClick={onClose}
+            className="flex-1 py-2.5 min-h-[44px] rounded-xl bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 font-bold text-sm"
+          >
+            キャンセル
+          </button>
           <button
             onClick={handleCreate}
             disabled={!canCreate || submitting}

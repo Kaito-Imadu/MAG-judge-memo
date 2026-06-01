@@ -164,7 +164,6 @@ export default function CompetitionPage() {
   const [deletedPage, setDeletedPage] = useState<DeletedPageSnapshot | null>(null);
   const [showRanking, setShowRanking] = useState(false);
   const [showAddRotation, setShowAddRotation] = useState(false);
-  const [isFirstRotation, setIsFirstRotation] = useState(false);
   const [digitalNameDraft, setDigitalNameDraft] = useState('');
   const [isDeleting, setIsDeleting] = useState(false);
   const digitalNameSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -185,9 +184,9 @@ export default function CompetitionPage() {
       rots.sort((a, b) => a.order - b.order);
       setRotations(rots);
       const maxPage = recs.length > 0 ? Math.max(...recs.map(r => r.pageNumber)) : 0;
-      const total = Math.max(0, maxPage);
+      const total = Math.max(1, maxPage);
       setTotalPages(total);
-      setCurrentPage(Math.max(1, total));
+      setCurrentPage(total);
       // VT 種目なら跳馬画像をプリロード（サムネイル背景用）
       if (s?.apparatus === 'VT') {
         const img = await loadVaultImage();
@@ -195,16 +194,11 @@ export default function CompetitionPage() {
       }
       // セッション作成直後 (?new=1) はローテ追加モーダルを自動表示
       if (searchParams.get('new') === '1' && recs.length === 0) {
-        setIsFirstRotation(true);
         setShowAddRotation(true);
         // クエリパラメータをクリア
         const next = new URLSearchParams(searchParams);
         next.delete('new');
         setSearchParams(next, { replace: true });
-      } else if (recs.length === 0) {
-        // ページが1枚もない既存セッション（あり得る）も初回ローテとして表示
-        setIsFirstRotation(true);
-        setShowAddRotation(true);
       }
     })();
     return () => { cancelled = true; };
@@ -226,7 +220,6 @@ export default function CompetitionPage() {
   const handleRotationCreated = async (firstPage: number) => {
     if (!sessionId) return;
     setShowAddRotation(false);
-    setIsFirstRotation(false);
     // 再読込
     const recs = await db.memoRecords.where('sessionId').equals(sessionId).toArray();
     recs.sort((a, b) => a.pageNumber - b.pageNumber);
@@ -235,16 +228,15 @@ export default function CompetitionPage() {
     rots.sort((a, b) => a.order - b.order);
     setRotations(rots);
     const maxPage = recs.length > 0 ? Math.max(...recs.map(r => r.pageNumber)) : 0;
-    setTotalPages(maxPage);
+    setTotalPages(Math.max(1, maxPage));
     setCurrentPage(firstPage);
+    // 1枚目の選手名を即時反映（currentPage が変わらないケースで useEffect が
+    // 再発火しないため、ここで明示的に同期する）
+    const firstRec = recs.find(r => r.pageNumber === firstPage);
+    setDigitalNameDraft(firstRec?.digitalAthleteName ?? '');
   };
 
   const cancelAddRotation = () => {
-    // 初回（セッション作成直後で空）でキャンセルされた場合 → ホームに戻す
-    if (isFirstRotation && totalPages === 0) {
-      navigate('/');
-      return;
-    }
     setShowAddRotation(false);
   };
 
@@ -348,6 +340,13 @@ export default function CompetitionPage() {
 
   const goPrev = () => { if (currentPage > 1) setCurrentPage(p => p - 1); };
   const goNext = () => { if (currentPage < totalPages) setCurrentPage(p => p + 1); };
+  const addPage = () => {
+    const newPage = totalPages + 1;
+    setTotalPages(newPage);
+    setCurrentPage(newPage);
+    setDigitalNameDraft('');
+    setShowPageList(false);
+  };
 
   // ページ → ローテーション解決（rotationId直接 / 無ければ startPage 範囲でフォールバック）
   const resolveRotation = (record: MemoRecord | undefined, pageNo: number): Rotation | undefined => {
@@ -442,6 +441,11 @@ export default function CompetitionPage() {
                    hover:bg-gray-200 dark:hover:bg-gray-600">
         一覧
       </button>
+      <button onClick={addPage}
+        className="px-3 py-1.5 rounded-lg text-sm bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-200 font-bold min-h-[40px]
+                   border border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-600 whitespace-nowrap">
+        + 次の選手
+      </button>
       <button onClick={() => setShowAddRotation(true)}
         className="px-3 py-1.5 rounded-lg text-sm bg-accent text-white font-bold min-h-[40px] hover:bg-accent/90 whitespace-nowrap">
         + ローテ追加
@@ -486,8 +490,7 @@ export default function CompetitionPage() {
       {showAddRotation && (
         <AddRotationModal
           session={session}
-          startAfterPage={totalPages}
-          required={isFirstRotation && totalPages === 0}
+          startAfterPage={totalPages === 1 && pageRecords.length === 0 ? 0 : totalPages}
           onClose={cancelAddRotation}
           onCreated={handleRotationCreated}
         />
@@ -507,6 +510,11 @@ export default function CompetitionPage() {
                 選手一覧 — {session.apparatus}
               </h3>
               <div className="flex items-center gap-2">
+                <button onClick={addPage}
+                  className="px-3 py-1.5 min-h-[36px] rounded-lg bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-200 font-bold text-sm
+                             border border-gray-300 dark:border-gray-600 whitespace-nowrap">
+                  + 次の選手
+                </button>
                 <button onClick={() => { setShowPageList(false); setShowAddRotation(true); }}
                   className="px-3 py-1.5 min-h-[36px] rounded-lg bg-accent text-white font-bold text-sm whitespace-nowrap">
                   + ローテ追加
