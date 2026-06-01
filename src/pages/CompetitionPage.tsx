@@ -535,56 +535,69 @@ export default function CompetitionPage() {
 
             <div className="flex-1 overflow-y-auto p-3 space-y-4">
               {(() => {
-                // ローテーションごとにページをグルーピング
-                // rotationId 直接マッチ → なければ startPage 範囲でフォールバック
-                const groups: { rotation: Rotation | null; pages: number[] }[] = [];
+                // ページ順に走査し、連続して同じローテに属するページを1グループに。
+                // ローテ無し（個人）も連続するならまとめる。
+                // → 結果としてセッション内に追加した順序で表示される。
                 const recByPage = new Map<number, MemoRecord>();
                 pageRecords.forEach(r => recByPage.set(r.pageNumber, r));
 
+                const resolveRotationForPage = (p: number): Rotation | null => {
+                  const rec = recByPage.get(p);
+                  if (rec?.rotationId) {
+                    const direct = rotations.find(r => r.id === rec.rotationId);
+                    if (direct) return direct;
+                  }
+                  if (!rec?.rotationId) {
+                    const byRange = rotations.find(r =>
+                      p >= r.startPage && p < r.startPage + r.athletes.length,
+                    );
+                    if (byRange) return byRange;
+                  }
+                  return null;
+                };
+
                 const allPages = Array.from({ length: totalPages }, (_, i) => i + 1);
-                const sortedRots = [...rotations].sort((a, b) => a.startPage - b.startPage);
-                const usedPages = new Set<number>();
-                for (const rot of sortedRots) {
-                  const pages = allPages.filter(p => {
-                    if (usedPages.has(p)) return false;
-                    const rec = recByPage.get(p);
-                    if (rec?.rotationId === rot.id) return true;
-                    // フォールバック: rotationId 不明だが startPage 範囲内
-                    if (!rec?.rotationId &&
-                        p >= rot.startPage && p < rot.startPage + rot.athletes.length) {
-                      return true;
+                const groups: { rotation: Rotation | null; pages: number[] }[] = [];
+                let currentKey: string | null | undefined = undefined;
+                let currentRot: Rotation | null = null;
+                let currentPages: number[] = [];
+                for (const p of allPages) {
+                  const rot = resolveRotationForPage(p);
+                  const key = rot?.id ?? null;
+                  if (key === currentKey) {
+                    currentPages.push(p);
+                  } else {
+                    if (currentPages.length > 0) {
+                      groups.push({ rotation: currentRot, pages: currentPages });
                     }
-                    return false;
-                  });
-                  if (pages.length > 0) {
-                    groups.push({ rotation: rot, pages });
-                    pages.forEach(p => usedPages.add(p));
+                    currentRot = rot;
+                    currentKey = key;
+                    currentPages = [p];
                   }
                 }
-                const orphan = allPages.filter(p => !usedPages.has(p));
-                if (orphan.length > 0) groups.push({ rotation: null, pages: orphan });
+                if (currentPages.length > 0) {
+                  groups.push({ rotation: currentRot, pages: currentPages });
+                }
+
+                const pageRangeLabel = (pages: number[]): string =>
+                  pages.length === 1 ? `Page ${pages[0]}` : `Page ${pages[0]}-${pages[pages.length - 1]}`;
 
                 return groups.map((g, gi) => (
-                  <div key={g.rotation?.id ?? `orphan-${gi}`}>
+                  <div key={`${g.rotation?.id ?? 'solo'}-${gi}`}>
                     <div className="flex items-center gap-2 mb-2 px-1">
                       {g.rotation?.teamName ? (
                         <span className="px-2 py-1 rounded-md border border-gray-400 dark:border-gray-500
                                          text-gray-700 dark:text-gray-200 text-xs font-bold">
                           {g.rotation.teamName}
                         </span>
-                      ) : g.rotation ? (
-                        <span className="px-2 py-1 rounded-md border border-gray-300 border-dashed
-                                         text-gray-500 text-xs font-bold">
-                          個人エントリー
-                        </span>
                       ) : (
-                        <span className="px-2 py-1 rounded-md border border-gray-300 border-dashed
-                                         text-gray-400 text-xs font-bold">
-                          ローテ未登録
+                        <span className="px-2 py-1 rounded-md border border-gray-300 dark:border-gray-600 border-dashed
+                                         text-gray-500 dark:text-gray-400 text-xs font-bold">
+                          個人
                         </span>
                       )}
                       <span className="text-xs text-gray-500">
-                        {g.pages.length}選手 / Page {g.pages[0]}-{g.pages[g.pages.length - 1]}
+                        {g.pages.length}選手 / {pageRangeLabel(g.pages)}
                       </span>
                     </div>
                     <div className="grid gap-2"
