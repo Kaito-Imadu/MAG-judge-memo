@@ -462,6 +462,7 @@ export default function CompetitionPage() {
         eJudgeCount={session.eJudgeCount}
         recordId={recordId}
         sessionId={sessionId}
+        sessionName={session.name}
         mode="competition"
         athleteName=""
         pageNumber={currentPage}

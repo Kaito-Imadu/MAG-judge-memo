@@ -331,9 +331,10 @@ export default function IndividualPage() {
         key={recordId}
         apparatus={apparatus}
         judgeMode={session.judgeMode}
-        eJudgeCount={0}
+        eJudgeCount={session.eJudgeCount}
         recordId={recordId}
         sessionId={sessionId}
+        sessionName={session.name}
         mode="individual"
         athleteName=""
         pageNumber={currentPage}

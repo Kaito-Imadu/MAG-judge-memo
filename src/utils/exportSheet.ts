@@ -359,9 +359,16 @@ export async function exportCurrentSheetBlob(params: {
   digitalScores?: DigitalScores;
   digitalAthleteName?: string;
 }): Promise<Blob> {
+  // 元の Canvas サイズに合わせてアスペクト比を保つ（非等倍ストレッチによる
+  // ストローク位置ズレを防ぐ）。出力幅は 1200 px を基準にして、シートの
+  // アスペクト比に応じて高さを算出する。
   const SINGLE_W = 1200;
-  const SINGLE_H = 900;
   const HEADER = 60;
+  const srcW = params.canvasW || 1024;
+  const srcH = (params.canvasH || 700) + SHEET_SCORE_FOOTER_H; // シート + スコアバー
+  const scale = SINGLE_W / srcW;
+  const bodyH = Math.round(srcH * scale);
+  const SINGLE_H = HEADER + bodyH;
 
   const vaultImg = params.apparatus === 'VT' ? await loadVaultImage() : null;
 
@@ -401,7 +408,8 @@ export async function exportCurrentSheetBlob(params: {
     renderScale: EXPORT_SCALE,
   });
 
-  c.drawImage(sheet, 0, HEADER, SINGLE_W, SINGLE_H - HEADER);
+  // 等倍スケーリングで描画（アスペクト比保持）
+  c.drawImage(sheet, 0, HEADER, SINGLE_W, bodyH);
 
   return new Promise((resolve) => {
     canvas.toBlob((blob) => resolve(blob!), 'image/png');

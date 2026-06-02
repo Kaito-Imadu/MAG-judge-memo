@@ -29,9 +29,10 @@ export default function IndividualJudgePage() {
     <JudgeSheet
       apparatus={currentApparatus}
       judgeMode={session.judgeMode}
-      eJudgeCount={0}
+      eJudgeCount={session.eJudgeCount}
       recordId={recordId}
       sessionId={sessionId}
+      sessionName={session.name}
       mode="individual"
       athleteName={athleteName}
       pageNumber={0}

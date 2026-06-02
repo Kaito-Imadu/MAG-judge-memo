@@ -36,6 +36,7 @@ export default function TrialJudgePage() {
       eJudgeCount={session.eJudgeCount}
       recordId={recordId}
       sessionId={sessionId}
+      sessionName={session.name}
       mode="trial"
       athleteName={athleteName}
       pageNumber={0}
