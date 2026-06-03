@@ -9,6 +9,7 @@ import { renderSheetCanvas, loadVaultImage } from '../utils/renderSheet';
 import RankingModal from '../components/RankingModal';
 import AddRotationModal from '../components/AddRotationModal';
 import { calcFinal, getEFinal, formatScore, eFinalDecimals, FINAL_SCORE_DECIMALS } from '../utils/scoreCalc';
+import { rankBy } from '../hooks/useSessionScores';
 
 // サムネイル描画用定数（内部解像度。表示は列幅にフィット）
 const THUMB_W = 280;
@@ -82,7 +83,7 @@ function drawThumbnail(
 }
 
 // サムネイルカード
-function ThumbCard({ rec, apparatus, eJudgeCount, vaultImg, isActive, onClick, onDelete }: {
+function ThumbCard({ rec, apparatus, eJudgeCount, vaultImg, isActive, onClick, onDelete, rank }: {
   rec: MemoRecord | undefined;
   apparatus: Apparatus;
   eJudgeCount: number;
@@ -90,6 +91,7 @@ function ThumbCard({ rec, apparatus, eJudgeCount, vaultImg, isActive, onClick, o
   isActive: boolean;
   onClick: () => void;
   onDelete: () => void;
+  rank?: number;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
@@ -113,10 +115,21 @@ function ThumbCard({ rec, apparatus, eJudgeCount, vaultImg, isActive, onClick, o
           ? 'border-accent bg-accent/5 shadow-md'
           : 'border-gray-200 dark:border-gray-700 hover:border-accent/50 hover:shadow'
       }`}>
-      <button onClick={onClick} className="w-full active:scale-95">
+      <button onClick={onClick} className="w-full active:scale-95 relative">
         <canvas ref={canvasRef}
           style={{ width: '100%', aspectRatio: `${THUMB_W} / ${THUMB_H}`, maxWidth: THUMB_W }}
           className="rounded" />
+        {rank !== undefined && (
+          <span
+            className={`absolute top-1 left-1 px-1.5 py-0.5 rounded-md text-xs font-bold leading-tight shadow
+                        ${rank === 1 ? 'bg-yellow-400 text-yellow-900' :
+                          rank === 2 ? 'bg-gray-300 text-gray-800' :
+                          rank === 3 ? 'bg-amber-600 text-white' :
+                                       'bg-primary text-white'}`}
+          >
+            {rank === 1 ? '🥇' : rank === 2 ? '🥈' : rank === 3 ? '🥉' : `${rank}位`}
+          </span>
+        )}
       </button>
       {/* 行1: 選手名 + 状態 + 削除 */}
       <div className="flex items-center gap-1 w-full px-1">
@@ -164,6 +177,7 @@ export default function CompetitionPage() {
   const [deletedPage, setDeletedPage] = useState<DeletedPageSnapshot | null>(null);
   const [showRanking, setShowRanking] = useState(false);
   const [showAddRotation, setShowAddRotation] = useState(false);
+  const [pageListSort, setPageListSort] = useState<'order' | 'rank'>('order');
   const [digitalNameDraft, setDigitalNameDraft] = useState('');
   const [isDeleting, setIsDeleting] = useState(false);
   const digitalNameSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -506,10 +520,27 @@ export default function CompetitionPage() {
           {/* 中央パネル */}
           <div className="relative m-auto w-[90vw] max-w-[900px] max-h-[85vh] bg-white dark:bg-gray-800
                           rounded-xl shadow-2xl flex flex-col overflow-hidden">
-            <div className="px-5 py-3 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between shrink-0">
-              <h3 className="font-bold text-gray-700 dark:text-gray-300">
-                選手一覧 — {session.apparatus}
-              </h3>
+            <div className="px-5 py-3 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between shrink-0 flex-wrap gap-2">
+              <div className="flex items-center gap-3">
+                <h3 className="font-bold text-gray-700 dark:text-gray-300">
+                  選手一覧 — {session.apparatus}
+                </h3>
+                {/* 並べ替えトグル */}
+                <div className="flex rounded-lg overflow-hidden border border-gray-300 dark:border-gray-600">
+                  <button onClick={() => setPageListSort('order')}
+                    className={`px-2.5 py-1 text-xs font-bold min-h-[32px] ${
+                      pageListSort === 'order' ? 'bg-accent text-white' : 'bg-white dark:bg-gray-700 text-gray-600 dark:text-gray-300'
+                    }`}>
+                    ローテ順
+                  </button>
+                  <button onClick={() => setPageListSort('rank')}
+                    className={`px-2.5 py-1 text-xs font-bold min-h-[32px] ${
+                      pageListSort === 'rank' ? 'bg-accent text-white' : 'bg-white dark:bg-gray-700 text-gray-600 dark:text-gray-300'
+                    }`}>
+                    ランキング順
+                  </button>
+                </div>
+              </div>
               <div className="flex items-center gap-2">
                 <button onClick={addPage}
                   className="px-3 py-1.5 min-h-[36px] rounded-lg bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-200 font-bold text-sm
@@ -535,7 +566,35 @@ export default function CompetitionPage() {
             </div>
 
             <div className="flex-1 overflow-y-auto p-3 space-y-4">
-              {(() => {
+              {pageListSort === 'rank' ? (() => {
+                // ランキング順: フラットに並べ替え、決定点降順、未入力は末尾
+                const allPages = Array.from({ length: totalPages }, (_, i) => i + 1);
+                const entries = allPages.map(page => {
+                  const rec = pageRecords.find(r => r.pageNumber === page);
+                  const ds = rec?.digitalScores;
+                  const final = ds ? calcFinal(ds, session.apparatus!) : undefined;
+                  return { page, rec, final };
+                });
+                const ranked = rankBy(entries, e => e.final);
+                return (
+                  <div className="grid gap-2"
+                    style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${THUMB_W + 12}px, 1fr))` }}>
+                    {ranked.map(r => (
+                      <ThumbCard
+                        key={r.item.page}
+                        rec={r.item.rec}
+                        apparatus={session.apparatus!}
+                        eJudgeCount={session.eJudgeCount}
+                        vaultImg={vaultImg}
+                        isActive={r.item.page === currentPage}
+                        rank={r.rank}
+                        onClick={() => jumpToPage(r.item.page)}
+                        onDelete={() => deletePage(r.item.page)}
+                      />
+                    ))}
+                  </div>
+                );
+              })() : (() => {
                 // ページ順に走査し、連続して同じローテに属するページを1グループに。
                 // ローテ無し（個人）も連続するならまとめる。
                 // → 結果としてセッション内に追加した順序で表示される。

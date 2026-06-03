@@ -282,6 +282,45 @@ export default function JudgeSheet({
   // 保存時に rotationId を保持（最新値を ref で参照）
   const rotationIdRef = useRef(rotationId);
   useEffect(() => { rotationIdRef.current = rotationId; }, [rotationId]);
+
+  // ===== ストップウォッチ =====
+  const [stopwatchMs, setStopwatchMs] = useState(0);
+  const [stopwatchRunning, setStopwatchRunning] = useState(false);
+  const stopwatchLastTick = useRef<number>(0); // 直前 rAF タイムスタンプ
+  const stopwatchRafId = useRef<number | null>(null);
+  useEffect(() => {
+    if (!stopwatchRunning) {
+      if (stopwatchRafId.current !== null) cancelAnimationFrame(stopwatchRafId.current);
+      stopwatchRafId.current = null;
+      return;
+    }
+    stopwatchLastTick.current = performance.now();
+    const tick = (now: number) => {
+      const dt = now - stopwatchLastTick.current;
+      stopwatchLastTick.current = now;
+      setStopwatchMs(prev => prev + dt);
+      stopwatchRafId.current = requestAnimationFrame(tick);
+    };
+    stopwatchRafId.current = requestAnimationFrame(tick);
+    return () => {
+      if (stopwatchRafId.current !== null) cancelAnimationFrame(stopwatchRafId.current);
+      stopwatchRafId.current = null;
+    };
+  }, [stopwatchRunning]);
+  // ページ遷移 (recordId 変化) でリセット
+  useEffect(() => {
+    setStopwatchRunning(false);
+    setStopwatchMs(0);
+  }, [recordId]);
+  const formatStopwatch = (ms: number): string => {
+    const total = Math.max(0, ms);
+    const m = Math.floor(total / 60000);
+    const s = Math.floor((total % 60000) / 1000);
+    const t = Math.floor((total % 1000) / 100);
+    return `${m}:${s.toString().padStart(2, '0')}.${t}`;
+  };
+  const toggleStopwatch = () => setStopwatchRunning(r => !r);
+  const resetStopwatch = () => { setStopwatchRunning(false); setStopwatchMs(0); };
   // === Refs ===
   const staticCanvasRef = useRef<HTMLCanvasElement>(null);
   const activeCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -1413,6 +1452,36 @@ export default function JudgeSheet({
             </button>
           </>
         )}
+
+        {/* ストップウォッチ */}
+        <div className="w-px h-6 bg-gray-300" />
+        <button
+          onClick={toggleStopwatch}
+          title={stopwatchRunning ? '停止' : '開始'}
+          aria-label={stopwatchRunning ? 'ストップウォッチを停止' : 'ストップウォッチを開始'}
+          className={`px-3 py-1.5 rounded-lg font-mono font-bold text-base tabular-nums min-h-[44px] min-w-[80px]
+                      border transition-colors
+                      ${stopwatchRunning
+                        ? 'bg-success/10 border-success text-success animate-pulse'
+                        : stopwatchMs > 0
+                          ? 'bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-primary dark:text-accent'
+                          : 'bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-100'}`}
+        >
+          {formatStopwatch(stopwatchMs)}
+        </button>
+        <button
+          onClick={resetStopwatch}
+          disabled={stopwatchMs === 0 && !stopwatchRunning}
+          title="リセット"
+          aria-label="ストップウォッチをリセット"
+          className="px-2 py-1.5 rounded-lg text-sm font-bold min-h-[44px] min-w-[40px]
+                     bg-white dark:bg-gray-700 text-gray-500 dark:text-gray-400
+                     border border-gray-300 dark:border-gray-600
+                     hover:bg-gray-100 dark:hover:bg-gray-600
+                     disabled:opacity-40 disabled:cursor-not-allowed"
+        >
+          ⟲
+        </button>
 
         <div className="w-px h-6 bg-gray-300" />
 
