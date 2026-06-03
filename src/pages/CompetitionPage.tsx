@@ -12,8 +12,8 @@ import { calcFinal, getEFinal, formatScore, eFinalDecimals, FINAL_SCORE_DECIMALS
 import { rankBy } from '../hooks/useSessionScores';
 
 // サムネイル描画用定数（内部解像度。表示は列幅にフィット）
-const THUMB_W = 280;
-const THUMB_H = 158;
+const THUMB_W = 420;
+const THUMB_H = 252;
 interface DeletedPageSnapshot {
   page: number;
   records: MemoRecord[];
@@ -117,7 +117,7 @@ function ThumbCard({ rec, apparatus, eJudgeCount, vaultImg, isActive, onClick, o
       }`}>
       <button onClick={onClick} className="w-full active:scale-95 relative">
         <canvas ref={canvasRef}
-          style={{ width: '100%', aspectRatio: `${THUMB_W} / ${THUMB_H}`, maxWidth: THUMB_W }}
+          style={{ width: '100%', aspectRatio: `${THUMB_W} / ${THUMB_H}` }}
           className="rounded" />
         {rank !== undefined && (
           <span
@@ -132,9 +132,9 @@ function ThumbCard({ rec, apparatus, eJudgeCount, vaultImg, isActive, onClick, o
         )}
       </button>
       {/* 行1: 選手名 + 状態 + 削除 */}
-      <div className="flex items-center gap-1 w-full px-1">
+      <div className="flex items-center gap-1 w-full px-1 mt-1">
         <button onClick={onClick}
-          className={`text-xs font-bold truncate flex-1 text-left ${
+          className={`text-sm font-bold truncate flex-1 text-left ${
             labelStr
               ? (isActive ? 'text-accent' : 'text-gray-700 dark:text-gray-200')
               : 'text-gray-400'
@@ -142,21 +142,21 @@ function ThumbCard({ rec, apparatus, eJudgeCount, vaultImg, isActive, onClick, o
           {labelStr || '未記入'}
         </button>
         {rec && rec.strokes.length > 0 && (
-          <span className="text-success text-[10px] font-bold shrink-0">済</span>
+          <span className="text-success text-[11px] font-bold shrink-0">済</span>
         )}
         <button onClick={onDelete}
-          className="text-danger text-[10px] font-bold px-2 py-1 rounded hover:bg-red-50 dark:hover:bg-red-900/20 shrink-0">
+          className="text-danger text-[11px] font-bold px-2 py-1 rounded hover:bg-red-50 dark:hover:bg-red-900/20 shrink-0">
           削除
         </button>
       </div>
       {/* 行2: スコア（デジタルスコアがある時のみ）*/}
       {ds && (
-        <div className="flex items-center gap-2 w-full px-1 text-[10px] font-mono text-gray-600 dark:text-gray-400">
+        <div className="flex items-center gap-2 w-full px-1 text-xs font-mono text-gray-600 dark:text-gray-400">
           <span>D <span className="font-bold text-gray-800 dark:text-gray-200">{formatScore(ds.d, 1) || '-'}</span></span>
           <span>E <span className="font-bold text-gray-800 dark:text-gray-200">{formatScore(eFinalVal, decimals) || '-'}</span></span>
           <span>ND <span className="font-bold text-gray-800 dark:text-gray-200">{formatScore(ds.nd ?? 0, 1)}</span></span>
           {ds.bonus && <span className="text-success font-bold">+0.1</span>}
-          <span className="ml-auto text-primary dark:text-accent font-bold">{formatScore(finalVal, FINAL_SCORE_DECIMALS) || '-'}</span>
+          <span className="ml-auto text-primary dark:text-accent font-bold text-sm">{formatScore(finalVal, FINAL_SCORE_DECIMALS) || '-'}</span>
         </div>
       )}
     </div>
@@ -178,6 +178,7 @@ export default function CompetitionPage() {
   const [showRanking, setShowRanking] = useState(false);
   const [showAddRotation, setShowAddRotation] = useState(false);
   const [pageListSort, setPageListSort] = useState<'order' | 'rank'>('order');
+  const [rankKey, setRankKey] = useState<'final' | 'd' | 'eFinal' | 'nd'>('final');
   const [digitalNameDraft, setDigitalNameDraft] = useState('');
   const [isDeleting, setIsDeleting] = useState(false);
   const digitalNameSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -518,7 +519,7 @@ export default function CompetitionPage() {
           <div className="absolute inset-0 bg-black/40" onClick={() => setShowPageList(false)} />
 
           {/* 中央パネル */}
-          <div className="relative m-auto w-[90vw] max-w-[900px] max-h-[85vh] bg-white dark:bg-gray-800
+          <div className="relative m-auto w-[95vw] max-w-[1200px] max-h-[90vh] bg-white dark:bg-gray-800
                           rounded-xl shadow-2xl flex flex-col overflow-hidden">
             <div className="px-5 py-3 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between shrink-0 flex-wrap gap-2">
               <div className="flex items-center gap-3">
@@ -540,6 +541,27 @@ export default function CompetitionPage() {
                     ランキング順
                   </button>
                 </div>
+                {/* ランキングモードの指標切替 */}
+                {pageListSort === 'rank' && (
+                  <div className="flex items-center gap-1">
+                    <span className="text-xs text-gray-500 dark:text-gray-400">指標:</span>
+                    {([
+                      { k: 'final' as const, label: '決定点' },
+                      { k: 'd' as const, label: 'D' },
+                      { k: 'eFinal' as const, label: 'E' },
+                      { k: 'nd' as const, label: 'ND' },
+                    ]).map(opt => (
+                      <button key={opt.k} onClick={() => setRankKey(opt.k)}
+                        className={`px-2 py-1 rounded text-xs font-bold min-h-[32px] ${
+                          rankKey === opt.k
+                            ? 'bg-primary text-white'
+                            : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300'
+                        }`}>
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
               <div className="flex items-center gap-2">
                 <button onClick={addPage}
@@ -567,17 +589,29 @@ export default function CompetitionPage() {
 
             <div className="flex-1 overflow-y-auto p-3 space-y-4">
               {pageListSort === 'rank' ? (() => {
-                // ランキング順: フラットに並べ替え、決定点降順、未入力は末尾
+                // ランキング順: フラットに並べ替え、未入力は末尾。
+                // 決定点/D/E は高い順、ND は少ない順（=良い順）
                 const allPages = Array.from({ length: totalPages }, (_, i) => i + 1);
                 const entries = allPages.map(page => {
                   const rec = pageRecords.find(r => r.pageNumber === page);
                   const ds = rec?.digitalScores;
+                  const d = ds?.d;
+                  const eFinal = ds ? getEFinal(ds) : undefined;
+                  const nd = ds?.nd;
                   const final = ds ? calcFinal(ds, session.apparatus!) : undefined;
-                  return { page, rec, final };
+                  return { page, rec, d, eFinal, nd, final };
                 });
-                const ranked = rankBy(entries, e => e.final);
+                const getScore = (e: typeof entries[number]): number | undefined => {
+                  if (rankKey === 'final') return e.final;
+                  if (rankKey === 'd') return e.d;
+                  if (rankKey === 'eFinal') return e.eFinal;
+                  // ND: 少ない方が良いので符号反転
+                  if (rankKey === 'nd') return typeof e.nd === 'number' ? -e.nd : undefined;
+                  return undefined;
+                };
+                const ranked = rankBy(entries, getScore);
                 return (
-                  <div className="grid gap-2"
+                  <div className="grid gap-3"
                     style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${THUMB_W + 12}px, 1fr))` }}>
                     {ranked.map(r => (
                       <ThumbCard
@@ -660,7 +694,7 @@ export default function CompetitionPage() {
                         {g.pages.length}選手 / {pageRangeLabel(g.pages)}
                       </span>
                     </div>
-                    <div className="grid gap-2"
+                    <div className="grid gap-3"
                       style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${THUMB_W + 12}px, 1fr))` }}>
                       {g.pages.map(page => {
                         const rec = pageRecords.find(r => r.pageNumber === page);
