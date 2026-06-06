@@ -8,6 +8,7 @@ import JudgeSheet from '../components/JudgeSheet';
 import { renderSheetCanvas, loadVaultImage } from '../utils/renderSheet';
 import RankingModal from '../components/RankingModal';
 import AddRotationModal from '../components/AddRotationModal';
+import EditRotationModal from '../components/EditRotationModal';
 import { calcFinal, getEFinal, formatScore, eFinalDecimals, FINAL_SCORE_DECIMALS } from '../utils/scoreCalc';
 import { rankBy } from '../hooks/useSessionScores';
 
@@ -177,6 +178,7 @@ export default function CompetitionPage() {
   const [deletedPage, setDeletedPage] = useState<DeletedPageSnapshot | null>(null);
   const [showRanking, setShowRanking] = useState(false);
   const [showAddRotation, setShowAddRotation] = useState(false);
+  const [editingRotation, setEditingRotation] = useState<Rotation | null>(null);
   const [pageListSort, setPageListSort] = useState<'order' | 'rank'>('order');
   const [rankKey, setRankKey] = useState<'final' | 'd' | 'eFinal' | 'nd'>('final');
   const [digitalNameDraft, setDigitalNameDraft] = useState('');
@@ -253,6 +255,42 @@ export default function CompetitionPage() {
 
   const cancelAddRotation = () => {
     setShowAddRotation(false);
+  };
+
+  const handleRotationEdited = async (info: { delta: number; oldStart: number; oldCount: number }) => {
+    if (!sessionId) return;
+    setEditingRotation(null);
+    // ローテーション編集中はJudgeSheetの自動保存を抑止する
+    // (recordId 変化時の flushSave が古いストロークを別ページに書き戻すバグの回避)
+    flushSync(() => setIsDeleting(true));
+
+    const recs = await db.memoRecords.where('sessionId').equals(sessionId).toArray();
+    recs.sort((a, b) => a.pageNumber - b.pageNumber);
+    const rots = await db.rotations.where('sessionId').equals(sessionId).toArray();
+    rots.sort((a, b) => a.order - b.order);
+    const maxPage = recs.length > 0 ? Math.max(...recs.map(r => r.pageNumber)) : 0;
+    const nextTotal = Math.max(1, maxPage);
+
+    // currentPage の補正
+    //  - 編集ローテ範囲内: 範囲の先頭に寄せる（個別レコードの追従は煩雑なため）
+    //  - 編集ローテより後: delta 分シフト
+    //  - それ以外: 据え置き
+    const oldEnd = info.oldStart + info.oldCount - 1;
+    let nextCurrent = currentPage;
+    if (currentPage >= info.oldStart && currentPage <= oldEnd) {
+      nextCurrent = info.oldStart;
+    } else if (currentPage > oldEnd) {
+      nextCurrent = currentPage + info.delta;
+    }
+    nextCurrent = Math.max(1, Math.min(nextCurrent, nextTotal));
+
+    setPageRecords(recs);
+    setRotations(rots);
+    setTotalPages(nextTotal);
+    flushSync(() => setCurrentPage(nextCurrent));
+    const cur = recs.find(r => r.pageNumber === nextCurrent);
+    setDigitalNameDraft(cur?.digitalAthleteName ?? '');
+    queueMicrotask(() => setIsDeleting(false));
   };
 
   const jumpToPage = (page: number) => {
@@ -512,6 +550,15 @@ export default function CompetitionPage() {
         />
       )}
 
+      {editingRotation && (
+        <EditRotationModal
+          session={session}
+          rotation={editingRotation}
+          onClose={() => setEditingRotation(null)}
+          onSaved={handleRotationEdited}
+        />
+      )}
+
       {/* サムネイル付きページ一覧パネル */}
       {showPageList && (
         <div className="absolute inset-0 z-50 flex">
@@ -693,6 +740,18 @@ export default function CompetitionPage() {
                       <span className="text-xs text-gray-500">
                         {g.pages.length}選手 / {pageRangeLabel(g.pages)}
                       </span>
+                      {g.rotation && (
+                        <button
+                          onClick={() => setEditingRotation(g.rotation!)}
+                          className="ml-auto text-xs px-2 py-1 rounded-md
+                                     border border-gray-300 dark:border-gray-600
+                                     text-gray-600 dark:text-gray-300
+                                     hover:border-accent hover:text-accent"
+                          title="ローテーション編集"
+                        >
+                          編集
+                        </button>
+                      )}
                     </div>
                     <div className="grid gap-3"
                       style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${THUMB_W + 12}px, 1fr))` }}>
