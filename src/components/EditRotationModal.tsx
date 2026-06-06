@@ -80,6 +80,34 @@ export default function EditRotationModal({ session, rotation, onClose, onSaved 
     setRows(prev => prev.filter(r => r.rid !== rid));
   };
 
+  const moveRow = (rid: string, dir: -1 | 1) => {
+    clearError();
+    setRows(prev => {
+      const i = prev.findIndex(r => r.rid === rid);
+      if (i < 0) return prev;
+      const j = i + dir;
+      if (j < 0 || j >= prev.length) return prev;
+      const next = [...prev];
+      [next[i], next[j]] = [next[j], next[i]];
+      return next;
+    });
+  };
+
+  const insertRowAt = (idx: number) => {
+    clearError();
+    if (rows.length >= MAX_ATHLETES) {
+      setError(`選手は最大 ${MAX_ATHLETES} 名までです`);
+      return;
+    }
+    const newRow: Row = { rid: `n${newRowSeq}`, name: '', originalIdx: null, hasContent: false };
+    setRows(prev => {
+      const next = [...prev];
+      next.splice(idx, 0, newRow);
+      return next;
+    });
+    setNewRowSeq(s => s + 1);
+  };
+
   const addRow = () => {
     clearError();
     if (rows.length >= MAX_ATHLETES) {
@@ -204,29 +232,73 @@ export default function EditRotationModal({ session, rotation, onClose, onSaved 
             <label className="block text-xs font-bold text-gray-500 dark:text-gray-400 mb-2">
               選手（{rows.length} 名 / 最大 {MAX_ATHLETES} 名）
             </label>
-            <div className="space-y-2">
+            <div className="space-y-1">
+              {/* 先頭への挿入ボタン */}
+              <button
+                onClick={() => insertRowAt(0)}
+                disabled={rows.length >= MAX_ATHLETES}
+                className="w-full py-0.5 text-[10px] text-gray-400 hover:text-accent
+                           disabled:opacity-30 disabled:cursor-not-allowed"
+                title="ここに挿入"
+              >
+                ＋ ここに挿入
+              </button>
               {rows.map((r, idx) => (
-                <div key={r.rid} className="flex items-center gap-2">
-                  <span className="text-xs text-gray-400 font-mono w-6 text-right">{idx + 1}.</span>
-                  <input
-                    value={r.name}
-                    onChange={e => updateRowName(r.rid, e.target.value)}
-                    placeholder="選手名"
-                    className="flex-1 border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm
-                               bg-white dark:bg-gray-700 dark:text-gray-100
-                               focus:outline-none focus:border-accent"
-                  />
-                  {r.hasContent && (
-                    <span className="text-[10px] font-bold text-accent px-1.5 py-0.5 rounded bg-accent/10">採点済</span>
-                  )}
+                <div key={r.rid}>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-xs text-gray-400 font-mono w-6 text-right">{idx + 1}.</span>
+                    <input
+                      value={r.name}
+                      onChange={e => updateRowName(r.rid, e.target.value)}
+                      placeholder="選手名"
+                      className="flex-1 min-w-0 border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm
+                                 bg-white dark:bg-gray-700 dark:text-gray-100
+                                 focus:outline-none focus:border-accent"
+                    />
+                    {r.hasContent && (
+                      <span className="text-[10px] font-bold text-accent px-1.5 py-0.5 rounded bg-accent/10 shrink-0">採点済</span>
+                    )}
+                    <div className="flex flex-col gap-0.5 shrink-0">
+                      <button
+                        onClick={() => moveRow(r.rid, -1)}
+                        disabled={idx === 0}
+                        className="min-w-[28px] h-[20px] flex items-center justify-center rounded text-xs
+                                   text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700
+                                   disabled:opacity-20 disabled:cursor-not-allowed"
+                        title="上へ"
+                      >
+                        ▲
+                      </button>
+                      <button
+                        onClick={() => moveRow(r.rid, 1)}
+                        disabled={idx === rows.length - 1}
+                        className="min-w-[28px] h-[20px] flex items-center justify-center rounded text-xs
+                                   text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700
+                                   disabled:opacity-20 disabled:cursor-not-allowed"
+                        title="下へ"
+                      >
+                        ▼
+                      </button>
+                    </div>
+                    <button
+                      onClick={() => removeRow(r.rid)}
+                      disabled={rows.length <= MIN_ATHLETES}
+                      className="min-w-[36px] min-h-[36px] flex items-center justify-center rounded-md shrink-0
+                                 text-danger hover:bg-danger/10 disabled:opacity-30 disabled:cursor-not-allowed"
+                      title="削除"
+                    >
+                      ×
+                    </button>
+                  </div>
+                  {/* この行の直後への挿入ボタン */}
                   <button
-                    onClick={() => removeRow(r.rid)}
-                    disabled={rows.length <= MIN_ATHLETES}
-                    className="min-w-[36px] min-h-[36px] flex items-center justify-center rounded-md
-                               text-danger hover:bg-danger/10 disabled:opacity-30 disabled:cursor-not-allowed"
-                    title="削除"
+                    onClick={() => insertRowAt(idx + 1)}
+                    disabled={rows.length >= MAX_ATHLETES}
+                    className="w-full py-0.5 text-[10px] text-gray-400 hover:text-accent
+                               disabled:opacity-30 disabled:cursor-not-allowed"
+                    title="ここに挿入"
                   >
-                    ×
+                    ＋ ここに挿入
                   </button>
                 </div>
               ))}
