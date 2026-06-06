@@ -1,4 +1,5 @@
 import { useState, useMemo, Fragment } from 'react';
+import { useNavigate } from 'react-router-dom';
 import type { Apparatus } from '../types';
 import { APPARATUS_LIST } from '../constants/apparatus';
 import { useSessionScores, rankBy, computeTeamScores } from '../hooks/useSessionScores';
@@ -25,6 +26,8 @@ interface Props {
   eJudgeCount: number;     // E決定・決定点の表示桁数決定に使う
   teamScoring?: TeamScoring; // 大会モードのみ
   onClose: () => void;
+  // 大会モード: ランキング行タップで該当ページへジャンプ（親が currentPage を更新）
+  onJumpToPage?: (page: number) => void;
 }
 
 type SortKey = 'final' | 'd' | 'eFinal';
@@ -42,7 +45,8 @@ const TEAM_METRIC_LABELS: Record<TeamMetric, string> = {
   mean: '平均',
 };
 
-export default function RankingModal({ sessionId, sessionName, sessionDate, mode, apparatus, athletes = [], eJudgeCount, teamScoring, onClose }: Props) {
+export default function RankingModal({ sessionId, sessionName, sessionDate, mode, apparatus, athletes = [], eJudgeCount, teamScoring, onClose, onJumpToPage }: Props) {
+  const navigate = useNavigate();
   // セッション全体の eJudgeCount に基づき、E決定/決定点の桁数を決定（1〜3=2桁、4以上=3桁）
   const decimals = eJudgeCount <= 3 ? 2 : 3;
   const data = useSessionScores(sessionId);
@@ -228,18 +232,33 @@ export default function RankingModal({ sessionId, sessionName, sessionDate, mode
         const e = r.item;
         const namePart = (e.record.digitalAthleteName || '').trim();
         const name = namePart || `P${e.record.pageNumber}`;
+        const jumpable = !!onJumpToPage;
+        const jump = () => {
+          if (!onJumpToPage) return;
+          onJumpToPage(e.record.pageNumber);
+          onClose();
+        };
         return (
           <tr key={e.record.id} className="border-b border-gray-100 dark:border-gray-700">
             <td className="px-3 py-2 text-sm font-bold text-gray-700 dark:text-gray-300 w-12">
               {r.rank ?? '-'}
             </td>
-            <td className="px-3 py-2 text-sm text-gray-800 dark:text-gray-200">{name}</td>
+            <td className="px-3 py-2 text-sm">
+              {jumpable ? (
+                <button onClick={jump}
+                  className="text-left text-accent dark:text-accent hover:underline font-medium min-h-[28px]">
+                  {name}
+                </button>
+              ) : (
+                <span className="text-gray-800 dark:text-gray-200">{name}</span>
+              )}
+            </td>
             <td className="px-3 py-2 text-sm font-mono text-right">{formatScore(e.d, 1)}</td>
             <td className="px-3 py-2 text-sm font-mono text-right">{formatScore(e.eFinal, decimals)}</td>
             <td className="px-3 py-2 text-sm font-mono text-right">{formatScore(e.nd ?? 0, 1)}</td>
             <td className="px-3 py-2 text-sm font-mono text-right">{e.bonus ? '+0.1' : ''}</td>
-            <td className={`px-3 py-2 text-sm font-mono text-right font-bold ${typeof r.score === 'number' ? 'text-primary dark:text-accent' : 'text-gray-300'}`}>
-              {formatScore(r.score, FINAL_SCORE_DECIMALS) || '-'}
+            <td className={`px-3 py-2 text-sm font-mono text-right font-bold ${typeof e.final === 'number' ? 'text-primary dark:text-accent' : 'text-gray-300'}`}>
+              {formatScore(e.final, FINAL_SCORE_DECIMALS) || '-'}
             </td>
           </tr>
         );
@@ -254,21 +273,33 @@ export default function RankingModal({ sessionId, sessionName, sessionDate, mode
         return { name, e };
       });
       const ranked = rankBy(rows, r => r.e ? entryScore(r.e, sortKey) : undefined);
-      return ranked.map(r => (
-        <tr key={r.item.name} className="border-b border-gray-100 dark:border-gray-700">
-          <td className="px-3 py-2 text-sm font-bold text-gray-700 dark:text-gray-300 w-12">
-            {r.rank ?? '-'}
-          </td>
-          <td className="px-3 py-2 text-sm text-gray-800 dark:text-gray-200">{r.item.name}</td>
-          <td className="px-3 py-2 text-sm font-mono text-right">{r.item.e ? formatScore(r.item.e.d, 1) : ''}</td>
-          <td className="px-3 py-2 text-sm font-mono text-right">{r.item.e ? formatScore(r.item.e.eFinal, decimals) : ''}</td>
-          <td className="px-3 py-2 text-sm font-mono text-right">{r.item.e ? formatScore(r.item.e.nd ?? 0, 1) : ''}</td>
-          <td className="px-3 py-2 text-sm font-mono text-right">{r.item.e?.bonus ? '+0.1' : ''}</td>
-          <td className={`px-3 py-2 text-sm font-mono text-right font-bold ${typeof r.score === 'number' ? 'text-primary dark:text-accent' : 'text-gray-300'}`}>
-            {formatScore(r.score, FINAL_SCORE_DECIMALS) || '-'}
-          </td>
-        </tr>
-      ));
+      return ranked.map(r => {
+        const jump = () => {
+          if (!sessionId) return;
+          navigate(`/trial/${sessionId}/judge/${encodeURIComponent(r.item.name)}/${appTab}`);
+          onClose();
+        };
+        return (
+          <tr key={r.item.name} className="border-b border-gray-100 dark:border-gray-700">
+            <td className="px-3 py-2 text-sm font-bold text-gray-700 dark:text-gray-300 w-12">
+              {r.rank ?? '-'}
+            </td>
+            <td className="px-3 py-2 text-sm">
+              <button onClick={jump}
+                className="text-left text-accent dark:text-accent hover:underline font-medium min-h-[28px]">
+                {r.item.name}
+              </button>
+            </td>
+            <td className="px-3 py-2 text-sm font-mono text-right">{r.item.e ? formatScore(r.item.e.d, 1) : ''}</td>
+            <td className="px-3 py-2 text-sm font-mono text-right">{r.item.e ? formatScore(r.item.e.eFinal, decimals) : ''}</td>
+            <td className="px-3 py-2 text-sm font-mono text-right">{r.item.e ? formatScore(r.item.e.nd ?? 0, 1) : ''}</td>
+            <td className="px-3 py-2 text-sm font-mono text-right">{r.item.e?.bonus ? '+0.1' : ''}</td>
+            <td className={`px-3 py-2 text-sm font-mono text-right font-bold ${typeof r.item.e?.final === 'number' ? 'text-primary dark:text-accent' : 'text-gray-300'}`}>
+              {formatScore(r.item.e?.final, FINAL_SCORE_DECIMALS) || '-'}
+            </td>
+          </tr>
+        );
+      });
     }
     // trial AA
     const aaRows = athletes.map(name => {
@@ -289,12 +320,28 @@ export default function RankingModal({ sessionId, sessionName, sessionDate, mode
       return { name, total: any ? Math.round(total * 1000) / 1000 : undefined, perApp };
     });
     const ranked = rankBy(aaRows, r => r.total);
-    return ranked.map(r => (
+    return ranked.map(r => {
+      // AA: 採点済みの先頭種目に飛ぶ（無ければクリック不可）
+      const firstScored = APPARATUS_LIST.find(a => typeof r.item.perApp[a.code] === 'number')?.code;
+      const jump = () => {
+        if (!sessionId || !firstScored) return;
+        navigate(`/trial/${sessionId}/judge/${encodeURIComponent(r.item.name)}/${firstScored}`);
+        onClose();
+      };
+      return (
       <tr key={r.item.name} className="border-b border-gray-100 dark:border-gray-700">
         <td className="px-3 py-2 text-sm font-bold text-gray-700 dark:text-gray-300 w-12">
           {r.rank ?? '-'}
         </td>
-        <td className="px-3 py-2 text-sm text-gray-800 dark:text-gray-200 sticky left-12 bg-white dark:bg-gray-800">{r.item.name}</td>
+        <td className="px-3 py-2 text-sm sticky left-12 bg-white dark:bg-gray-800">
+          {firstScored ? (
+            <button onClick={jump} className="text-left text-accent dark:text-accent hover:underline font-medium min-h-[28px]">
+              {r.item.name}
+            </button>
+          ) : (
+            <span className="text-gray-800 dark:text-gray-200">{r.item.name}</span>
+          )}
+        </td>
         {APPARATUS_LIST.map(a => (
           <td key={a.code} className="px-2 py-2 text-xs font-mono text-right text-gray-600 dark:text-gray-400">
             {formatScore(r.item.perApp[a.code], decimals) || '-'}
@@ -304,8 +351,9 @@ export default function RankingModal({ sessionId, sessionName, sessionDate, mode
           {formatScore(r.score, decimals) || '-'}
         </td>
       </tr>
-    ));
-  }, [data, mode, apparatus, athletes, trialTab, appTab, sortKey, decimals]);
+      );
+    });
+  }, [data, mode, apparatus, athletes, trialTab, appTab, sortKey, decimals, sessionId, onJumpToPage, navigate, onClose]);
 
   return (
     <div className="fixed inset-0 z-[90] bg-black/40 flex items-center justify-center p-4" onClick={onClose}>
