@@ -146,7 +146,7 @@ export default function AddRotationModal({ session, startAfterPage, onClose, onC
                              focus:outline-none focus:border-accent"
                 />
                 <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                  ※ 同名団体が既にあっても別扱いで登録されます
+                  ※ 同じ団体名で登録すると、団体ランキングでは同一チームとして合算されます
                 </div>
               </div>
             )}
