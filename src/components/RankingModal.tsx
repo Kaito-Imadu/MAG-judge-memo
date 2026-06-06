@@ -89,7 +89,7 @@ export default function RankingModal({ sessionId, sessionName, sessionDate, mode
         // 大会モード 団体タブ
         const items: TeamRankItem[] = teamRanked.ranked.map(r => ({
           rank: r.rank,
-          teamName: r.item.rotation.teamName ?? '',
+          teamName: r.item.teamName,
           memberCount: r.item.members.length,
           total: r.item.total,
           pickedValues: r.item.pickedValues,
@@ -97,7 +97,7 @@ export default function RankingModal({ sessionId, sessionName, sessionDate, mode
         }));
         const refs: TeamRankItem[] = teamRanked.unqualified.map(t => ({
           rank: undefined,
-          teamName: t.rotation.teamName ?? '',
+          teamName: t.teamName,
           memberCount: t.members.length,
           total: t.total,
           pickedValues: t.pickedValues,
@@ -546,7 +546,7 @@ function TeamRankingTable({ ranked, unqualified, topN, metricLabel, decimals }: 
       <tbody>
         {ranked.map(r => {
           const t = r.item;
-          const id = t.rotation.id;
+          const id = t.teamName;
           const isOpen = expanded.has(id);
           const diff = top1Total !== undefined && r.score !== undefined && r.rank !== 1
             ? r.score - top1Total
@@ -558,7 +558,7 @@ function TeamRankingTable({ ranked, unqualified, topN, metricLabel, decimals }: 
                 <td className="px-3 py-2 text-sm">
                   <button onClick={() => toggle(id)} className="text-left flex items-center gap-1.5">
                     <span className="text-xs text-gray-400">{isOpen ? '▼' : '▶'}</span>
-                    <span className="font-bold text-gray-800 dark:text-gray-200">{t.rotation.teamName}</span>
+                    <span className="font-bold text-gray-800 dark:text-gray-200">{t.teamName}</span>
                   </button>
                 </td>
                 <td className="px-3 py-2 text-sm font-mono text-right text-gray-600">{t.members.length}</td>
@@ -616,10 +616,10 @@ function TeamRankingTable({ ranked, unqualified, topN, metricLabel, decimals }: 
               </td>
             </tr>
             {unqualified.map(t => (
-              <tr key={t.rotation.id} className="border-b border-gray-100 dark:border-gray-700 opacity-70">
+              <tr key={t.teamName} className="border-b border-gray-100 dark:border-gray-700 opacity-70">
                 <td className="px-3 py-2 text-xs text-gray-400 italic">参考</td>
                 <td className="px-3 py-2 text-sm">
-                  <span className="font-bold text-gray-600 dark:text-gray-400">{t.rotation.teamName}</span>
+                  <span className="font-bold text-gray-600 dark:text-gray-400">{t.teamName}</span>
                   <span className="text-xs text-gray-500 ml-1">({t.members.length}名のみ)</span>
                 </td>
                 <td className="px-3 py-2 text-sm font-mono text-right text-gray-500">{t.members.length}</td>

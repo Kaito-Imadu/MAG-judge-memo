@@ -50,9 +50,10 @@ export function useSessionScores(sessionId: string | undefined): SessionScores |
   }, [sessionId]);
 }
 
-// 団体集計1件
+// 団体集計1件（同名団体は複数ローテをマージして1エントリにする）
 export interface TeamScored {
-  rotation: Rotation;
+  teamName: string;
+  rotations: Rotation[];  // 同名でマージされた元ローテ群（登録順）
   members: { name: string; entry: ScoredEntry | undefined; metricValue: number | undefined }[];
   // 採用された上位N人の合計（メトリック別）
   total: number | undefined;
@@ -80,31 +81,46 @@ function getMetricValue(e: ScoredEntry | undefined, m: TeamMetric): number | und
 // 団体ランキング集計
 //   metric: 何を集計するか（決定点 / D / E決定 / 平均）
 //   topN: 採用人数
+//   同名団体（teamName が前後空白を除いて一致）は1チームに統合し、メンバーを連結。
 export function computeTeamScores(
   data: SessionScores,
   topN: number,
   metric: TeamMetric,
 ): TeamScored[] {
-  const result: TeamScored[] = [];
+  // teamName でグループ化（前後空白を除去、空文字は除外）
+  const groups = new Map<string, Rotation[]>();
   for (const rot of data.rotations) {
-    if (!rot.teamName) continue; // 団体登録されていないローテはスキップ
-    const members = rot.athletes.map((name, idx) => {
-      // 第一候補: rotationId が一致しているレコード
-      let entry = data.scored.find(s =>
-        s.record.rotationId === rot.id &&
-        (s.record.digitalAthleteName ?? '').trim() === name,
-      );
-      // フォールバック: rotationId が無いが startPage 範囲内のレコード（救済）
-      if (!entry) {
-        const expectedPage = rot.startPage + idx;
-        entry = data.scored.find(s =>
-          !s.record.rotationId &&
-          s.record.pageNumber === expectedPage,
+    const key = (rot.teamName ?? '').trim();
+    if (!key) continue;
+    const arr = groups.get(key);
+    if (arr) arr.push(rot);
+    else groups.set(key, [rot]);
+  }
+
+  const result: TeamScored[] = [];
+  for (const [teamName, rots] of groups) {
+    // 登録順に並べてメンバーを連結
+    rots.sort((a, b) => a.order - b.order);
+    const members: TeamScored['members'] = [];
+    for (const rot of rots) {
+      rot.athletes.forEach((name, idx) => {
+        // 第一候補: rotationId が一致しているレコード
+        let entry = data.scored.find(s =>
+          s.record.rotationId === rot.id &&
+          (s.record.digitalAthleteName ?? '').trim() === name,
         );
-      }
-      const metricValue = getMetricValue(entry, metric);
-      return { name, entry, metricValue };
-    });
+        // フォールバック: rotationId が無いが startPage 範囲内のレコード（救済）
+        if (!entry) {
+          const expectedPage = rot.startPage + idx;
+          entry = data.scored.find(s =>
+            !s.record.rotationId &&
+            s.record.pageNumber === expectedPage,
+          );
+        }
+        const metricValue = getMetricValue(entry, metric);
+        members.push({ name, entry, metricValue });
+      });
+    }
     // 値を持つ人だけソートして上位 topN を採用
     const withValue = members
       .filter(m => typeof m.metricValue === 'number')
@@ -119,7 +135,7 @@ export function computeTeamScores(
       total = metric === 'mean' ? sum / pickedValues.length : sum;
       total = Math.round(total * 1000) / 1000;
     }
-    result.push({ rotation: rot, members, total, pickedValues, benchValues, pickedCount, qualified });
+    result.push({ teamName, rotations: rots, members, total, pickedValues, benchValues, pickedCount, qualified });
   }
   return result;
 }
