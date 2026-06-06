@@ -378,7 +378,8 @@ export default function IndividualPage() {
             <div className="flex-1 overflow-y-auto p-3">
               <div className="grid gap-2"
                 style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${THUMB_W + 12}px, 1fr))` }}>
-                {Array.from({ length: totalPages }, (_, i) => i + 1).map(page => {
+                {/* 上が最新（高いページ番号が上）になるよう逆順 */}
+                {Array.from({ length: totalPages }, (_, i) => totalPages - i).map(page => {
                   const rec = recsForApp.find(r => r.pageNumber === page);
                   return (
                     <ThumbCard

@@ -538,6 +538,7 @@ export default function CompetitionPage() {
           eJudgeCount={session.eJudgeCount}
           teamScoring={session.teamScoring}
           onClose={() => setShowRanking(false)}
+          onJumpToPage={(page) => { setCurrentPage(page); setShowPageList(false); }}
         />
       )}
 
@@ -723,7 +724,8 @@ export default function CompetitionPage() {
                 const pageRangeLabel = (pages: number[]): string =>
                   pages.length === 1 ? `Page ${pages[0]}` : `Page ${pages[0]}-${pages[pages.length - 1]}`;
 
-                return groups.map((g, gi) => (
+                // 上が最新（直近に追加されたローテーション）になるよう逆順表示
+                return [...groups].reverse().map((g, gi) => (
                   <div key={`${g.rotation?.id ?? 'solo'}-${gi}`}>
                     <div className="flex items-center gap-2 mb-2 px-1">
                       {g.rotation?.teamName ? (
