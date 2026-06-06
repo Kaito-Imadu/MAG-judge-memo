@@ -657,7 +657,16 @@ export default function JudgeSheet({
       horizontalLines.current = rawLines.map((l: HLine | number) =>
         typeof l === 'number' ? { y: l, right: sizeRef.current.w * 0.8 } : l
       );
-      pendingDefaultHorizontalLine.current = !saved
+      // 「フレッシュなページ」= レコードが無い、または事前作成された空レコード
+      // （strokes/lines/digitalScores すべて未入力、digitalAthleteName だけ持つ）。
+      // ローテーション登録で memoRecord が先に作られるケースでも自動横線マクロを発動させる。
+      const isFreshPage = !saved
+        || (
+          saved.strokes.length === 0
+          && (!saved.lines || saved.lines.length === 0)
+          && !saved.digitalScores
+        );
+      pendingDefaultHorizontalLine.current = isFreshPage
         && apparatus !== 'VT'
         && settingsRef.current.autoHorizontalLine;
       if (pendingDefaultHorizontalLine.current && sizeRef.current.w > 0 && sizeRef.current.h > 0) {
