@@ -340,7 +340,8 @@ export default function IndividualPage() {
         pageNumber={currentPage}
         showApparatusTabs={true}
         toolbarExtra={pageNav}
-        onBack={() => navigate('/')}
+        onBack={() => { setShowPageList(true); }}
+        onHome={() => navigate('/')}
         onApparatusChange={handleApparatusChange}
         suppressSave={isDeleting}
       />

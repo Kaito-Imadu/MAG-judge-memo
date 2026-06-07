@@ -44,6 +44,8 @@ interface Props {
   sessionName?: string;
   // 大会モードのローテーション紐付け（保存時に保持する）
   rotationId?: string;
+  // ホームボタンのカスタムハンドラ。未指定なら navigate('/')。
+  onHome?: () => void;
 }
 
 const COLORS = [
@@ -272,6 +274,7 @@ export default function JudgeSheet({
   showApparatusTabs = true,
   toolbarExtra,
   onBack,
+  onHome,
   onApparatusChange,
   digitalAthleteName,
   headerOverlay,
@@ -1370,6 +1373,16 @@ export default function JudgeSheet({
       undefined, digitalScoresRef.current, digitalAthleteNameRef.current,
     );
     if (onBack) onBack();
+    else if (onHome) onHome();
+    else navigate('/');
+  };
+
+  const handleHome = () => {
+    flushSave(
+      recordId, strokes.current, apparatus, athleteName, pageNumber,
+      undefined, digitalScoresRef.current, digitalAthleteNameRef.current,
+    );
+    if (onHome) onHome();
     else navigate('/');
   };
 
@@ -1522,9 +1535,16 @@ export default function JudgeSheet({
             ))}
           </div>
         )}
-        <button onClick={handleBack}
-          className="ml-auto shrink-0 px-3 py-1 rounded text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 min-h-[36px]">
-          {onBack ? '← 戻る' : 'ホーム'}
+        {onBack && (
+          <button onClick={handleBack}
+            className="ml-auto shrink-0 px-3 py-1 rounded text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 min-h-[36px]">
+            ← 戻る
+          </button>
+        )}
+        <button onClick={handleHome}
+          className={`${onBack ? '' : 'ml-auto'} shrink-0 px-3 py-1 rounded text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 min-h-[36px]`}
+          title="ホーム">
+          ⌂ ホーム
         </button>
       </div>
 

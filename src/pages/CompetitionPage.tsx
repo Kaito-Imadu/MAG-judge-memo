@@ -257,7 +257,7 @@ export default function CompetitionPage() {
     setShowAddRotation(false);
   };
 
-  const handleRotationEdited = async (info: { delta: number; oldStart: number; oldCount: number }) => {
+  const handleRotationEdited = async (info: { newStart: number }) => {
     if (!sessionId) return;
     setEditingRotation(null);
     // ローテーション編集中はJudgeSheetの自動保存を抑止する
@@ -271,18 +271,10 @@ export default function CompetitionPage() {
     const maxPage = recs.length > 0 ? Math.max(...recs.map(r => r.pageNumber)) : 0;
     const nextTotal = Math.max(1, maxPage);
 
-    // currentPage の補正
-    //  - 編集ローテ範囲内: 範囲の先頭に寄せる（個別レコードの追従は煩雑なため）
-    //  - 編集ローテより後: delta 分シフト
-    //  - それ以外: 据え置き
-    const oldEnd = info.oldStart + info.oldCount - 1;
-    let nextCurrent = currentPage;
-    if (currentPage >= info.oldStart && currentPage <= oldEnd) {
-      nextCurrent = info.oldStart;
-    } else if (currentPage > oldEnd) {
-      nextCurrent = currentPage + info.delta;
-    }
-    nextCurrent = Math.max(1, Math.min(nextCurrent, nextTotal));
+    // 編集ローテ全体（ページ番号含む）が再構成されたため、currentPage は
+    // 新しい先頭ページに寄せる。範囲外のページに居た可能性もあるが
+    // ユーザーが直近で編集したローテに着地させるのが分かりやすい。
+    const nextCurrent = Math.max(1, Math.min(info.newStart, nextTotal));
 
     setPageRecords(recs);
     setRotations(rots);
@@ -521,7 +513,8 @@ export default function CompetitionPage() {
         pageNumber={currentPage}
         showApparatusTabs={false}
         toolbarExtra={pageNav}
-        onBack={() => navigate('/')}
+        onBack={() => { openPageList(); }}
+        onHome={() => navigate('/')}
         digitalAthleteName={digitalNameDraft}
         headerOverlay={headerOverlay}
         suppressSave={isDeleting}
