@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { db } from '../db/database';
 import type { Rotation, Session, MemoRecord } from '../db/database';
 
@@ -6,18 +6,21 @@ interface Props {
   session: Session;
   rotation: Rotation;
   onClose: () => void;
-  // 保存後、親側で再読込してもらうためのコールバック。delta は人数変化量。
-  onSaved: (info: { delta: number; oldStart: number; oldCount: number }) => void;
+  // 保存後、親側で再読込してもらうためのコールバック。
+  // newStart: 編集後の現ローテーションの先頭ページ番号。
+  onSaved: (info: { newStart: number }) => void;
 }
 
 const MIN_ATHLETES = 1;
 const MAX_ATHLETES = 10;
 
 interface Row {
-  rid: string;                  // React key 用ローカルID
+  rid: string;                       // React key 用ローカルID
   name: string;
-  originalIdx: number | null;   // 元 athletes 配列上の位置（null = 新規追加）
-  hasContent: boolean;          // 元レコードが採点済みデータを持っているか（削除確認用）
+  originalIdx: number | null;        // 元 athletes 配列上の位置（null = 新規追加 or 移入）
+  sourceRecordId: string | null;     // 別ローテからの「移入」時に元のレコードID
+  sourceLabel: string | null;        // 表示用ラベル（例: "B団体・3人目"）
+  hasContent: boolean;               // 元レコードが採点済みデータを持っているか（削除確認用）
 }
 
 function recordHasUserContent(rec: MemoRecord | undefined): boolean {
@@ -28,12 +31,22 @@ function recordHasUserContent(rec: MemoRecord | undefined): boolean {
   return false;
 }
 
+// インポート候補（別ローテーションに属する1人ぶん）
+interface ImportCandidate {
+  recordId: string;
+  athleteName: string;
+  rotationLabel: string;       // 例: "団体A高校 #2"
+  hasContent: boolean;
+}
+
 export default function EditRotationModal({ session, rotation, onClose, onSaved }: Props) {
   const [rows, setRows] = useState<Row[]>(
     () => rotation.athletes.map((name, idx) => ({
       rid: `o${idx}`,
       name,
       originalIdx: idx,
+      sourceRecordId: null,
+      sourceLabel: null,
       hasContent: false,
     }))
   );
@@ -42,6 +55,8 @@ export default function EditRotationModal({ session, rotation, onClose, onSaved 
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [newRowSeq, setNewRowSeq] = useState(0);
+  const [showImporter, setShowImporter] = useState(false);
+  const [importCandidates, setImportCandidates] = useState<ImportCandidate[]>([]);
 
   // 既存レコードの content 有無を取得して rows に反映（削除確認用）
   useEffect(() => {
@@ -61,6 +76,46 @@ export default function EditRotationModal({ session, rotation, onClose, onSaved 
     })();
     return () => { cancelled = true; };
   }, [rotation, session.id]);
+
+  // インポート候補（このローテ以外のローテーションに属する選手）を取得
+  useEffect(() => {
+    if (!showImporter) return;
+    let cancelled = false;
+    (async () => {
+      const allRotations = await db.rotations.where('sessionId').equals(session.id).toArray();
+      allRotations.sort((a, b) => a.order - b.order);
+      const allRecords = await db.memoRecords.where('sessionId').equals(session.id).toArray();
+      const recordByPage = new Map(allRecords.map(r => [r.pageNumber, r]));
+      const candidates: ImportCandidate[] = [];
+      let rotIndex = 0;
+      for (const rot of allRotations) {
+        rotIndex++;
+        if (rot.id === rotation.id) continue;
+        const baseLabel = rot.teamName?.trim() ? `団体${rot.teamName.trim()}` : `ローテ#${rotIndex}`;
+        rot.athletes.forEach((name, idx) => {
+          const page = rot.startPage + idx;
+          const rec = recordByPage.get(page);
+          if (!rec) return;
+          candidates.push({
+            recordId: rec.id,
+            athleteName: name,
+            rotationLabel: `${baseLabel} #${idx + 1}`,
+            hasContent: recordHasUserContent(rec),
+          });
+        });
+      }
+      if (cancelled) return;
+      setImportCandidates(candidates);
+    })();
+    return () => { cancelled = true; };
+  }, [showImporter, session.id, rotation.id]);
+
+  // 既に rows に追加済みの sourceRecordId を集計（同じ人を二重追加させない）
+  const importedSourceIds = useMemo(() => {
+    const s = new Set<string>();
+    rows.forEach(r => { if (r.sourceRecordId) s.add(r.sourceRecordId); });
+    return s;
+  }, [rows]);
 
   const clearError = () => { if (error) setError(null); };
 
@@ -99,7 +154,7 @@ export default function EditRotationModal({ session, rotation, onClose, onSaved 
       setError(`選手は最大 ${MAX_ATHLETES} 名までです`);
       return;
     }
-    const newRow: Row = { rid: `n${newRowSeq}`, name: '', originalIdx: null, hasContent: false };
+    const newRow: Row = { rid: `n${newRowSeq}`, name: '', originalIdx: null, sourceRecordId: null, sourceLabel: null, hasContent: false };
     setRows(prev => {
       const next = [...prev];
       next.splice(idx, 0, newRow);
@@ -108,17 +163,28 @@ export default function EditRotationModal({ session, rotation, onClose, onSaved 
     setNewRowSeq(s => s + 1);
   };
 
-  const addRow = () => {
+  const addImported = (c: ImportCandidate) => {
     clearError();
     if (rows.length >= MAX_ATHLETES) {
       setError(`選手は最大 ${MAX_ATHLETES} 名までです`);
       return;
     }
-    setRows(prev => [...prev, { rid: `n${newRowSeq}`, name: '', originalIdx: null, hasContent: false }]);
+    if (importedSourceIds.has(c.recordId)) return;
+    const newRow: Row = {
+      rid: `s${newRowSeq}`,
+      name: c.athleteName,
+      originalIdx: null,
+      sourceRecordId: c.recordId,
+      sourceLabel: c.rotationLabel,
+      hasContent: c.hasContent,
+    };
+    setRows(prev => [...prev, newRow]);
     setNewRowSeq(s => s + 1);
   };
 
-  const trimmedRows = rows.map(r => ({ ...r, name: r.name.trim() })).filter(r => r.name.length > 0);
+  const trimmedRows = rows
+    .map(r => ({ ...r, name: r.name.trim() }))
+    .filter(r => r.name.length > 0 || r.sourceRecordId !== null);
   const canSave = trimmedRows.length >= MIN_ATHLETES
     && trimmedRows.length <= MAX_ATHLETES
     && (!isTeam || teamName.trim().length > 0);
@@ -127,88 +193,133 @@ export default function EditRotationModal({ session, rotation, onClose, onSaved 
     if (!canSave || submitting) return;
     setSubmitting(true);
     try {
-      const oldStart = rotation.startPage;
-      const oldCount = rotation.athletes.length;
-      const newCount = trimmedRows.length;
-      const delta = newCount - oldCount;
-      const apparatus = session.apparatus!;
-      const sessionId = session.id;
       const newTeamName = isTeam ? teamName.trim() : undefined;
+      const sessionId = session.id;
+      const apparatus = session.apparatus!;
+
+      let newStartPage = rotation.startPage;
 
       await db.transaction('rw', db.memoRecords, db.rotations, async () => {
-        // 1. 既存ローテのレコードを取得（保存内容の保存先として参照）
-        const oldRecords: (MemoRecord | undefined)[] = [];
-        for (let i = 0; i < oldCount; i++) {
-          oldRecords.push(await db.memoRecords.get(`comp:${sessionId}:${oldStart + i}`));
-        }
-        // 2. ローテーション後ろのレコードを取得
-        const afterAll = await db.memoRecords.where('sessionId').equals(sessionId).toArray();
-        const afterRecords = afterAll.filter(r => r.pageNumber >= oldStart + oldCount);
+        // 1. 全ローテと全レコードを読み込み
+        const allRotations = (await db.rotations.where('sessionId').equals(sessionId).toArray())
+          .sort((a, b) => a.order - b.order);
+        const allRecords = await db.memoRecords.where('sessionId').equals(sessionId).toArray();
+        const recordById = new Map(allRecords.map(r => [r.id, r]));
+        const recordByPage = new Map(allRecords.map(r => [r.pageNumber, r]));
 
-        // 3. 既存ローテレコードと後続レコードを一旦全削除
-        for (let i = 0; i < oldCount; i++) {
-          await db.memoRecords.delete(`comp:${sessionId}:${oldStart + i}`);
+        // 2. 移入対象のソース recordId を収集
+        const movedRecordIds = new Set<string>();
+        for (const row of trimmedRows) {
+          if (row.sourceRecordId) movedRecordIds.add(row.sourceRecordId);
         }
-        for (const r of afterRecords) {
+
+        // 3. 新レイアウトを構築
+        type Slot = { name: string; content: MemoRecord | undefined };
+        type Entry = { rot: Rotation; slots: Slot[]; isCurrent: boolean };
+        const layout: Entry[] = [];
+
+        for (const rot of allRotations) {
+          if (rot.id === rotation.id) {
+            const slots: Slot[] = trimmedRows.map(row => {
+              let content: MemoRecord | undefined;
+              if (row.originalIdx !== null) {
+                const oldPage = rotation.startPage + row.originalIdx;
+                content = recordByPage.get(oldPage);
+              } else if (row.sourceRecordId) {
+                content = recordById.get(row.sourceRecordId);
+              }
+              return { name: row.name, content };
+            });
+            layout.push({
+              rot: { ...rot, athletes: trimmedRows.map(r => r.name), teamName: newTeamName },
+              slots,
+              isCurrent: true,
+            });
+          } else {
+            const newAthletes: string[] = [];
+            const slots: Slot[] = [];
+            rot.athletes.forEach((name, idx) => {
+              const oldPage = rot.startPage + idx;
+              const oldRec = recordByPage.get(oldPage);
+              if (oldRec && movedRecordIds.has(oldRec.id)) return; // 移出されたので除外
+              newAthletes.push(name);
+              slots.push({ name, content: oldRec });
+            });
+            layout.push({
+              rot: { ...rot, athletes: newAthletes },
+              slots,
+              isCurrent: false,
+            });
+          }
+        }
+
+        // 4. ローテーションの新 startPage を順に計算（先頭=1から累積）
+        let nextPage = 1;
+        for (const entry of layout) {
+          entry.rot = { ...entry.rot, startPage: nextPage };
+          if (entry.isCurrent) newStartPage = nextPage;
+          nextPage += entry.slots.length;
+        }
+
+        // 5. ローテに属さない solo レコードを末尾に再配置
+        const soloRecords = allRecords
+          .filter(r => !r.rotationId)
+          .sort((a, b) => a.pageNumber - b.pageNumber);
+
+        // 6. 既存レコードを全削除（一旦リセット）
+        for (const r of allRecords) {
           await db.memoRecords.delete(r.id);
         }
 
-        // 4. ローテ範囲: 新メンバーを書き込み（originalIdx があれば内容を引き継ぐ）
-        for (let idx = 0; idx < trimmedRows.length; idx++) {
-          const row = trimmedRows[idx];
-          const newPage = oldStart + idx;
-          const base = row.originalIdx !== null ? oldRecords[row.originalIdx] : undefined;
-          await db.memoRecords.put({
-            id: `comp:${sessionId}:${newPage}`,
-            sessionId,
-            athleteName: base?.athleteName ?? '',
-            apparatus,
-            pageNumber: newPage,
-            strokes: base?.strokes ?? [],
-            lines: base?.lines,
-            canvasW: base?.canvasW,
-            canvasH: base?.canvasH,
-            digitalScores: base?.digitalScores,
-            digitalAthleteName: row.name,
-            rotationId: rotation.id,
-            updatedAt: new Date(),
-          });
+        // 7. ローテーション順にレコードを再書き込み
+        for (const entry of layout) {
+          for (let i = 0; i < entry.slots.length; i++) {
+            const slot = entry.slots[i];
+            const newPage = entry.rot.startPage + i;
+            const c = slot.content;
+            await db.memoRecords.put({
+              id: `comp:${sessionId}:${newPage}`,
+              sessionId,
+              athleteName: c?.athleteName ?? '',
+              apparatus,
+              pageNumber: newPage,
+              strokes: c?.strokes ?? [],
+              lines: c?.lines,
+              canvasW: c?.canvasW,
+              canvasH: c?.canvasH,
+              digitalScores: c?.digitalScores,
+              digitalAthleteName: slot.name,
+              rotationId: entry.rot.id,
+              updatedAt: new Date(),
+            });
+          }
         }
 
-        // 5. 後続レコードを delta 分シフトして再配置
-        for (const r of afterRecords) {
-          const newPage = r.pageNumber + delta;
+        // 8. solo レコードを末尾に再書き込み
+        for (const r of soloRecords) {
           await db.memoRecords.put({
             ...r,
-            id: `comp:${sessionId}:${newPage}`,
-            pageNumber: newPage,
+            id: `comp:${sessionId}:${nextPage}`,
+            pageNumber: nextPage,
             updatedAt: new Date(),
           });
+          nextPage += 1;
         }
 
-        // 6. ローテーション自身を更新
-        await db.rotations.put({
-          ...rotation,
-          athletes: trimmedRows.map(r => r.name),
-          teamName: newTeamName,
-        });
-
-        // 7. 後続ローテの startPage を delta 分シフト
-        const allRotations = await db.rotations.where('sessionId').equals(sessionId).toArray();
-        for (const rot of allRotations) {
-          if (rot.id === rotation.id) continue;
-          if (rot.startPage > oldStart) {
-            await db.rotations.put({ ...rot, startPage: rot.startPage + delta });
-          }
+        // 9. ローテーションを更新
+        for (const entry of layout) {
+          await db.rotations.put(entry.rot);
         }
       });
 
-      onSaved({ delta, oldStart, oldCount });
+      onSaved({ newStart: newStartPage });
     } catch (e) {
       setError(`保存に失敗しました: ${e instanceof Error ? e.message : String(e)}`);
       setSubmitting(false);
     }
   };
+
+  const availableCandidates = importCandidates.filter(c => !importedSourceIds.has(c.recordId));
 
   return (
     <div
@@ -233,7 +344,6 @@ export default function EditRotationModal({ session, rotation, onClose, onSaved 
               選手（{rows.length} 名 / 最大 {MAX_ATHLETES} 名）
             </label>
             <div className="space-y-1">
-              {/* 先頭への挿入ボタン */}
               <button
                 onClick={() => insertRowAt(0)}
                 disabled={rows.length >= MAX_ATHLETES}
@@ -255,6 +365,12 @@ export default function EditRotationModal({ session, rotation, onClose, onSaved 
                                  bg-white dark:bg-gray-700 dark:text-gray-100
                                  focus:outline-none focus:border-accent"
                     />
+                    {r.sourceLabel && (
+                      <span className="text-[10px] font-bold text-primary dark:text-accent px-1.5 py-0.5 rounded bg-primary/10 dark:bg-accent/10 shrink-0"
+                            title={`移入元: ${r.sourceLabel}`}>
+                        移入
+                      </span>
+                    )}
                     {r.hasContent && (
                       <span className="text-[10px] font-bold text-accent px-1.5 py-0.5 rounded bg-accent/10 shrink-0">採点済</span>
                     )}
@@ -290,7 +406,6 @@ export default function EditRotationModal({ session, rotation, onClose, onSaved 
                       ×
                     </button>
                   </div>
-                  {/* この行の直後への挿入ボタン */}
                   <button
                     onClick={() => insertRowAt(idx + 1)}
                     disabled={rows.length >= MAX_ATHLETES}
@@ -303,15 +418,50 @@ export default function EditRotationModal({ session, rotation, onClose, onSaved 
                 </div>
               ))}
             </div>
+
             <button
-              onClick={addRow}
+              onClick={() => setShowImporter(s => !s)}
               disabled={rows.length >= MAX_ATHLETES}
               className="mt-3 w-full py-2 min-h-[44px] rounded-lg border-2 border-dashed
                          border-gray-300 dark:border-gray-600 text-sm text-gray-500 dark:text-gray-400
-                         hover:border-accent hover:text-accent disabled:opacity-30 disabled:cursor-not-allowed"
+                         hover:border-primary hover:text-primary disabled:opacity-30 disabled:cursor-not-allowed"
             >
-              + 選手を追加
+              {showImporter ? '× 他ローテから選手を移入（閉じる）' : '↪ 他ローテから選手を移入'}
             </button>
+
+            {showImporter && (
+              <div className="mt-2 border border-gray-200 dark:border-gray-700 rounded-lg p-2 max-h-[40vh] overflow-y-auto">
+                <div className="text-[11px] text-gray-500 dark:text-gray-400 mb-2 px-1">
+                  選んだ選手はこのローテに移動し、元のローテからは削除されます。採点メモも一緒に移動します。
+                </div>
+                {availableCandidates.length === 0 ? (
+                  <div className="text-xs text-gray-400 italic py-3 text-center">
+                    他ローテーションに移入可能な選手がいません
+                  </div>
+                ) : (
+                  <div className="space-y-1">
+                    {availableCandidates.map(c => (
+                      <button
+                        key={c.recordId}
+                        onClick={() => addImported(c)}
+                        disabled={rows.length >= MAX_ATHLETES}
+                        className="w-full flex items-center gap-2 px-2 py-2 text-sm text-left rounded
+                                   bg-gray-50 dark:bg-gray-700 hover:bg-accent/10 dark:hover:bg-accent/20
+                                   disabled:opacity-40 disabled:cursor-not-allowed"
+                      >
+                        <span className="font-medium text-gray-800 dark:text-gray-100 flex-1 min-w-0 truncate">
+                          {c.athleteName || '(無名)'}
+                        </span>
+                        {c.hasContent && (
+                          <span className="text-[10px] font-bold text-accent px-1.5 py-0.5 rounded bg-accent/10 shrink-0">採点済</span>
+                        )}
+                        <span className="text-[10px] text-gray-500 dark:text-gray-400 shrink-0">{c.rotationLabel}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           <div className="p-3 rounded-xl border-2 border-accent/40 bg-accent/5">
