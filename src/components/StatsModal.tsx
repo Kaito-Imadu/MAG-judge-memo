@@ -168,15 +168,25 @@ export default function StatsModal({
         drawBoxplot(c, area, groups);
       } else if (trialTab === 'bias') {
         const bars = computeBiasBars(data.scored, eJudgeCount);
-        drawBiasBars(c, area, bars);
+        drawBiasBars(c, area, bars, {
+          title: 'E審判の甘辛バイアス（全種目集計）',
+          yLabel: 'E決定との平均差（点）',
+          caption: '各 E審判の個人点 − E決定 の平均。正=甘め（高くつけがち）／負=厳しめ／n=集計演技数。',
+        });
       }
       // deviation tab は HTML テーブルなので canvas 描画なし
     } else {
       // 大会
       if (compTab === 'hist') {
         const vals = valid(compEntries!.map((e) => getMetric(e, metric)));
+        const histLabels = {
+          title: `${METRIC_LABELS[metric]} の分布（${apparatus ?? ''}）`,
+          xLabel: `${METRIC_LABELS[metric]}（点）`,
+          yLabel: '演技数',
+          caption: '横軸=点数帯 / 縦軸=その帯に入った演技数。● は個々の演技の実値（同じ帯のものは縦に重ねて表示）。',
+        };
         if (vals.length === 0) {
-          drawHistogramWithDots(c, area, []);
+          drawHistogramWithDots(c, area, [], 2, histLabels);
         } else {
           const minV = Math.min(...vals);
           const maxV = Math.max(...vals);
@@ -185,7 +195,7 @@ export default function StatsModal({
           const lo = Math.floor(minV / binWidth) * binWidth;
           const hi = Math.ceil(maxV / binWidth) * binWidth;
           const bins = histogram(vals, { binWidth, min: lo, max: hi });
-          drawHistogramWithDots(c, area, bins, metric === 'd' || metric === 'nd' ? 1 : 2);
+          drawHistogramWithDots(c, area, bins, metric === 'd' || metric === 'nd' ? 1 : 2, histLabels);
         }
       } else if (compTab === 'box') {
         const vals = valid(compEntries!.map((e) => getMetric(e, metric)));
@@ -193,7 +203,11 @@ export default function StatsModal({
         drawBoxplot(c, area, groups);
       } else if (compTab === 'bias') {
         const bars = computeBiasBars(compEntries!, eJudgeCount);
-        drawBiasBars(c, area, bars);
+        drawBiasBars(c, area, bars, {
+          title: `E審判の甘辛バイアス（${apparatus ?? ''}）`,
+          yLabel: 'E決定との平均差（点）',
+          caption: '各 E審判の個人点 − E決定 の平均。正=甘め（高くつけがち）／負=厳しめ／n=集計演技数。',
+        });
       }
     }
   }, [data, mode, trialTab, compTab, metric, selectedAthletes, trialEntries, compEntries, eJudgeCount]);

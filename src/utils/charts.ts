@@ -411,19 +411,46 @@ export function drawBoxplot(
 }
 
 // ===== ヒストグラム + ドットオーバーレイ =====
+export interface HistogramLabels {
+  title?: string;       // 例: "決定点の分布"
+  xLabel?: string;      // 例: "決定点（点）"
+  yLabel?: string;      // 例: "演技数"
+  caption?: string;     // 例: "● は各演技の実値"
+}
+
 export function drawHistogramWithDots(
   c: CanvasRenderingContext2D,
   area: Rect,
   bins: HistBin[],
   digits = 2,
+  labels: HistogramLabels = {},
 ): void {
+  // タイトル / キャプションの分だけ描画領域を確保
+  const titleH = labels.title ? 22 : 0;
+  const captionH = labels.caption ? 16 : 0;
+  const xAxisH = 40 + (labels.xLabel ? 16 : 0);
+  const leftPad = 50 + (labels.yLabel ? 16 : 0);
+
+  if (labels.title) {
+    c.fillStyle = CHART_COLORS.text;
+    c.font = FONT_BOLD(14);
+    c.textAlign = 'left';
+    c.textBaseline = 'top';
+    c.fillText(labels.title, area.x + 4, area.y + 2);
+  }
+
   if (bins.length === 0) {
-    drawEmpty(c, area);
+    drawEmpty(c, { x: area.x, y: area.y + titleH, w: area.w, h: area.h - titleH });
     return;
   }
   const maxCount = Math.max(...bins.map((b) => b.count), 1);
 
-  const plotArea: Rect = { x: area.x + 50, y: area.y, w: area.w - 60, h: area.h - 40 };
+  const plotArea: Rect = {
+    x: area.x + leftPad,
+    y: area.y + titleH,
+    w: area.w - leftPad - 10,
+    h: area.h - titleH - xAxisH - captionH,
+  };
   // Y 軸 = 度数
   const yScale = drawYAxis(c, plotArea, 0, maxCount);
 
@@ -486,6 +513,40 @@ export function drawHistogramWithDots(
       c.fill();
     }
   }
+
+  // X 軸ラベル
+  if (labels.xLabel) {
+    c.fillStyle = CHART_COLORS.textMuted;
+    c.font = FONT_REG(11);
+    c.textAlign = 'center';
+    c.textBaseline = 'top';
+    c.fillText(labels.xLabel, plotArea.x + plotArea.w / 2, plotArea.y + plotArea.h + 24);
+  }
+
+  // Y 軸ラベル（縦書き相当：90°回転）
+  if (labels.yLabel) {
+    c.save();
+    c.fillStyle = CHART_COLORS.textMuted;
+    c.font = FONT_REG(11);
+    c.textAlign = 'center';
+    c.textBaseline = 'middle';
+    c.translate(area.x + 12, plotArea.y + plotArea.h / 2);
+    c.rotate(-Math.PI / 2);
+    c.fillText(labels.yLabel, 0, 0);
+    c.restore();
+  }
+
+  // キャプション（凡例的な補足）
+  if (labels.caption) {
+    c.fillStyle = CHART_COLORS.textMuted;
+    c.font = FONT_REG(11);
+    c.textAlign = 'left';
+    c.textBaseline = 'bottom';
+    c.fillText(labels.caption, area.x + 4, area.y + area.h - 2);
+  }
+
+  c.textAlign = 'left';
+  c.textBaseline = 'alphabetic';
 }
 
 // ===== E審判個人バイアス棒グラフ =====
@@ -495,20 +556,44 @@ export interface BiasBar {
   n: number;
 }
 
+export interface BiasLabels {
+  title?: string;   // 例: "E審判の甘辛バイアス"
+  yLabel?: string;  // 例: "E決定との差（点）"
+  caption?: string; // 例: "正 = 平均より甘め／負 = 平均より厳しめ／n = 集計演技数"
+}
+
 export function drawBiasBars(
   c: CanvasRenderingContext2D,
   area: Rect,
   bars: BiasBar[],
+  labels: BiasLabels = {},
 ): void {
+  const titleH = labels.title ? 22 : 0;
+  const captionH = labels.caption ? 16 : 0;
+  const leftPad = 50 + (labels.yLabel ? 16 : 0);
+
+  if (labels.title) {
+    c.fillStyle = CHART_COLORS.text;
+    c.font = FONT_BOLD(14);
+    c.textAlign = 'left';
+    c.textBaseline = 'top';
+    c.fillText(labels.title, area.x + 4, area.y + 2);
+  }
+
   if (bars.length === 0) {
-    drawEmpty(c, area);
+    drawEmpty(c, { x: area.x, y: area.y + titleH, w: area.w, h: area.h - titleH });
     return;
   }
   const absMax = Math.max(0.05, ...bars.map((b) => Math.abs(b.value)));
   const yMin = -absMax * 1.2;
   const yMax = absMax * 1.2;
 
-  const plotArea: Rect = { x: area.x + 50, y: area.y, w: area.w - 60, h: area.h - 40 };
+  const plotArea: Rect = {
+    x: area.x + leftPad,
+    y: area.y + titleH,
+    w: area.w - leftPad - 10,
+    h: area.h - titleH - 40 - captionH,
+  };
   const yScale = drawYAxis(c, plotArea, yMin, yMax);
   const { centers } = drawXCategories(c, plotArea, bars.map((b) => b.label));
 
@@ -552,8 +637,31 @@ export function drawBiasBars(
     c.fillStyle = CHART_COLORS.textMuted;
     c.font = FONT_REG(10);
     c.textBaseline = 'top';
-    c.fillText(`n=${b.n}`, cx, area.y + area.h - 8);
+    c.fillText(`n=${b.n}`, cx, plotArea.y + plotArea.h + 22);
   }
+
+  // Y 軸ラベル
+  if (labels.yLabel) {
+    c.save();
+    c.fillStyle = CHART_COLORS.textMuted;
+    c.font = FONT_REG(11);
+    c.textAlign = 'center';
+    c.textBaseline = 'middle';
+    c.translate(area.x + 12, plotArea.y + plotArea.h / 2);
+    c.rotate(-Math.PI / 2);
+    c.fillText(labels.yLabel, 0, 0);
+    c.restore();
+  }
+
+  // キャプション
+  if (labels.caption) {
+    c.fillStyle = CHART_COLORS.textMuted;
+    c.font = FONT_REG(11);
+    c.textAlign = 'left';
+    c.textBaseline = 'bottom';
+    c.fillText(labels.caption, area.x + 4, area.y + area.h - 2);
+  }
+
   c.textAlign = 'left';
   c.textBaseline = 'alphabetic';
 }
