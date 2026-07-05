@@ -1414,14 +1414,17 @@ export default function JudgeSheet({
           title={stopwatchRunning ? '停止' : '開始'}
           aria-label={stopwatchRunning ? 'ストップウォッチを停止' : 'ストップウォッチを開始'}
           className={`shrink-0 px-4 py-2 rounded-lg font-mono font-bold text-lg tabular-nums min-h-[44px] min-w-[110px]
-                      border transition-colors
+                      border transition-colors inline-flex items-center justify-center gap-2
                       ${stopwatchRunning
-                        ? 'bg-success/10 border-success text-success animate-pulse'
+                        ? 'bg-success/10 border-success text-success'
                         : stopwatchMs > 0
                           ? 'bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-primary dark:text-accent'
                           : 'bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-100'}`}
         >
-          {formatStopwatch(stopwatchMs)}
+          {stopwatchRunning && (
+            <span className="inline-block w-2 h-2 rounded-full bg-success animate-pulse shrink-0" aria-hidden />
+          )}
+          <span>{formatStopwatch(stopwatchMs)}</span>
         </button>
         <button
           onClick={resetStopwatch}
