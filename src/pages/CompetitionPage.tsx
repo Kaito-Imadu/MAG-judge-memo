@@ -9,7 +9,7 @@ import { renderSheetCanvas, loadVaultImage } from '../utils/renderSheet';
 import RankingModal from '../components/RankingModal';
 import AddRotationModal from '../components/AddRotationModal';
 import EditRotationModal from '../components/EditRotationModal';
-import { calcFinal, getEFinal, formatScore, eFinalDecimals, FINAL_SCORE_DECIMALS } from '../utils/scoreCalc';
+import { calcFinal, getEFinal, formatScore, formatBonus, eFinalDecimals, FINAL_SCORE_DECIMALS } from '../utils/scoreCalc';
 import { rankBy } from '../hooks/useSessionScores';
 
 // サムネイル描画用定数（内部解像度。表示は列幅にフィット）
@@ -156,7 +156,7 @@ function ThumbCard({ rec, apparatus, eJudgeCount, vaultImg, isActive, onClick, o
           <span>D <span className="font-bold text-gray-800 dark:text-gray-200">{formatScore(ds.d, 1) || '-'}</span></span>
           <span>E <span className="font-bold text-gray-800 dark:text-gray-200">{formatScore(eFinalVal, decimals) || '-'}</span></span>
           <span>ND <span className="font-bold text-gray-800 dark:text-gray-200">{formatScore(ds.nd ?? 0, 1)}</span></span>
-          {ds.bonus && <span className="text-success font-bold">+0.1</span>}
+          {ds.bonus && <span className="text-success font-bold">{formatBonus(ds.bonusValue ?? 0.1)}</span>}
           <span className="ml-auto text-primary dark:text-accent font-bold text-sm">{formatScore(finalVal, FINAL_SCORE_DECIMALS) || '-'}</span>
         </div>
       )}

@@ -1,6 +1,6 @@
 import type { Apparatus } from '../types';
 import { APPARATUS_LIST, APPARATUS_MAP } from '../constants/apparatus';
-import { formatScore, FINAL_SCORE_DECIMALS } from './scoreCalc';
+import { formatScore, formatBonus, FINAL_SCORE_DECIMALS } from './scoreCalc';
 
 // ===== 共通定数 =====
 const CANVAS_W = 1080;
@@ -105,6 +105,7 @@ export interface AAApparatusEntry {
   eFinal?: number;
   nd?: number;
   bonus: boolean;
+  bonusValue?: number;
   final?: number;
 }
 
@@ -251,7 +252,7 @@ function drawAACard(
     c.fillText(ndStr, cx + AA_COLS[3].w - 12, rowY + 21);
     cx += AA_COLS[3].w;
 
-    const bonusStr = e?.bonus ? '+0.1' : '';
+    const bonusStr = formatBonus(e?.bonusValue ?? 0);
     c.fillStyle = e?.bonus ? SUCCESS : TEXT;
     c.font = FONT_MONO_BOLD(13);
     c.fillText(bonusStr, cx + AA_COLS[4].w - 12, rowY + 21);
@@ -312,6 +313,7 @@ export interface ApparatusItem {
   eFinal?: number;
   nd?: number;
   bonus: boolean;
+  bonusValue?: number;
   final?: number;
 }
 
@@ -452,7 +454,7 @@ async function renderApparatusPage(opts: {
         c.font = FONT_MONO_BOLD(14);
         c.fillStyle = item.bonus ? SUCCESS : TEXT;
         c.textAlign = 'right';
-        c.fillText(item.bonus ? '+0.1' : '', cx + col.w - 14, cellY);
+        c.fillText(formatBonus(item.bonusValue ?? 0), cx + col.w - 14, cellY);
       } else if (col.key === 'final') {
         c.font = FONT_MONO_BOLD(17);
         c.fillStyle = ACCENT;

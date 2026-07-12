@@ -28,22 +28,37 @@ export function eFinalDecimals(eScores: (number | undefined)[]): number {
   return n <= 3 ? 2 : 3;
 }
 
-// あん馬は加点 +0.1 を扱わない種目
+// あん馬は加点 を扱わない種目
 export function isBonusApplicable(apparatus?: Apparatus): boolean {
   return apparatus !== 'PH';
 }
 
-// 決定点 = D + E決定 − ND + (加点 ? 0.1 : 0)
+// 加点の適用値を返す。bonus=false や PH では 0。
+// bonus=true で bonusValue が未指定なら +0.1（従来仕様との後方互換）。
+export function getBonusValue(s: DigitalScores | undefined, apparatus?: Apparatus): number {
+  if (!s || !s.bonus) return 0;
+  if (!isBonusApplicable(apparatus)) return 0;
+  const v = typeof s.bonusValue === 'number' ? s.bonusValue : 0.1;
+  return v > 0 ? v : 0;
+}
+
+// 表示用: +0.1 / +0.3 など。0 なら空文字。
+export function formatBonus(v: number): string {
+  if (!(v > 0)) return '';
+  return `+${formatNatural(v, 3)}`;
+}
+
+// 決定点 = D + E決定 − ND + 加点
 // finalManual が指定されていればそれを優先。
 // E決定は eFinalManual があればそれ、なければ eScores から計算。
 // 表示桁数は常に小数第3位まで。最低値は 0.000 にクランプ。
-// apparatus が PH（あん馬）の場合は bonus を加算しない。
+// apparatus が PH（あん馬）の場合は加点を無視。
 export function calcFinal(s: DigitalScores, apparatus?: Apparatus): number | undefined {
   if (typeof s.finalManual === 'number') return Math.max(0, roundN(s.finalManual, 3));
   const eFinal = typeof s.eFinalManual === 'number' ? s.eFinalManual : calcEFinal(s.e);
   if (typeof s.d !== 'number' || typeof eFinal !== 'number') return undefined;
   const nd = typeof s.nd === 'number' ? s.nd : 0;
-  const bonus = s.bonus && isBonusApplicable(apparatus) ? 0.1 : 0;
+  const bonus = getBonusValue(s, apparatus);
   const raw = s.d + eFinal - nd + bonus;
   return Math.max(0, roundN(raw, 3));
 }
