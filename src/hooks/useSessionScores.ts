@@ -2,7 +2,7 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../db/database';
 import type { MemoRecord, Rotation } from '../db/database';
 import type { Apparatus } from '../types';
-import { calcFinal, getEFinal } from '../utils/scoreCalc';
+import { calcFinal, getEFinal, getBonusValue } from '../utils/scoreCalc';
 
 export interface ScoredEntry {
   record: MemoRecord;
@@ -10,6 +10,7 @@ export interface ScoredEntry {
   eFinal: number | undefined;
   nd: number | undefined;
   bonus: boolean;
+  bonusValue: number;   // 加点の実適用値（bonus=false や PH は 0）
   final: number | undefined;
 }
 
@@ -34,6 +35,7 @@ export function useSessionScores(sessionId: string | undefined): SessionScores |
         eFinal: ds ? getEFinal(ds) : undefined,
         nd: ds?.nd,
         bonus: ds?.bonus ?? false,
+        bonusValue: getBonusValue(ds, r.apparatus),
         final: ds ? calcFinal(ds, r.apparatus) : undefined,
       };
       return entry;

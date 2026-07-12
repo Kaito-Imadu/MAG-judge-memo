@@ -6,7 +6,8 @@ export interface DigitalScores {
   d?: number;                    // Dスコア（手入力）
   e: (number | undefined)[];     // E1..EN（length=eJudgeCount、最大5）
   nd?: number;                   // ND（手入力）
-  bonus: boolean;                // +0.1 加点フラグ
+  bonus: boolean;                // 加点フラグ（true なら bonusValue、なければ +0.1 を加算）
+  bonusValue?: number;           // 加点値。未指定なら +0.1。bonus=false のときは無視。
   eFinalManual?: number;         // E決定の手動上書き（未指定なら e から自動計算）
   finalManual?: number;          // 決定点の手動上書き（未指定なら自動計算）
 }

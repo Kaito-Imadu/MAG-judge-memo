@@ -7,7 +7,7 @@ import type { Apparatus, DigitalScores } from '../types';
 import type { StrokeData } from '../db/database';
 import { APPARATUS_LIST } from '../constants/apparatus';
 import { getNDChecklist } from '../constants/deductions';
-import { calcFinal, getEFinal, formatScore, formatNatural, eFinalDecimals, FINAL_SCORE_DECIMALS, isBonusApplicable } from './scoreCalc';
+import { calcFinal, getEFinal, formatScore, formatNatural, formatBonus, getBonusValue, eFinalDecimals, FINAL_SCORE_DECIMALS, isBonusApplicable } from './scoreCalc';
 
 // JudgeSheet と同じ定数
 const LABEL_H = 52;
@@ -169,9 +169,10 @@ function drawScoreFooter(
   ];
 
   if (bonusEnabled) {
+    const bv = getBonusValue(digitalScores, apparatus);
     lowerCells.push({
       label: '加点',
-      value: digitalScores?.bonus ? '+0.1' : 'OFF',
+      value: digitalScores?.bonus ? formatBonus(bv > 0 ? bv : (digitalScores.bonusValue ?? 0.1)) : 'OFF',
     });
   }
 

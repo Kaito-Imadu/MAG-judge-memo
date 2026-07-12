@@ -5,7 +5,7 @@ import { APPARATUS_LIST } from '../constants/apparatus';
 import { useSessionScores, rankBy, computeTeamScores } from '../hooks/useSessionScores';
 import type { ScoredEntry, TeamMetric } from '../hooks/useSessionScores';
 import type { TeamScoring } from '../db/database';
-import { formatScore, FINAL_SCORE_DECIMALS } from '../utils/scoreCalc';
+import { formatScore, formatBonus, FINAL_SCORE_DECIMALS } from '../utils/scoreCalc';
 import {
   exportAARanking,
   exportApparatusRanking,
@@ -132,6 +132,7 @@ export default function RankingModal({ sessionId, sessionName, sessionDate, mode
             eFinal: e.eFinal,
             nd: e.nd,
             bonus: e.bonus,
+            bonusValue: e.bonusValue,
             final: e.final,
           };
         });
@@ -158,6 +159,7 @@ export default function RankingModal({ sessionId, sessionName, sessionDate, mode
                 eFinal: e.eFinal,
                 nd: e.nd,
                 bonus: e.bonus,
+                bonusValue: e.bonusValue,
                 final: e.final,
               };
               total += e.final;
@@ -169,6 +171,7 @@ export default function RankingModal({ sessionId, sessionName, sessionDate, mode
                 eFinal: e.eFinal,
                 nd: e.nd,
                 bonus: e.bonus,
+                bonusValue: e.bonusValue,
                 final: e.final,
               };
             }
@@ -203,6 +206,7 @@ export default function RankingModal({ sessionId, sessionName, sessionDate, mode
           eFinal: r.item.e?.eFinal,
           nd: r.item.e?.nd,
           bonus: r.item.e?.bonus ?? false,
+          bonusValue: r.item.e?.bonusValue,
           final: r.item.e?.final,
         }));
         result = await exportApparatusRanking({
@@ -256,7 +260,7 @@ export default function RankingModal({ sessionId, sessionName, sessionDate, mode
             <td className="px-3 py-2 text-sm font-mono text-right">{formatScore(e.d, 1)}</td>
             <td className="px-3 py-2 text-sm font-mono text-right">{formatScore(e.eFinal, decimals)}</td>
             <td className="px-3 py-2 text-sm font-mono text-right">{formatScore(e.nd ?? 0, 1)}</td>
-            <td className="px-3 py-2 text-sm font-mono text-right">{e.bonus ? '+0.1' : ''}</td>
+            <td className="px-3 py-2 text-sm font-mono text-right">{formatBonus(e.bonusValue)}</td>
             <td className={`px-3 py-2 text-sm font-mono text-right font-bold ${typeof e.final === 'number' ? 'text-primary dark:text-accent' : 'text-gray-300'}`}>
               {formatScore(e.final, FINAL_SCORE_DECIMALS) || '-'}
             </td>
@@ -293,7 +297,7 @@ export default function RankingModal({ sessionId, sessionName, sessionDate, mode
             <td className="px-3 py-2 text-sm font-mono text-right">{r.item.e ? formatScore(r.item.e.d, 1) : ''}</td>
             <td className="px-3 py-2 text-sm font-mono text-right">{r.item.e ? formatScore(r.item.e.eFinal, decimals) : ''}</td>
             <td className="px-3 py-2 text-sm font-mono text-right">{r.item.e ? formatScore(r.item.e.nd ?? 0, 1) : ''}</td>
-            <td className="px-3 py-2 text-sm font-mono text-right">{r.item.e?.bonus ? '+0.1' : ''}</td>
+            <td className="px-3 py-2 text-sm font-mono text-right">{formatBonus(r.item.e?.bonusValue ?? 0)}</td>
             <td className={`px-3 py-2 text-sm font-mono text-right font-bold ${typeof r.item.e?.final === 'number' ? 'text-primary dark:text-accent' : 'text-gray-300'}`}>
               {formatScore(r.item.e?.final, FINAL_SCORE_DECIMALS) || '-'}
             </td>

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import type { DigitalScores, Apparatus } from '../types';
-import { calcEFinal, calcFinal, formatScore, formatNatural, eFinalDecimals, FINAL_SCORE_DECIMALS } from '../utils/scoreCalc';
+import { calcEFinal, calcFinal, formatScore, formatNatural, formatBonus, eFinalDecimals, FINAL_SCORE_DECIMALS } from '../utils/scoreCalc';
 import ScoreNumpad from './ScoreNumpad';
 
 interface Props {
@@ -10,7 +10,7 @@ interface Props {
   onChange: (next: DigitalScores) => void;
 }
 
-type CellKind = 'd' | 'nd' | 'eFinal' | 'final' | 'e';
+type CellKind = 'd' | 'nd' | 'eFinal' | 'final' | 'e' | 'bonus';
 interface Editing { kind: CellKind; index?: number; }
 
 // 上段: E1..EN
@@ -57,6 +57,7 @@ export default function ScoreInputBar({ value, eJudgeCount, apparatus, onChange 
     if (c.kind === 'nd') return normalized.nd;
     if (c.kind === 'eFinal') return normalized.eFinalManual;
     if (c.kind === 'final') return normalized.finalManual;
+    if (c.kind === 'bonus') return normalized.bonus ? (normalized.bonusValue ?? 0.1) : (normalized.bonusValue ?? 0.1);
     return undefined;
   };
 
@@ -66,6 +67,7 @@ export default function ScoreInputBar({ value, eJudgeCount, apparatus, onChange 
     if (c.kind === 'nd') return 'ND';
     if (c.kind === 'eFinal') return directEFinalInput ? 'E決定' : 'E決定（手動上書き）';
     if (c.kind === 'final') return '決定点（手動上書き）';
+    if (c.kind === 'bonus') return '加点（値）';
     return '';
   };
 
@@ -76,6 +78,15 @@ export default function ScoreInputBar({ value, eJudgeCount, apparatus, onChange 
     else if (c.kind === 'nd') next.nd = v;
     else if (c.kind === 'eFinal') next.eFinalManual = v;
     else if (c.kind === 'final') next.finalManual = v;
+    else if (c.kind === 'bonus') {
+      if (typeof v === 'number' && v > 0) {
+        next.bonus = true;
+        next.bonusValue = v;
+      } else {
+        next.bonus = false;
+        next.bonusValue = undefined;
+      }
+    }
     return next;
   };
 
@@ -147,26 +158,39 @@ export default function ScoreInputBar({ value, eJudgeCount, apparatus, onChange 
             <span className={valueClass}>{formatScore(normalized.nd ?? 0, 1)}</span>,
             bonusDisabled ? 'w-[16%]' : 'w-[12%]',
           )}
-          {/* 加点トグル（あん馬では非表示） */}
+          {/* 加点トグル（あん馬では非表示）
+              タップ本体: OFF↔ON をトグル（値は bonusValue ?? 0.1 を維持）
+              右上の ⋯: ScoreNumpad で加点値を任意に設定 */}
           {!bonusDisabled && (
-            <button
-              onClick={toggleBonus}
-              className={`${cellBase} w-[16%] h-full transition-colors ${
-                normalized.bonus
-                  ? 'bg-success/10 hover:bg-success/15'
-                  : 'hover:bg-accent/5'
-              }`}
-              style={{ touchAction: 'manipulation' }}
-            >
-              <span className={labelClass}>加点</span>
-              <span className={`text-base font-mono font-semibold leading-tight ${
+            <div className={`w-[16%] h-full relative flex flex-col items-center justify-center
+                             border-r border-gray-300 dark:border-gray-700 last:border-r-0 select-none transition-colors ${
+              normalized.bonus ? 'bg-success/10' : ''
+            }`}>
+              <button
+                onClick={toggleBonus}
+                className="absolute inset-0 hover:bg-accent/5 active:bg-accent/10 transition-colors"
+                style={{ touchAction: 'manipulation' }}
+                aria-label={normalized.bonus ? '加点をOFFにする' : '加点をONにする'}
+              />
+              <span className={`${labelClass} pointer-events-none relative`}>加点</span>
+              <span className={`text-base font-mono font-semibold leading-tight pointer-events-none relative ${
                 normalized.bonus
                   ? 'text-success'
                   : 'text-gray-300 dark:text-gray-600'
               }`}>
-                {normalized.bonus ? '+0.1' : 'OFF'}
+                {normalized.bonus ? formatBonus(normalized.bonusValue ?? 0.1) : 'OFF'}
               </span>
-            </button>
+              <button
+                onClick={(e) => { e.stopPropagation(); setEditing({ kind: 'bonus' }); }}
+                className="absolute top-0.5 right-0.5 z-10 w-6 h-6 flex items-center justify-center rounded
+                           text-[13px] leading-none text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700"
+                style={{ touchAction: 'manipulation' }}
+                title="加点値を変更"
+                aria-label="加点値を変更"
+              >
+                ⋯
+              </button>
+            </div>
           )}
           {renderInputCell(
             { kind: 'final' },
