@@ -20,6 +20,7 @@ interface DeletedPageSnapshot {
   records: MemoRecord[];
   shiftedRecords: MemoRecord[];
   totalPages: number;
+  rotationsBefore: Rotation[];
 }
 
 function drawThumbnail(
@@ -303,11 +304,18 @@ export default function CompetitionPage() {
       .where('sessionId').equals(sessionId)
       .filter(r => r.pageNumber > page)
       .toArray();
+    // 削除ページが属するローテーションを特定し、Undo用に全ローテを退避
+    const rotationsBefore = await db.rotations.where('sessionId').equals(sessionId).toArray();
+    const targetRec = targetRecords[0];
+    const ownerRotation = targetRec?.rotationId
+      ? rotationsBefore.find(r => r.id === targetRec.rotationId) ?? null
+      : rotationsBefore.find(r => page >= r.startPage && page < r.startPage + r.athletes.length) ?? null;
     setDeletedPage({
       page,
       records: targetRecords,
       shiftedRecords,
       totalPages,
+      rotationsBefore,
     });
 
     // 削除/リナンバリング中はJudgeSheetの自動保存を抑止する。
@@ -319,7 +327,7 @@ export default function CompetitionPage() {
       flushSync(() => setCurrentPage(interimPage));
     }
 
-    await db.transaction('rw', db.memoRecords, async () => {
+    await db.transaction('rw', db.memoRecords, db.rotations, async () => {
       await db.memoRecords.where('id').equals(`comp:${sessionId}:${page}`).delete();
       for (const rec of shiftedRecords) {
         const newPage = rec.pageNumber - 1;
@@ -331,6 +339,25 @@ export default function CompetitionPage() {
           updatedAt: new Date(),
         });
       }
+
+      // ローテーションの athletes / startPage をページ削除後の実際のページ構成に合わせて補正する。
+      // これを怠ると、以後の編集(EditRotationModal)や団体集計が
+      // 「名前」と「実ページの採点内容」がずれた状態のまま古い startPage を参照し続けてしまう。
+      for (const rot of rotationsBefore) {
+        if (ownerRotation && rot.id === ownerRotation.id) {
+          const idx = page - rot.startPage;
+          const nextAthletes = [...rot.athletes];
+          if (idx >= 0 && idx < nextAthletes.length) nextAthletes.splice(idx, 1);
+          if (nextAthletes.length === 0) {
+            await db.rotations.delete(rot.id);
+            continue;
+          }
+          const nextStartPage = rot.startPage > page ? rot.startPage - 1 : rot.startPage;
+          await db.rotations.put({ ...rot, athletes: nextAthletes, startPage: nextStartPage });
+        } else if (rot.startPage > page) {
+          await db.rotations.put({ ...rot, startPage: rot.startPage - 1 });
+        }
+      }
     });
 
     const nextTotal = Math.max(1, totalPages - 1);
@@ -338,6 +365,9 @@ export default function CompetitionPage() {
     recs.sort((a, b) => a.pageNumber - b.pageNumber);
     setPageRecords(recs);
     setTotalPages(nextTotal);
+    const rots = await db.rotations.where('sessionId').equals(sessionId).toArray();
+    rots.sort((a, b) => a.order - b.order);
+    setRotations(rots);
     flushSync(() => {
       setCurrentPage(prev => Math.min(currentPage >= page ? Math.max(1, currentPage - 1) : prev, nextTotal));
     });
@@ -347,7 +377,7 @@ export default function CompetitionPage() {
 
   const undoDeletePage = async () => {
     if (!sessionId || !deletedPage) return;
-    await db.transaction('rw', db.memoRecords, async () => {
+    await db.transaction('rw', db.memoRecords, db.rotations, async () => {
       const shiftedDesc = [...deletedPage.shiftedRecords].sort((a, b) => b.pageNumber - a.pageNumber);
       for (const original of shiftedDesc) {
         const currentPageNo = original.pageNumber - 1;
@@ -358,12 +388,26 @@ export default function CompetitionPage() {
       for (const rec of deletedPage.records) {
         await db.memoRecords.put(rec);
       }
+
+      // ローテーションを削除前のスナップショットに復元
+      // (削除でメンバー0人になり db から消えたローテーションも put で復元される)
+      const currentRotations = await db.rotations.where('sessionId').equals(sessionId).toArray();
+      const beforeIds = new Set(deletedPage.rotationsBefore.map(r => r.id));
+      for (const rot of currentRotations) {
+        if (!beforeIds.has(rot.id)) await db.rotations.delete(rot.id);
+      }
+      for (const rot of deletedPage.rotationsBefore) {
+        await db.rotations.put(rot);
+      }
     });
     const recs = await db.memoRecords.where('sessionId').equals(sessionId).toArray();
     recs.sort((a, b) => a.pageNumber - b.pageNumber);
     setPageRecords(recs);
     setTotalPages(deletedPage.totalPages);
     setCurrentPage(deletedPage.page);
+    const rots = await db.rotations.where('sessionId').equals(sessionId).toArray();
+    rots.sort((a, b) => a.order - b.order);
+    setRotations(rots);
     setDeletedPage(null);
   };
 
