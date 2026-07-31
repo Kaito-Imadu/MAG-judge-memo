@@ -148,11 +148,6 @@ export default function TrialJudgePage() {
     if (sessionId) db.sessions.get(sessionId).then(s => { if (s) setSession(s); });
   }, [sessionId]);
 
-  // パネル開いた時のデフォルト種目は現在の種目
-  useEffect(() => {
-    if (showListPanel) setListApparatus(currentApparatus);
-  }, [showListPanel, currentApparatus]);
-
   // VT 画像はサムネで使うので遅延ロード（一度ロードしたらキャッシュ）
   useEffect(() => {
     if (vaultImg) return;
@@ -187,7 +182,7 @@ export default function TrialJudgePage() {
   const toolbarExtra = (
     <>
       <div className="w-px h-4 bg-gray-300" />
-      <button onClick={() => setShowListPanel(true)}
+      <button onClick={() => { setListApparatus(currentApparatus); setShowListPanel(true); }}
         title="一覧を表示"
         className="flex items-center gap-1 px-2 py-1.5 rounded-lg text-xs font-bold min-h-[44px]
                    bg-white dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600">
