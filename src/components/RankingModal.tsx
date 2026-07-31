@@ -645,7 +645,12 @@ function TeamRankingTable({ ranked, unqualified, topN, metricLabel, decimals }: 
                                 isPicked ? 'border-success' : 'border-gray-300 opacity-60'
                               }`}>
                               <div className="text-[10px] text-gray-500">{isPicked ? '採用' : '控え'}</div>
-                              <div className="text-sm font-bold text-gray-800 dark:text-gray-200 truncate">{m.name}</div>
+                              <div className="text-sm font-bold text-gray-800 dark:text-gray-200 truncate">
+                                {m.name}
+                                {typeof m.entry?.record.pageNumber === 'number' && (
+                                  <span className="ml-1 text-xs font-normal text-gray-400">#{m.entry.record.pageNumber}</span>
+                                )}
+                              </div>
                               <div className={`text-sm font-mono ${isPicked ? 'text-success' : 'text-gray-400'}`}>
                                 {formatScore(v, decimals) || '未入力'}
                               </div>
