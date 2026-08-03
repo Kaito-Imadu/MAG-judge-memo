@@ -4,7 +4,7 @@ import type { Apparatus } from '../types';
 import { APPARATUS_LIST } from '../constants/apparatus';
 import { useSessionScores, rankBy, computeTeamScores } from '../hooks/useSessionScores';
 import type { ScoredEntry, TeamMetric } from '../hooks/useSessionScores';
-import type { TeamScoring } from '../db/database';
+import type { TeamScoring, MemoRecord, Rotation } from '../db/database';
 import { formatScore, formatBonus, FINAL_SCORE_DECIMALS } from '../utils/scoreCalc';
 import {
   exportAARanking,
@@ -123,11 +123,12 @@ export default function RankingModal({ sessionId, sessionName, sessionDate, mode
         const items: ApparatusItem[] = ranked.map((r) => {
           const e = r.item;
           const namePart = (e.record.digitalAthleteName || '').trim();
-          const name = namePart || `P${e.record.pageNumber}`;
+          const name = namePart || '(無名)';
           return {
             rank: r.rank,
             prefix: `#${e.record.pageNumber}`,
             name,
+            team: resolveTeamName(e.record, data.rotations),
             d: e.d,
             eFinal: e.eFinal,
             nd: e.nd,
@@ -142,6 +143,7 @@ export default function RankingModal({ sessionId, sessionName, sessionDate, mode
           apparatus,
           eJudgeCount,
           hasPrefix: true,
+          hasTeam: hasTeams,
           items,
         });
       } else if (mode === 'trial' && trialTab === 'aa') {
@@ -235,7 +237,8 @@ export default function RankingModal({ sessionId, sessionName, sessionDate, mode
       return ranked.map(r => {
         const e = r.item;
         const namePart = (e.record.digitalAthleteName || '').trim();
-        const name = namePart || `P${e.record.pageNumber}`;
+        const name = namePart || '(無名)';
+        const teamName = resolveTeamName(e.record, data.rotations);
         const jumpable = !!onJumpToPage;
         const jump = () => {
           if (!onJumpToPage) return;
@@ -247,6 +250,9 @@ export default function RankingModal({ sessionId, sessionName, sessionDate, mode
             <td className="px-3 py-2 text-sm font-bold text-gray-700 dark:text-gray-300 w-12">
               {r.rank ?? '-'}
             </td>
+            <td className="px-3 py-2 text-xs font-mono text-gray-400 whitespace-nowrap">
+              #{e.record.pageNumber}
+            </td>
             <td className="px-3 py-2 text-sm">
               {jumpable ? (
                 <button onClick={jump}
@@ -257,6 +263,11 @@ export default function RankingModal({ sessionId, sessionName, sessionDate, mode
                 <span className="text-gray-800 dark:text-gray-200">{name}</span>
               )}
             </td>
+            {hasTeams && (
+              <td className="px-3 py-2 text-xs text-gray-500 dark:text-gray-400 whitespace-nowrap">
+                {teamName ?? '-'}
+              </td>
+            )}
             <td className="px-3 py-2 text-sm font-mono text-right">{formatScore(e.d, 1)}</td>
             <td className="px-3 py-2 text-sm font-mono text-right">{formatScore(e.eFinal, decimals)}</td>
             <td className="px-3 py-2 text-sm font-mono text-right">{formatScore(e.nd ?? 0, 1)}</td>
@@ -357,7 +368,7 @@ export default function RankingModal({ sessionId, sessionName, sessionDate, mode
       </tr>
       );
     });
-  }, [data, mode, apparatus, athletes, trialTab, appTab, sortKey, decimals, sessionId, onJumpToPage, navigate, onClose]);
+  }, [data, mode, apparatus, athletes, trialTab, appTab, sortKey, decimals, sessionId, onJumpToPage, navigate, onClose, hasTeams]);
 
   return (
     <div className="fixed inset-0 z-[90] bg-black/40 flex items-center justify-center p-4" onClick={onClose}>
@@ -519,7 +530,13 @@ export default function RankingModal({ sessionId, sessionName, sessionDate, mode
               ) : (
                 <tr>
                   <th className="px-3 py-2 text-xs font-bold text-gray-500 text-left">順位</th>
-                  <th className="px-3 py-2 text-xs font-bold text-gray-500 text-left">{mode === 'competition' ? 'ページ/選手' : '選手'}</th>
+                  {mode === 'competition' && (
+                    <th className="px-3 py-2 text-xs font-bold text-gray-500 text-left">#</th>
+                  )}
+                  <th className="px-3 py-2 text-xs font-bold text-gray-500 text-left">選手</th>
+                  {mode === 'competition' && hasTeams && (
+                    <th className="px-3 py-2 text-xs font-bold text-gray-500 text-left">団体</th>
+                  )}
                   <th className="px-3 py-2 text-xs font-bold text-gray-500 text-right">D</th>
                   <th className="px-3 py-2 text-xs font-bold text-gray-500 text-right">E決定</th>
                   <th className="px-3 py-2 text-xs font-bold text-gray-500 text-right">ND</th>
@@ -551,6 +568,18 @@ function entryScore(e: ScoredEntry, k: SortKey): number | undefined {
   if (k === 'final') return e.final;
   if (k === 'd') return e.d;
   return e.eFinal;
+}
+
+// レコードが属するローテーションの団体名を解決（rotationId優先、無ければstartPage範囲でフォールバック）
+function resolveTeamName(record: MemoRecord, rotations: Rotation[]): string | undefined {
+  if (record.rotationId) {
+    const direct = rotations.find(r => r.id === record.rotationId);
+    if (direct) return direct.teamName;
+  }
+  const byRange = rotations.find(r =>
+    record.pageNumber >= r.startPage && record.pageNumber < r.startPage + r.athletes.length,
+  );
+  return byRange?.teamName;
 }
 
 // ===== 団体ランキング表 =====

@@ -309,6 +309,7 @@ export interface ApparatusItem {
   rank: number | undefined;
   prefix?: string; // 大会モード: '#3' (ページ番号)
   name: string;
+  team?: string; // 大会モード: 所属団体名
   d?: number;
   eFinal?: number;
   nd?: number;
@@ -322,17 +323,19 @@ const APP_TABLE_HEADER_H = 40;
 const APP_TABLE_ROW_H = 42;
 
 // 種目別/大会の列定義 (cardW = 1032)
-function appCols(hasPrefix: boolean): { key: string; label: string; w: number; align: 'left' | 'right' }[] {
-  // 順位 + (#プレフィックス) + 選手 + D + E決定 + ND + 加点 + 決定点
+function appCols(hasPrefix: boolean, hasTeam: boolean): { key: string; label: string; w: number; align: 'left' | 'right' }[] {
+  // 順位 + (#プレフィックス) + 選手 + (団体) + D + E決定 + ND + 加点 + 決定点
   const cols: { key: string; label: string; w: number; align: 'left' | 'right' }[] = [];
   cols.push({ key: 'rank', label: '順位', w: 80, align: 'left' });
   if (hasPrefix) cols.push({ key: 'prefix', label: '#', w: 70, align: 'left' });
   // 選手列の幅は残りから算出
   const fixedRest = 130 + 170 + 130 + 110 + 170; // D + E決定 + ND + 加点 + 決定点
+  const teamW = hasTeam ? 150 : 0;
   const tableW = CANVAS_W - PADDING * 2;
   const taken = cols.reduce((s, x) => s + x.w, 0);
-  const nameW = tableW - taken - fixedRest;
+  const nameW = tableW - taken - fixedRest - teamW;
   cols.push({ key: 'name', label: '選手', w: nameW, align: 'left' });
+  if (hasTeam) cols.push({ key: 'team', label: '団体', w: teamW, align: 'left' });
   cols.push({ key: 'd', label: 'D', w: 130, align: 'right' });
   cols.push({ key: 'eFinal', label: 'E決定', w: 170, align: 'right' });
   cols.push({ key: 'nd', label: 'ND', w: 130, align: 'right' });
@@ -362,6 +365,7 @@ async function renderApparatusPage(opts: {
   apparatusName: string;
   eJudgeCount: number;
   hasPrefix: boolean; // 大会モード=true（# 列を出す）
+  hasTeam: boolean;   // 団体登録があるセッション=true（団体 列を出す）
 }): Promise<Blob> {
   const decimals = opts.eJudgeCount <= 3 ? 2 : 3;
   const h = appPageHeight(opts.pageItems.length);
@@ -375,7 +379,7 @@ async function renderApparatusPage(opts: {
     `${opts.sessionName}  /  ${formatJaDate(opts.sessionDate)}`,
   );
 
-  const cols = appCols(opts.hasPrefix);
+  const cols = appCols(opts.hasPrefix, opts.hasTeam);
   const tableX = PADDING;
   const tableY = HEADER_H + PADDING;
   const tableW = CANVAS_W - PADDING * 2;
@@ -435,6 +439,11 @@ async function renderApparatusPage(opts: {
         c.fillStyle = TEXT;
         c.textAlign = 'left';
         c.fillText(item.name, cx + 14, cellY);
+      } else if (col.key === 'team') {
+        c.font = FONT_REG(13);
+        c.fillStyle = TEXT_MUTED;
+        c.textAlign = 'left';
+        c.fillText(item.team ?? '-', cx + 14, cellY);
       } else if (col.key === 'd') {
         c.font = FONT_MONO(14);
         c.fillStyle = TEXT;
@@ -560,6 +569,7 @@ export async function exportApparatusRanking(opts: {
   apparatus: Apparatus;
   eJudgeCount: number;
   hasPrefix: boolean; // 大会モード=true
+  hasTeam?: boolean;  // 団体登録があるセッション=true
   items: ApparatusItem[];
 }): Promise<{ shared: number }> {
   const ranked = opts.items.filter((it) => it.rank !== undefined);
@@ -582,6 +592,7 @@ export async function exportApparatusRanking(opts: {
       apparatusName,
       eJudgeCount: opts.eJudgeCount,
       hasPrefix: opts.hasPrefix,
+      hasTeam: opts.hasTeam ?? false,
     });
     const name = pages.length === 1 ? `${baseName}.png` : `${baseName}_p${i + 1}.png`;
     files.push(new File([blob], name, { type: 'image/png' }));
