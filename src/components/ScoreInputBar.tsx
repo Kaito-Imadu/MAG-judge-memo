@@ -200,10 +200,10 @@ export default function ScoreInputBar({ value, eJudgeCount, apparatus, rank, onC
             (typeof normalized.finalManual === 'number' || finalDisplay !== undefined)
               ? (
                 <>
-                  {/* 決定点はマスの中央に置き、順位は右下に絶対配置で逃がす */}
+                  {/* 決定点はマスの中央に置き、順位は同じ高さの右側に絶対配置で逃がす */}
                   <span className={`text-lg font-mono font-bold leading-tight ${typeof normalized.finalManual === 'number' ? 'text-accent' : 'text-primary dark:text-accent'}`}>{formatScore(finalDisplay, FINAL_SCORE_DECIMALS)}</span>
                   {rank && (
-                    <span className={`absolute bottom-0.5 right-1.5 text-[13px] font-bold leading-none tabular-nums pointer-events-none ${
+                    <span className={`absolute top-1/2 -translate-y-1/2 right-1.5 text-[13px] font-bold leading-none tabular-nums pointer-events-none ${
                       rank.tied > 0
                         ? 'text-amber-600 dark:text-amber-400'
                         : 'text-gray-600 dark:text-gray-300'
