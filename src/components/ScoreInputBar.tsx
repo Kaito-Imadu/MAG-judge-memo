@@ -199,13 +199,13 @@ export default function ScoreInputBar({ value, eJudgeCount, apparatus, rank, onC
             { kind: 'final' },
             (typeof normalized.finalManual === 'number' || finalDisplay !== undefined)
               ? (
-                // 決定点はマスの中央に置き、順位は決定点テキストの下端に揃えて右へ逃がす
-                // （ラベル込みのセル全体基準だと決定点の実際の下端とズレるため、
-                //  決定点自体を基準にした相対配置にする）
-                <span className="relative inline-block">
+                // 決定点はマスの中央に置き、順位は右下に配置。
+                // ラップ用の span を決定点と同じ高さにして、その bottom-0 を基準にすることで
+                // 順位の下端を決定点の実際の下端（セル全体基準ではない）に正確に揃える。
+                <span className="relative w-full flex justify-center">
                   <span className={`text-lg font-mono font-bold leading-tight ${typeof normalized.finalManual === 'number' ? 'text-accent' : 'text-primary dark:text-accent'}`}>{formatScore(finalDisplay, FINAL_SCORE_DECIMALS)}</span>
                   {rank && (
-                    <span className={`absolute bottom-0 left-full ml-1 text-[13px] font-bold leading-none tabular-nums whitespace-nowrap pointer-events-none ${
+                    <span className={`absolute bottom-0 right-1.5 text-[13px] font-bold leading-none tabular-nums whitespace-nowrap pointer-events-none ${
                       rank.tied > 0
                         ? 'text-amber-600 dark:text-amber-400'
                         : 'text-gray-600 dark:text-gray-300'
