@@ -199,17 +199,18 @@ export default function ScoreInputBar({ value, eJudgeCount, apparatus, rank, onC
             { kind: 'final' },
             (typeof normalized.finalManual === 'number' || finalDisplay !== undefined)
               ? (
-                <span className="flex items-center gap-2">
+                <span className="flex items-baseline gap-1">
                   <span className={`text-lg font-mono font-bold leading-tight ${typeof normalized.finalManual === 'number' ? 'text-accent' : 'text-primary dark:text-accent'}`}>{formatScore(finalDisplay, FINAL_SCORE_DECIMALS)}</span>
                   {/* 暫定順位。同点の相手がいるときは色を変えて知らせる */}
                   {rank && (
-                    <span className={`shrink-0 px-1.5 py-0.5 rounded font-bold text-[11px] leading-none tabular-nums ${
+                    <span className={`shrink-0 text-[11px] font-bold leading-none tabular-nums ${
                       rank.tied > 0
-                        ? 'bg-amber-400/25 text-amber-700 dark:text-amber-300 ring-1 ring-amber-500/60'
-                        : 'bg-primary/10 text-primary dark:bg-accent/20 dark:text-accent'
+                        ? 'text-amber-600 dark:text-amber-400'
+                        : 'text-gray-500 dark:text-gray-400'
                     }`}>
-                      {rank.rank}位{rank.tied > 0 ? 'タイ' : ''}
-                      <span className="font-normal opacity-60">{` / ${rank.total}`}</span>
+                      {`（${rank.rank}位${rank.tied > 0 ? 'タイ' : ''}`}
+                      <span className="font-normal text-[10px] opacity-75">{` / ${rank.total}人`}</span>
+                      {'）'}
                     </span>
                   )}
                 </span>
