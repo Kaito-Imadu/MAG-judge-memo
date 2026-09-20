@@ -199,11 +199,11 @@ export default function ScoreInputBar({ value, eJudgeCount, apparatus, rank, onC
             { kind: 'final' },
             (typeof normalized.finalManual === 'number' || finalDisplay !== undefined)
               ? (
-                <span className="flex items-baseline gap-1">
+                <>
+                  {/* 決定点はマスの中央に置き、順位は右下に絶対配置で逃がす */}
                   <span className={`text-lg font-mono font-bold leading-tight ${typeof normalized.finalManual === 'number' ? 'text-accent' : 'text-primary dark:text-accent'}`}>{formatScore(finalDisplay, FINAL_SCORE_DECIMALS)}</span>
-                  {/* 暫定順位。同点の相手がいるときは色を変えて知らせる */}
                   {rank && (
-                    <span className={`shrink-0 text-[11px] font-bold leading-none tabular-nums ${
+                    <span className={`absolute bottom-0.5 right-1.5 text-[11px] font-bold leading-none tabular-nums pointer-events-none ${
                       rank.tied > 0
                         ? 'text-amber-600 dark:text-amber-400'
                         : 'text-gray-500 dark:text-gray-400'
@@ -213,11 +213,11 @@ export default function ScoreInputBar({ value, eJudgeCount, apparatus, rank, onC
                       {'）'}
                     </span>
                   )}
-                </span>
+                </>
               )
               : <span className={placeholderClass}>―</span>,
             // 同点のときはセルごと色を変えて、ひと目で気づけるようにする
-            `flex-1 ${rank && rank.tied > 0 ? 'bg-amber-400/10' : ''}`,
+            `relative flex-1 ${rank && rank.tied > 0 ? 'bg-amber-400/10' : ''}`,
           )}
         </div>
       </div>
