@@ -203,13 +203,13 @@ export default function ScoreInputBar({ value, eJudgeCount, apparatus, rank, onC
                   {/* 決定点はマスの中央に置き、順位は右下に絶対配置で逃がす */}
                   <span className={`text-lg font-mono font-bold leading-tight ${typeof normalized.finalManual === 'number' ? 'text-accent' : 'text-primary dark:text-accent'}`}>{formatScore(finalDisplay, FINAL_SCORE_DECIMALS)}</span>
                   {rank && (
-                    <span className={`absolute bottom-0.5 right-1.5 text-[11px] font-bold leading-none tabular-nums pointer-events-none ${
+                    <span className={`absolute bottom-0.5 right-1.5 text-[13px] font-bold leading-none tabular-nums pointer-events-none ${
                       rank.tied > 0
                         ? 'text-amber-600 dark:text-amber-400'
-                        : 'text-gray-500 dark:text-gray-400'
+                        : 'text-gray-600 dark:text-gray-300'
                     }`}>
                       {`（${rank.rank}位${rank.tied > 0 ? 'タイ' : ''}`}
-                      <span className="font-normal text-[10px] opacity-75">{` / ${rank.total}人`}</span>
+                      <span className="font-normal text-[12px] opacity-75">{` / ${rank.total}人`}</span>
                       {'）'}
                     </span>
                   )}
