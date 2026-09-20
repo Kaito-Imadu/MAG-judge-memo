@@ -199,11 +199,13 @@ export default function ScoreInputBar({ value, eJudgeCount, apparatus, rank, onC
             { kind: 'final' },
             (typeof normalized.finalManual === 'number' || finalDisplay !== undefined)
               ? (
-                <>
-                  {/* 決定点はマスの中央に置き、順位は同じ高さの右側に絶対配置で逃がす */}
+                // 決定点はマスの中央に置き、順位は決定点テキストの下端に揃えて右へ逃がす
+                // （ラベル込みのセル全体基準だと決定点の実際の下端とズレるため、
+                //  決定点自体を基準にした相対配置にする）
+                <span className="relative inline-block">
                   <span className={`text-lg font-mono font-bold leading-tight ${typeof normalized.finalManual === 'number' ? 'text-accent' : 'text-primary dark:text-accent'}`}>{formatScore(finalDisplay, FINAL_SCORE_DECIMALS)}</span>
                   {rank && (
-                    <span className={`absolute top-1/2 -translate-y-1/2 right-1.5 text-[13px] font-bold leading-none tabular-nums pointer-events-none ${
+                    <span className={`absolute bottom-0 left-full ml-1 text-[13px] font-bold leading-none tabular-nums whitespace-nowrap pointer-events-none ${
                       rank.tied > 0
                         ? 'text-amber-600 dark:text-amber-400'
                         : 'text-gray-600 dark:text-gray-300'
@@ -213,10 +215,10 @@ export default function ScoreInputBar({ value, eJudgeCount, apparatus, rank, onC
                       {'）'}
                     </span>
                   )}
-                </>
+                </span>
               )
               : <span className={placeholderClass}>―</span>,
-            'relative flex-1',
+            'flex-1',
           )}
         </div>
       </div>
