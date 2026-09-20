@@ -216,8 +216,7 @@ export default function ScoreInputBar({ value, eJudgeCount, apparatus, rank, onC
                 </>
               )
               : <span className={placeholderClass}>―</span>,
-            // 同点のときはセルごと色を変えて、ひと目で気づけるようにする
-            `relative flex-1 ${rank && rank.tied > 0 ? 'bg-amber-400/10' : ''}`,
+            'relative flex-1',
           )}
         </div>
       </div>
