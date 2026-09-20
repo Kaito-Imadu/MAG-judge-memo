@@ -12,11 +12,13 @@ import {
   shareOrDownloadMultiple,
 } from '../utils/exportSheet';
 import { useSessionScores, rankBy } from '../hooks/useSessionScores';
+import { useThemeColor } from '../hooks/useThemeColor';
 import RankingModal from '../components/RankingModal';
 import { formatScore, FINAL_SCORE_DECIMALS } from '../utils/scoreCalc';
 
 export default function TrialPage() {
   const { sessionId } = useParams<{ sessionId: string }>();
+  useThemeColor('brand');
   const navigate = useNavigate();
   const [session, setSession] = useState<Session | null>(null);
   const [selectedAthlete, setSelectedAthlete] = useState<string | null>(null);

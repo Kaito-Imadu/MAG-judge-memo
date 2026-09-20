@@ -6,9 +6,11 @@ import type { Apparatus } from '../types';
 import { APPARATUS_LIST } from '../constants/apparatus';
 import SettingsModal from '../components/SettingsModal';
 import { version } from '../../package.json';
+import { useThemeColor } from '../hooks/useThemeColor';
 
 export default function EntryPage() {
   const navigate = useNavigate();
+  useThemeColor('brand');
   const [sessions, setSessions] = useState<Session[]>([]);
   const [showModal, setShowModal] = useState<'trial' | 'competition' | 'individual' | null>(null);
   const [showSettings, setShowSettings] = useState(false);

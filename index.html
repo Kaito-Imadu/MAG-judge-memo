@@ -4,9 +4,16 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/MAG-judge-memo/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <!-- ステータスバーの背景色。表示中の画面に合わせて useThemeColor が書き換える -->
     <meta name="theme-color" content="#1B4F72" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <!--
+      iOS 26 以降、black-translucent + viewport-fit=cover でステータスバー下にページを
+      敷くと、システムがそのインセットを Liquid Glass のぼかしで埋め、帯がツールバーの
+      上端まで滲む（CSS からは無効化できない）。不透明ステータスバー（default）に戻し、
+      WebView をその下に配置することで滲みそのものを発生させない。
+    -->
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <meta name="apple-mobile-web-app-title" content="MAG Memo" />
     <link rel="apple-touch-icon" href="/MAG-judge-memo/icon-192x192.png" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />

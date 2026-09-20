@@ -11,6 +11,7 @@ import { loadJudgeSettings, updateJudgeSettings } from '../utils/settings';
 import ScoreInputBar from './ScoreInputBar';
 import { emptyScores, hasAnyScore } from '../utils/scoreCalc';
 import { exportCurrentSheetBlob, shareOrDownload } from '../utils/exportSheet';
+import { useThemeColor } from '../hooks/useThemeColor';
 
 interface Point { x: number; y: number }
 interface Stroke { points: Point[]; color: string; width: number }
@@ -282,6 +283,9 @@ export default function JudgeSheet({
   sessionName,
   rotationId,
 }: Props) {
+  // ステータスバー背景をツールバー色に合わせる（iOS ホーム画面 Web App）
+  useThemeColor('toolbar');
+
   // 保存時に rotationId を保持（最新値を ref で参照）
   const rotationIdRef = useRef(rotationId);
   useEffect(() => { rotationIdRef.current = rotationId; }, [rotationId]);
