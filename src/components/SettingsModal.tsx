@@ -88,6 +88,27 @@ export default function SettingsModal({ onClose }: Props) {
             />
           </label>
 
+          <label className="block">
+            <div className="flex items-center justify-between mb-2">
+              <div>
+                <div className="text-sm font-bold text-gray-700 dark:text-gray-200">上端の余白</div>
+                <div className="text-xs text-gray-500 mt-1">
+                  iPadのステータスバー下に出るモヤ（ぼかし）にツールバーが隠れる場合、大きくして避けます。
+                </div>
+              </div>
+              <span className="text-sm font-mono text-gray-500 shrink-0 ml-3">{settings.topInsetExtra}px</span>
+            </div>
+            <input
+              type="range"
+              min="0"
+              max="64"
+              step="4"
+              value={settings.topInsetExtra}
+              onChange={e => update({ topInsetExtra: parseInt(e.target.value, 10) })}
+              className="w-full accent-accent"
+            />
+          </label>
+
           <div>
             <div className="flex items-center justify-between mb-2">
               <div>

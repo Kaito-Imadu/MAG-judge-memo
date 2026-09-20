@@ -1405,7 +1405,7 @@ export default function JudgeSheet({
       {/* onPointerDown 保険: Canvas に詰まったポインターキャプチャをツールバータップ時に強制解放
           (Apple Pencil 切断で drawing 状態が残ったまま toolbar が無反応化する事象への対策) */}
       <div className="flex items-center gap-2 px-2 py-2 bg-gray-100 dark:bg-gray-800 shrink-0 whitespace-nowrap overflow-x-auto relative z-10"
-           style={{ touchAction: 'manipulation', isolation: 'isolate', paddingTop: 'max(env(safe-area-inset-top), 0.5rem)' }}
+           style={{ touchAction: 'manipulation', isolation: 'isolate', paddingTop: 'max(var(--app-top-inset), 0.5rem)' }}
            onPointerDownCapture={() => {
              if (drawing.current || activePointerId.current !== null) {
                logPtr({ ev: 'toolbar-tap-recover', d: drawing.current, a: activePointerId.current });

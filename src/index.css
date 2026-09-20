@@ -10,6 +10,17 @@
   --font-sans: "Noto Sans JP", system-ui, sans-serif;
 }
 
+:root {
+  /*
+   * iOS 26 以降、ホーム画面 Web App のステータスバー下には Liquid Glass の
+   * ぼかし帯が描かれ、safe-area-inset の少し下まで滲む。CSS から無効化できないので、
+   * その帯の下までアプリ上端を押し下げて、帯の中に単色の背景だけを置く。
+   * --app-top-extra は設定（上端の余白）から書き換わる。
+   */
+  --app-top-extra: 24px;
+  --app-top-inset: calc(env(safe-area-inset-top, 0px) + var(--app-top-extra));
+}
+
 html, body, #root {
   margin: 0;
   padding: 0;

@@ -247,7 +247,7 @@ export default function TrialPage() {
     <div className="h-full flex flex-col overflow-hidden bg-bg-light dark:bg-bg-dark">
       <header
         className="bg-primary text-white px-4 pb-2.5 flex items-center gap-3 shrink-0"
-        style={{ paddingTop: 'max(env(safe-area-inset-top), 0.625rem)' }}
+        style={{ paddingTop: 'max(var(--app-top-inset), 0.625rem)' }}
       >
         <button onClick={() => navigate('/')}
           className="text-white/70 hover:text-white text-sm min-h-[44px] px-2">戻る</button>
