@@ -210,7 +210,7 @@ export default function ScoreInputBar({ value, eJudgeCount, apparatus, rank, onC
                         ? 'text-amber-600 dark:text-amber-400'
                         : 'text-gray-600 dark:text-gray-300'
                     }`}>
-                      {`（${rank.rank}位${rank.tied > 0 ? 'タイ' : ''}`}
+                      {`（${rank.rank}位${rank.tied > 0 ? `タイ${rank.tied + 1}人` : ''}`}
                       <span className="font-normal text-[12px] opacity-75">{` / ${rank.total}人`}</span>
                       {'）'}
                     </span>
