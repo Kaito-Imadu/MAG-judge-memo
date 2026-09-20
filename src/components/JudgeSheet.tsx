@@ -1,4 +1,4 @@
-import { useRef, useState, useCallback, useEffect, useLayoutEffect } from 'react';
+import { useRef, useState, useCallback, useEffect, useLayoutEffect, useMemo } from 'react';
 import type { ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
@@ -9,7 +9,8 @@ import { db } from '../db/database';
 import type { StrokeData } from '../db/database';
 import { loadJudgeSettings, updateJudgeSettings } from '../utils/settings';
 import ScoreInputBar from './ScoreInputBar';
-import { emptyScores, hasAnyScore } from '../utils/scoreCalc';
+import { calcFinal, emptyScores, hasAnyScore } from '../utils/scoreCalc';
+import { useSessionScores, rankAmongFinals } from '../hooks/useSessionScores';
 import { exportCurrentSheetBlob, shareOrDownload } from '../utils/exportSheet';
 import { useThemeColor } from '../hooks/useThemeColor';
 
@@ -1392,6 +1393,23 @@ export default function JudgeSheet({
 
   void tick;
 
+  // ===== 決定点の暫定順位 =====
+  // 同一セッション・同一種目の他レコードと比べた現時点の順位。
+  // 自分の決定点はローカル state から計算するので、保存のデバウンスを待たずに更新される。
+  const sessionScores = useSessionScores(sessionId);
+  const liveFinal = calcFinal(digitalScores, apparatus);
+  const liveRank = useMemo(() => {
+    if (typeof liveFinal !== 'number' || !sessionScores) return null;
+    const others = sessionScores.scored
+      .filter(s => s.record.id !== recordId
+        && s.record.apparatus === apparatus
+        && typeof s.final === 'number')
+      .map(s => s.final!);
+    // 比較相手がいないうちは出さない
+    if (others.length === 0) return null;
+    return rankAmongFinals(others, liveFinal);
+  }, [sessionScores, liveFinal, recordId, apparatus]);
+
   const handleScoreChange = (next: DigitalScores) => {
     setDigitalScores(next);
     digitalScoresRef.current = next;
@@ -1676,6 +1694,7 @@ export default function JudgeSheet({
         value={digitalScores}
         eJudgeCount={eJudgeCount}
         apparatus={apparatus}
+        rank={liveRank}
         onChange={handleScoreChange}
       />
     </div>

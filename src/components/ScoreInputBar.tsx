@@ -2,11 +2,14 @@ import { useState } from 'react';
 import type { DigitalScores, Apparatus } from '../types';
 import { calcEFinal, calcFinal, formatScore, formatNatural, formatBonus, eFinalDecimals, FINAL_SCORE_DECIMALS } from '../utils/scoreCalc';
 import ScoreNumpad from './ScoreNumpad';
+import type { LiveRank } from '../hooks/useSessionScores';
 
 interface Props {
   value: DigitalScores;
   eJudgeCount: number;
   apparatus?: Apparatus;
+  // 同一セッション・同一種目での決定点の暫定順位。null なら表示しない
+  rank?: LiveRank | null;
   onChange: (next: DigitalScores) => void;
 }
 
@@ -16,7 +19,7 @@ interface Editing { kind: CellKind; index?: number; }
 // 上段: E1..EN
 // 下段: D / E決定 / ND / 加点 / 決定点
 // セルタップ → ScoreNumpad ポップアップ。E決定/決定点は自動計算（手動上書き可）。
-export default function ScoreInputBar({ value, eJudgeCount, apparatus, onChange }: Props) {
+export default function ScoreInputBar({ value, eJudgeCount, apparatus, rank, onChange }: Props) {
   const [editing, setEditing] = useState<Editing | null>(null);
 
   // あん馬は加点 +0.1 を扱わない
@@ -195,9 +198,25 @@ export default function ScoreInputBar({ value, eJudgeCount, apparatus, onChange 
           {renderInputCell(
             { kind: 'final' },
             (typeof normalized.finalManual === 'number' || finalDisplay !== undefined)
-              ? <span className={`text-lg font-mono font-bold leading-tight ${typeof normalized.finalManual === 'number' ? 'text-accent' : 'text-primary dark:text-accent'}`}>{formatScore(finalDisplay, FINAL_SCORE_DECIMALS)}</span>
+              ? (
+                <span className="flex items-center gap-2">
+                  <span className={`text-lg font-mono font-bold leading-tight ${typeof normalized.finalManual === 'number' ? 'text-accent' : 'text-primary dark:text-accent'}`}>{formatScore(finalDisplay, FINAL_SCORE_DECIMALS)}</span>
+                  {/* 暫定順位。同点の相手がいるときは色を変えて知らせる */}
+                  {rank && (
+                    <span className={`shrink-0 px-1.5 py-0.5 rounded font-bold text-[11px] leading-none tabular-nums ${
+                      rank.tied > 0
+                        ? 'bg-amber-400/25 text-amber-700 dark:text-amber-300 ring-1 ring-amber-500/60'
+                        : 'bg-primary/10 text-primary dark:bg-accent/20 dark:text-accent'
+                    }`}>
+                      {rank.rank}位{rank.tied > 0 ? 'タイ' : ''}
+                      <span className="font-normal opacity-60">{` / ${rank.total}`}</span>
+                    </span>
+                  )}
+                </span>
+              )
               : <span className={placeholderClass}>―</span>,
-            'flex-1',
+            // 同点のときはセルごと色を変えて、ひと目で気づけるようにする
+            `flex-1 ${rank && rank.tied > 0 ? 'bg-amber-400/10' : ''}`,
           )}
         </div>
       </div>

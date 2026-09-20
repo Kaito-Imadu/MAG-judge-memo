@@ -166,3 +166,21 @@ export function rankBy<T>(
   });
   return [...withScore, ...withoutScore];
 }
+
+// 入力中の決定点の暫定順位。
+// DB に入っている他レコードの決定点と突き合わせるだけなので、保存のデバウンスを待たずに出せる。
+export interface LiveRank {
+  rank: number;   // 同点は同順位（rankBy と同じ規則）
+  total: number;  // 決定点が入っている件数（自分を含む）
+  tied: number;   // 自分と同点の他レコード数
+}
+
+export function rankAmongFinals(otherFinals: number[], mine: number): LiveRank {
+  let higher = 0;
+  let tied = 0;
+  for (const v of otherFinals) {
+    if (v > mine) higher++;
+    else if (v === mine) tied++;
+  }
+  return { rank: higher + 1, total: otherFinals.length + 1, tied };
+}
