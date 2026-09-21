@@ -187,10 +187,44 @@ export default function TrialJudgePage() {
     navigate(`/trial/${sessionId}/judge/${encodeURIComponent(name)}/${a}`, { replace: true });
   };
 
+  // 種目はそのままに、登録順で前後の選手へ移動する。
+  // 名前変更などで一覧に無い選手を開いている場合は -1 になり、前後とも無効。
+  const athleteIndex = session.athletes.indexOf(athleteName);
+  const athleteCount = session.athletes.length;
+  const canGoPrevAthlete = athleteIndex > 0;
+  const canGoNextAthlete = athleteIndex >= 0 && athleteIndex < athleteCount - 1;
+  const goPrevAthlete = () => {
+    if (canGoPrevAthlete) jumpTo(session.athletes[athleteIndex - 1], currentApparatus);
+  };
+  const goNextAthlete = () => {
+    if (canGoNextAthlete) jumpTo(session.athletes[athleteIndex + 1], currentApparatus);
+  };
+  const openListPanel = () => { setListApparatus(currentApparatus); setListQuery(''); setShowListPanel(true); };
+
   const toolbarExtra = (
     <>
       <div className="w-px h-4 bg-gray-300" />
-      <button onClick={() => { setListApparatus(currentApparatus); setListQuery(''); setShowListPanel(true); }}
+      {/* 選手送り（現在の種目のまま移動） */}
+      <button onClick={goPrevAthlete} disabled={!canGoPrevAthlete}
+        title="前の選手"
+        aria-label="前の選手"
+        className="px-3 py-1 rounded-lg text-base font-bold bg-white dark:bg-gray-700 text-gray-600 dark:text-gray-300 disabled:opacity-30 min-h-[44px] min-w-[44px] hover:bg-gray-200 dark:hover:bg-gray-600 active:bg-gray-300">
+        ◀
+      </button>
+      <button onClick={openListPanel}
+        title="選手一覧を開く"
+        className="text-xs text-gray-600 dark:text-gray-300 font-mono min-w-[44px] text-center
+                   hover:bg-gray-200 dark:hover:bg-gray-600 rounded px-1 py-0.5 min-h-[28px]">
+        {athleteIndex >= 0 ? athleteIndex + 1 : '-'} / {athleteCount}
+      </button>
+      <button onClick={goNextAthlete} disabled={!canGoNextAthlete}
+        title="次の選手"
+        aria-label="次の選手"
+        className="px-3 py-1 rounded-lg text-base font-bold bg-white dark:bg-gray-700 text-gray-600 dark:text-gray-300 disabled:opacity-30 min-h-[44px] min-w-[44px] hover:bg-gray-200 dark:hover:bg-gray-600 active:bg-gray-300">
+        ▶
+      </button>
+      <div className="w-px h-4 bg-gray-300" />
+      <button onClick={openListPanel}
         title="一覧を表示"
         className="flex items-center gap-1 px-2 py-1.5 rounded-lg text-xs font-bold min-h-[44px]
                    bg-white dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600">
