@@ -439,10 +439,10 @@ export default function StatsModal({
 
   // 単体モーダル
   return (
-    <div className="fixed inset-0 z-[90] bg-black/40 flex items-center justify-center p-4" onClick={onClose}>
+    <div className="fixed inset-0 z-[90] bg-black/40 flex items-center justify-center overlay-inset" onClick={onClose}>
       <div
         onClick={(e) => e.stopPropagation()}
-        className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-5xl max-h-[90vh] flex flex-col overflow-hidden"
+        className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-5xl max-h-full flex flex-col overflow-hidden"
       >
         <div className="px-5 py-3 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between shrink-0">
           <h3 className="font-bold text-gray-700 dark:text-gray-300 flex items-center gap-2">

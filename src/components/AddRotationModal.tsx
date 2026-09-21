@@ -82,7 +82,7 @@ export default function AddRotationModal({ session, startAfterPage, onClose, onC
 
   return (
     <div
-      className="fixed inset-0 z-[100] bg-black/50 flex items-center justify-center p-4"
+      className="fixed inset-0 z-[100] bg-black/50 flex items-center justify-center overlay-inset"
       onClick={onClose}
     >
       <div

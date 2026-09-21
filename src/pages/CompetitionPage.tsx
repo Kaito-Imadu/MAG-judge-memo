@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { flushSync } from 'react-dom';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { db } from '../db/database';
@@ -181,6 +181,7 @@ export default function CompetitionPage() {
   const [editingRotation, setEditingRotation] = useState<Rotation | null>(null);
   const [pageListSort, setPageListSort] = useState<'order' | 'rank'>('order');
   const [rankKey, setRankKey] = useState<'final' | 'd' | 'eFinal' | 'nd'>('final');
+  const [pageListQuery, setPageListQuery] = useState('');
   const [digitalNameDraft, setDigitalNameDraft] = useState('');
   const [isDeleting, setIsDeleting] = useState(false);
   const digitalNameSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -221,6 +222,25 @@ export default function CompetitionPage() {
     return () => { cancelled = true; };
   }, [sessionId]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // 一覧の検索用: ページ番号 → 選手名。
+  // 保存済みレコードの digitalAthleteName を優先し、未入力ならローテ登録時の名前を使う。
+  const pageAthleteName = useCallback((page: number): string => {
+    const rec = pageRecords.find(r => r.pageNumber === page);
+    const saved = (rec?.digitalAthleteName ?? '').trim();
+    if (saved) return saved;
+    const rot = rec?.rotationId
+      ? rotations.find(r => r.id === rec.rotationId)
+      : rotations.find(r => page >= r.startPage && page < r.startPage + r.athletes.length);
+    if (!rot) return '';
+    return (rot.athletes[page - rot.startPage] ?? '').trim();
+  }, [pageRecords, rotations]);
+
+  const pageListQueryNorm = pageListQuery.trim().toLowerCase();
+  const matchesPageQuery = useCallback((page: number): boolean => {
+    if (!pageListQueryNorm) return true;
+    return pageAthleteName(page).toLowerCase().includes(pageListQueryNorm);
+  }, [pageAthleteName, pageListQueryNorm]);
+
   const openPageList = async () => {
     if (!sessionId) return;
     const recs = await db.memoRecords.where('sessionId').equals(sessionId).toArray();
@@ -231,6 +251,7 @@ export default function CompetitionPage() {
     setRotations(rots);
     const maxPage = recs.length > 0 ? Math.max(...recs.map(r => r.pageNumber)) : 0;
     setTotalPages(Math.max(totalPages, maxPage));
+    setPageListQuery('');
     setShowPageList(true);
   };
 
@@ -555,12 +576,12 @@ export default function CompetitionPage() {
 
       {/* サムネイル付きページ一覧パネル */}
       {showPageList && (
-        <div className="absolute inset-0 z-50 flex">
+        <div className="absolute inset-0 z-50 flex overlay-inset">
           {/* 背景タップで閉じる */}
           <div className="absolute inset-0 bg-black/40" onClick={() => setShowPageList(false)} />
 
           {/* 中央パネル */}
-          <div className="relative m-auto w-[95vw] max-w-[1200px] max-h-[90vh] bg-white dark:bg-gray-800
+          <div className="relative m-auto w-[95vw] max-w-[1200px] max-h-full bg-white dark:bg-gray-800
                           rounded-xl shadow-2xl flex flex-col overflow-hidden">
             <div className="px-5 py-3 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between shrink-0 flex-wrap gap-2">
               <div className="flex items-center gap-3">
@@ -605,6 +626,25 @@ export default function CompetitionPage() {
                 )}
               </div>
               <div className="flex items-center gap-2">
+                <div className="relative">
+                  <input
+                    value={pageListQuery}
+                    onChange={e => setPageListQuery(e.target.value)}
+                    placeholder="選手名で検索"
+                    className="w-44 pl-2.5 pr-7 py-1.5 min-h-[36px] rounded-lg text-sm
+                               bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-200
+                               border border-gray-300 dark:border-gray-600
+                               focus:outline-none focus:border-accent"
+                  />
+                  {pageListQuery && (
+                    <button onClick={() => setPageListQuery('')}
+                      className="absolute right-1 top-1/2 -translate-y-1/2 w-6 h-6 rounded
+                                 text-gray-400 hover:text-gray-600 text-sm leading-none"
+                      aria-label="検索をクリア">
+                      ×
+                    </button>
+                  )}
+                </div>
                 <button onClick={addPage}
                   className="px-3 py-1.5 min-h-[36px] rounded-lg bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-200 font-bold text-sm
                              border border-gray-300 dark:border-gray-600 whitespace-nowrap">
@@ -650,7 +690,11 @@ export default function CompetitionPage() {
                   if (rankKey === 'nd') return typeof e.nd === 'number' ? -e.nd : undefined;
                   return undefined;
                 };
-                const ranked = rankBy(entries, getScore);
+                // 順位は全ページで付けてから、検索に一致するものだけ表示する
+                const ranked = rankBy(entries, getScore).filter(r => matchesPageQuery(r.item.page));
+                if (ranked.length === 0) {
+                  return <div className="text-center text-sm text-gray-400 italic py-8">該当する選手がいません</div>;
+                }
                 return (
                   <div className="grid gap-3"
                     style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${THUMB_W + 12}px, 1fr))` }}>
@@ -717,8 +761,17 @@ export default function CompetitionPage() {
                 const pageRangeLabel = (pages: number[]): string =>
                   pages.length === 1 ? `Page ${pages[0]}` : `Page ${pages[0]}-${pages[pages.length - 1]}`;
 
+                // 検索時は一致するページだけを残し、残らないローテは丸ごと畳む。
+                // 見出しの人数・ページ範囲はローテ本来の情報なので絞り込み前の g.pages を使う。
+                const visibleGroups = groups
+                  .map(g => ({ ...g, visiblePages: g.pages.filter(matchesPageQuery) }))
+                  .filter(g => g.visiblePages.length > 0);
+                if (visibleGroups.length === 0) {
+                  return <div className="text-center text-sm text-gray-400 italic py-8">該当する選手がいません</div>;
+                }
+
                 // 上が最新（直近に追加されたローテーション）になるよう逆順表示
-                return [...groups].reverse().map((g, gi) => (
+                return [...visibleGroups].reverse().map((g, gi) => (
                   <div key={`${g.rotation?.id ?? 'solo'}-${gi}`}>
                     <div className="flex items-center gap-2 mb-2 px-1">
                       {g.rotation?.teamName ? (
@@ -750,7 +803,7 @@ export default function CompetitionPage() {
                     </div>
                     <div className="grid gap-3"
                       style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${THUMB_W + 12}px, 1fr))` }}>
-                      {g.pages.map(page => {
+                      {g.visiblePages.map(page => {
                         const rec = pageRecords.find(r => r.pageNumber === page);
                         return (
                           <ThumbCard

@@ -21,6 +21,16 @@
   --app-top-inset: calc(env(safe-area-inset-top, 0px) + var(--app-top-extra));
 }
 
+/*
+ * 画面全体を覆うオーバーレイの内側余白。
+ * パネル上端が iOS のぼかし帯に潜り込まないよう --app-top-inset ぶん空ける。
+ * 併用する側は max-h-[Nvh] ではなく max-h-full にして、この余白の内側に収める。
+ */
+.overlay-inset {
+  padding: 1rem;
+  padding-top: max(var(--app-top-inset), 1rem);
+}
+
 html, body, #root {
   margin: 0;
   padding: 0;

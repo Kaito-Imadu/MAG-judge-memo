@@ -1,7 +1,7 @@
 {
   "name": "tenkai",
   "private": true,
-  "version": "2.24.8",
+  "version": "2.25.0",
   "type": "module",
   "scripts": {
     "dev": "vite",

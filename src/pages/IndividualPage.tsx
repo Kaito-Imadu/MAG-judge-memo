@@ -348,10 +348,10 @@ export default function IndividualPage() {
 
       {/* サムネイル付きページ一覧パネル */}
       {showPageList && (
-        <div className="absolute inset-0 z-50 flex">
+        <div className="absolute inset-0 z-50 flex overlay-inset">
           <div className="absolute inset-0 bg-black/40" onClick={() => setShowPageList(false)} />
 
-          <div className="relative m-auto w-[90vw] max-w-[900px] max-h-[85vh] bg-white dark:bg-gray-800
+          <div className="relative m-auto w-[90vw] max-w-[900px] max-h-full bg-white dark:bg-gray-800
                           rounded-xl shadow-2xl flex flex-col overflow-hidden">
             <div className="px-5 py-3 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between shrink-0">
               <h3 className="font-bold text-gray-700 dark:text-gray-300">

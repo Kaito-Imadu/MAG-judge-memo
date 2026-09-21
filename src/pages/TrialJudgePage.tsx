@@ -138,6 +138,7 @@ export default function TrialJudgePage() {
   const [showListPanel, setShowListPanel] = useState(false);
   const [showRanking, setShowRanking] = useState(false);
   const [listApparatus, setListApparatus] = useState<Apparatus>('FX');
+  const [listQuery, setListQuery] = useState('');
   const [vaultImg, setVaultImg] = useState<HTMLImageElement | null>(null);
   const data = useSessionScores(sessionId);
 
@@ -166,6 +167,13 @@ export default function TrialJudgePage() {
     return rankBy(rows, r => r.score);
   }, [data, session, listApparatus]);
 
+  // 選手名での絞り込み。順位は全体で付けたものをそのまま残す
+  const visibleListRows = useMemo(() => {
+    const q = listQuery.trim().toLowerCase();
+    if (!q) return listRows;
+    return listRows.filter(r => r.item.name.toLowerCase().includes(q));
+  }, [listRows, listQuery]);
+
   if (!session || !sessionId) return null;
 
   const recordId = `trial:${sessionId}:${athleteName}:${currentApparatus}`;
@@ -182,7 +190,7 @@ export default function TrialJudgePage() {
   const toolbarExtra = (
     <>
       <div className="w-px h-4 bg-gray-300" />
-      <button onClick={() => { setListApparatus(currentApparatus); setShowListPanel(true); }}
+      <button onClick={() => { setListApparatus(currentApparatus); setListQuery(''); setShowListPanel(true); }}
         title="一覧を表示"
         className="flex items-center gap-1 px-2 py-1.5 rounded-lg text-xs font-bold min-h-[44px]
                    bg-white dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600">
@@ -219,10 +227,10 @@ export default function TrialJudgePage() {
       />
 
       {showListPanel && (
-        <div className="fixed inset-0 z-[60] bg-black/40 flex items-center justify-center p-4"
+        <div className="fixed inset-0 z-[60] bg-black/40 flex items-center justify-center overlay-inset"
              onClick={() => setShowListPanel(false)}>
           <div onClick={e => e.stopPropagation()}
-               className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-6xl max-h-[90vh] flex flex-col overflow-hidden">
+               className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-6xl max-h-full flex flex-col overflow-hidden">
             <div className="px-5 py-3 border-b border-gray-200 dark:border-gray-700 flex items-center gap-3 shrink-0 flex-wrap">
               <h3 className="font-bold text-primary dark:text-accent text-base shrink-0">選手一覧</h3>
               <div className="flex gap-1 flex-wrap">
@@ -237,6 +245,21 @@ export default function TrialJudgePage() {
                   </button>
                 ))}
               </div>
+              <input
+                value={listQuery}
+                onChange={e => setListQuery(e.target.value)}
+                placeholder="選手名で検索"
+                className="w-40 px-2.5 py-1.5 min-h-[36px] rounded-lg text-sm
+                           bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-200
+                           border border-gray-300 dark:border-gray-600
+                           focus:outline-none focus:border-accent"
+              />
+              {listQuery && (
+                <button onClick={() => setListQuery('')}
+                  className="px-2 py-1.5 min-h-[36px] text-xs text-gray-500 hover:text-gray-700 shrink-0">
+                  クリア
+                </button>
+              )}
               <button onClick={() => { setShowListPanel(false); setShowRanking(true); }}
                 className="ml-auto flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold min-h-[36px]
                            bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600
@@ -249,15 +272,19 @@ export default function TrialJudgePage() {
               </button>
             </div>
             <div className="px-5 py-1.5 text-xs text-gray-500 dark:text-gray-400 shrink-0 border-b border-gray-100 dark:border-gray-700/50">
-              {APPARATUS_MAP[listApparatus].name}（{listApparatus}） / {listRows.length} 名
+              {APPARATUS_MAP[listApparatus].name}（{listApparatus}） / {
+                listQuery.trim() ? `${visibleListRows.length} 名（全 ${listRows.length} 名）` : `${listRows.length} 名`
+              }
             </div>
             <div className="flex-1 overflow-y-auto p-3">
-              {listRows.length === 0 ? (
-                <div className="text-center text-sm text-gray-400 italic py-8">選手が登録されていません</div>
+              {visibleListRows.length === 0 ? (
+                <div className="text-center text-sm text-gray-400 italic py-8">
+                  {listQuery.trim() ? '該当する選手がいません' : '選手が登録されていません'}
+                </div>
               ) : (
                 <div className="grid gap-3"
                   style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${THUMB_W + 12}px, 1fr))` }}>
-                  {listRows.map(r => {
+                  {visibleListRows.map(r => {
                     const isActive = r.item.name === athleteName && listApparatus === currentApparatus;
                     return (
                       <ThumbCard
